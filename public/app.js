@@ -145,7 +145,12 @@ function showScreen(name) {
   });
 
   if (name === 'history') loadHistory();
-  if (name === 'support') loadSupportThread();
+  if (name === 'support') {
+    loadSupportThread();
+    startSupportPoll();
+  } else {
+    stopSupportPoll();
+  }
   if (name === 'deposit') renderDepositNetworks();
   if (name === 'transfer' && profile) {
     document.getElementById('transfer-hint').textContent =
@@ -810,18 +815,53 @@ async function loadHistory() {
 }
 
 // ---------- support ----------
-async function loadSupportThread() {
+let supportPollTimer = null;
+let supportMsgCount = 0;
+
+function stopSupportPoll() {
+  if (supportPollTimer) {
+    clearInterval(supportPollTimer);
+    supportPollTimer = null;
+  }
+}
+
+function startSupportPoll() {
+  stopSupportPoll();
+  supportPollTimer = setInterval(() => {
+    loadSupportThread({ silent: true }).catch(() => {});
+  }, 2500);
+}
+
+async function loadSupportThread({ silent = false } = {}) {
   try {
     const thread = await apiFetch('/support/thread');
     currentThreadId = thread.id;
+    const messages = thread.messages || [];
     const container = document.getElementById('chat-messages');
-    container.innerHTML = thread.messages.map((m) => `
-      <div class="msg ${m.sender === 'user' ? 'msg-user' : 'msg-admin'}">${escapeHtml(m.text)}</div>
-    `).join('');
-    container.scrollTop = container.scrollHeight;
+    const nearBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight < 80;
+
+    // не дёргаем DOM, если ничего не изменилось
+    if (silent && messages.length === supportMsgCount && container.children.length === messages.length) {
+      return;
+    }
+
+    const prevCount = supportMsgCount;
+    supportMsgCount = messages.length;
+    container.innerHTML = messages.length
+      ? messages.map((m) => `
+          <div class="msg ${m.sender === 'user' ? 'msg-user' : 'msg-admin'}">${escapeHtml(m.text)}</div>
+        `).join('')
+      : '<div class="empty">Напишите сообщение — поддержка ответит здесь</div>';
+
+    if (!silent || nearBottom || messages.length > prevCount) {
+      container.scrollTop = container.scrollHeight;
+    }
   } catch (e) {
-    document.getElementById('chat-messages').innerHTML =
-      `<div class="empty">${escapeHtml(e.message)}</div>`;
+    if (!silent) {
+      document.getElementById('chat-messages').innerHTML =
+        `<div class="empty">${escapeHtml(e.message)}</div>`;
+    }
   }
 }
 
@@ -835,7 +875,7 @@ async function sendSupportMessage() {
       method: 'POST',
       body: JSON.stringify({ text }),
     });
-    loadSupportThread();
+    await loadSupportThread();
   } catch (e) {
     tg.showAlert(e.message);
   }
