@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin — BYX</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="admin.css">
+</head>
+<body>
+<div id="login-view" class="login-wrap">
+  <div class="login-card">
+    <div class="brand">BY<span>X</span> Admin</div>
+    <p class="muted">Введите ADMIN_SECRET из переменных окружения</p>
+    <input type="password" id="secret-input" placeholder="ADMIN_SECRET" autocomplete="current-password">
+    <div class="error" id="login-error"></div>
+    <button class="btn-primary" id="login-btn">Войти</button>
+  </div>
+</div>
+
+<div id="app-view" class="app screen-hidden">
+  <aside class="sidebar">
+    <div class="brand">BY<span>X</span></div>
+    <nav>
+      <button class="nav-btn active" data-view="users">Пользователи</button>
+      <button class="nav-btn" data-view="accounts">Заявки на счёт</button>
+      <button class="nav-btn" data-view="kyc">KYC</button>
+      <button class="nav-btn" data-view="support">Поддержка</button>
+    </nav>
+    <button class="btn-ghost" id="logout-btn">Выйти</button>
+  </aside>
+
+  <main class="content">
+    <section id="view-users" class="view">
+      <div class="view-head">
+        <h1>Пользователи</h1>
+        <input type="search" id="users-search" placeholder="Поиск: id, username, ФИО, счёт…">
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Имя / ФИО</th>
+              <th>Telegram</th>
+              <th>Счёт</th>
+              <th>KYC</th>
+              <th>USDT</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="users-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="view-accounts" class="view screen-hidden">
+      <div class="view-head">
+        <h1>Заявки на номер счёта</h1>
+        <button class="btn-secondary" id="refresh-accounts">Обновить</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Имя</th>
+              <th>Telegram</th>
+              <th>Статус</th>
+              <th>Назначить номер</th>
+            </tr>
+          </thead>
+          <tbody id="accounts-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="view-kyc" class="view screen-hidden">
+      <div class="view-head">
+        <h1>KYC на проверке</h1>
+        <button class="btn-secondary" id="refresh-kyc">Обновить</button>
+      </div>
+      <div id="kyc-list" class="kyc-grid"></div>
+    </section>
+
+    <section id="view-support" class="view screen-hidden">
+      <div class="support-layout">
+        <div class="threads-col">
+          <div class="view-head">
+            <h1>Тикеты</h1>
+            <button class="btn-secondary" id="refresh-threads">Обновить</button>
+          </div>
+          <div id="threads-list" class="threads-list"></div>
+        </div>
+        <div class="chat-col">
+          <div id="thread-empty" class="empty-state">Выберите тикет слева</div>
+          <div id="thread-panel" class="screen-hidden">
+            <div class="thread-head">
+              <div>
+                <div class="thread-title" id="thread-title">#—</div>
+                <div class="muted" id="thread-user"></div>
+              </div>
+              <button class="btn-ghost" id="close-thread-btn">Закрыть тикет</button>
+            </div>
+            <div id="thread-messages" class="thread-messages"></div>
+            <div class="reply-row">
+              <textarea id="reply-text" rows="3" placeholder="Ответ пользователю…"></textarea>
+              <button class="btn-primary" id="reply-btn">Отправить</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div id="edit-modal" class="modal screen-hidden">
+  <div class="modal-card wide">
+    <h2>Пользователь <span id="edit-title-id"></span></h2>
+    <input type="hidden" id="edit-id">
+
+    <div class="modal-grid">
+      <div>
+        <label>Номер счёта</label>
+        <input type="text" id="edit-account" class="mono" placeholder="оставьте пустым чтобы сбросить">
+        <label>Баланс USDT</label>
+        <input type="number" id="edit-balance" step="0.01" min="0">
+        <label class="check-row"><input type="checkbox" id="edit-verified"> Верифицирован (approved)</label>
+      </div>
+      <div>
+        <label>Депозитные адреса</label>
+        <div class="addr-form">
+          <select id="addr-asset">
+            <option value="USDT">USDT</option>
+            <option value="BTC">BTC</option>
+          </select>
+          <select id="addr-network">
+            <option value="TRC20">TRC20</option>
+            <option value="ERC20">ERC20</option>
+            <option value="BTC">BTC</option>
+          </select>
+          <input type="text" id="addr-value" class="mono" placeholder="криптоадрес">
+          <button class="btn-secondary" id="addr-save">Сохранить адрес</button>
+        </div>
+        <div id="addr-list" class="addr-list"></div>
+      </div>
+    </div>
+
+    <div class="error" id="edit-error"></div>
+    <div class="modal-actions">
+      <button class="btn-ghost" id="edit-cancel">Отмена</button>
+      <button class="btn-primary" id="edit-save">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<div id="kyc-modal" class="modal screen-hidden">
+  <div class="modal-card wide">
+    <h2>KYC заявка</h2>
+    <div id="kyc-modal-meta" class="muted"></div>
+    <div id="kyc-modal-docs" class="kyc-docs"></div>
+    <label>Причина отклонения (если нужно)</label>
+    <input type="text" id="kyc-reject-reason" placeholder="Нечёткие фото / данные не совпадают">
+    <div class="modal-actions">
+      <button class="btn-ghost" id="kyc-modal-close">Закрыть</button>
+      <button class="btn-secondary" id="kyc-reject-btn">Отклонить</button>
+      <button class="btn-primary" id="kyc-approve-btn">Одобрить</button>
+    </div>
+  </div>
+</div>
+
+<script src="admin.js"></script>
+</body>
+</html>

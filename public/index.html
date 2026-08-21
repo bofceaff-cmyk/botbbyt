@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>BYX</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">BY<span>X</span></div>
+  <div class="topbar-balance">
+    <span class="topbar-label">Баланс</span>
+    <span class="mono" id="header-balance">0.00</span>
+    <span class="usdt-tag">USDT</span>
+  </div>
+</header>
+
+<main>
+  <!-- MARKETS -->
+  <section id="screen-markets" class="screen">
+    <div class="section-head">
+      <h1>Рынки</h1>
+      <span class="pill" id="quotes-updated">USDT</span>
+    </div>
+    <div class="ticker-strip" id="ticker-strip"></div>
+    <div class="panel">
+      <div class="panel-title">Топ монеты</div>
+      <div id="quotes-list" class="quotes-list"><div class="empty">Загрузка…</div></div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">Новости</div>
+      <div id="news-list" class="news-list"><div class="empty">Загрузка…</div></div>
+    </div>
+  </section>
+
+  <!-- WALLET -->
+  <section id="screen-wallet" class="screen screen-hidden">
+    <div class="section-head"><h1>Активы</h1></div>
+
+    <div class="balance-hero">
+      <div class="balance-label">Общий баланс</div>
+      <div class="balance-amount">
+        <span class="mono" id="wallet-balance">0.00</span>
+        <span class="usdt-tag">USDT</span>
+      </div>
+      <div class="balance-sub" id="wallet-fiat">≈ $0.00</div>
+    </div>
+
+    <div class="actions-row three">
+      <button class="action-tile" id="open-deposit">
+        <span class="action-ico">↓</span>
+        <span>Депозит</span>
+      </button>
+      <button class="action-tile" id="open-transfer">
+        <span class="action-ico">⇄</span>
+        <span>Перевод</span>
+      </button>
+      <button class="action-tile" id="open-history">
+        <span class="action-ico">☰</span>
+        <span>История</span>
+      </button>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">Номер счёта</div>
+      <div id="account-block">
+        <div class="account-empty" id="account-empty">
+          <p class="muted">Запросите индивидуальный номер счёта для переводов между пользователями.</p>
+          <button class="btn-primary" id="request-account-btn">Получить номер</button>
+        </div>
+        <div class="account-pending screen-hidden" id="account-pending">
+          <div class="status-chip pending">Заявка на рассмотрении</div>
+          <p class="muted">Администратор скоро закрепит номер.</p>
+        </div>
+        <div class="account-ready screen-hidden" id="account-ready">
+          <div class="account-number mono" id="account-number">—</div>
+          <button class="btn-ghost" id="copy-account-btn">Скопировать</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PROFILE -->
+  <section id="screen-profile" class="screen screen-hidden">
+    <div class="profile-hero">
+      <div class="avatar xl" id="avatar">—</div>
+      <div class="profile-hero-text">
+        <div class="name-row">
+          <span id="display-name">—</span>
+          <span id="verified-badge" class="badge badge-hidden">Verified</span>
+        </div>
+        <div class="muted" id="profile-uid">UID —</div>
+        <div class="kyc-pill" id="kyc-pill">Не верифицирован</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">Личные данные</div>
+      <div class="info-list">
+        <div class="info-row"><span>Ник</span><span id="info-display">—</span></div>
+        <div class="info-row"><span>ФИО</span><span id="info-fullname">—</span></div>
+        <div class="info-row"><span>Email</span><span id="info-email">—</span></div>
+        <div class="info-row"><span>Телефон</span><span id="info-phone">—</span></div>
+        <div class="info-row"><span>Страна</span><span id="info-country">—</span></div>
+        <div class="info-row"><span>Telegram</span><span id="info-tg">—</span></div>
+        <div class="info-row"><span>Счёт</span><span class="mono" id="info-account">—</span></div>
+      </div>
+      <button class="btn-secondary full" id="open-edit-profile">Редактировать профиль</button>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">Верификация личности</div>
+      <p class="muted" id="kyc-summary">Пройдите KYC, чтобы подтвердить аккаунт.</p>
+      <button class="btn-primary full" id="open-kyc">Пройти верификацию</button>
+    </div>
+
+    <button class="btn-ghost full" id="open-support">Поддержка</button>
+  </section>
+
+  <!-- DEPOSIT -->
+  <section id="screen-deposit" class="screen screen-hidden">
+    <button class="back-btn" data-back="wallet">← Назад</button>
+    <div class="section-head"><h1>Депозит</h1></div>
+
+    <div class="panel">
+      <div class="panel-title">Валюта</div>
+      <div class="seg" id="deposit-asset-seg">
+        <button class="seg-btn active" data-asset="USDT">USDT</button>
+        <button class="seg-btn" data-asset="BTC">BTC</button>
+      </div>
+
+      <div class="panel-title" style="margin-top:14px">Сеть</div>
+      <div class="seg wrap" id="deposit-network-seg"></div>
+
+      <div id="deposit-result" class="deposit-result">
+        <div class="empty">Выберите валюту и сеть</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- EDIT PROFILE -->
+  <section id="screen-edit-profile" class="screen screen-hidden">
+    <button class="back-btn" data-back="profile">← Назад</button>
+    <div class="section-head"><h1>Профиль</h1></div>
+    <div class="panel">
+      <label>Никнейм</label>
+      <input type="text" id="edit-display" maxlength="32">
+      <label>ФИО</label>
+      <input type="text" id="edit-fullname" maxlength="80" placeholder="Иванов Иван Иванович">
+      <label>Email</label>
+      <input type="email" id="edit-email" placeholder="name@mail.com">
+      <label>Телефон</label>
+      <input type="tel" id="edit-phone" placeholder="+7…">
+      <label>Страна</label>
+      <input type="text" id="edit-country" placeholder="Россия">
+      <div class="error" id="edit-profile-error"></div>
+      <button class="btn-primary full" id="save-profile-btn">Сохранить</button>
+    </div>
+  </section>
+
+  <!-- KYC -->
+  <section id="screen-kyc" class="screen screen-hidden">
+    <button class="back-btn" data-back="profile">← Назад</button>
+    <div class="section-head"><h1>Верификация</h1></div>
+
+    <div class="kyc-steps">
+      <div class="kyc-step active" data-step="1">1</div>
+      <div class="kyc-line"></div>
+      <div class="kyc-step" data-step="2">2</div>
+      <div class="kyc-line"></div>
+      <div class="kyc-step" data-step="3">3</div>
+    </div>
+
+    <div class="panel" id="kyc-step-1">
+      <div class="panel-title">Личные данные</div>
+      <label>ФИО полностью</label>
+      <input type="text" id="kyc-fullname" placeholder="Как в документе">
+      <label>Страна</label>
+      <input type="text" id="kyc-country" placeholder="Страна проживания">
+      <button class="btn-primary full" id="kyc-next-1">Далее</button>
+    </div>
+
+    <div class="panel screen-hidden" id="kyc-step-2">
+      <div class="panel-title">Документы</div>
+      <p class="muted">Загрузите чёткие фото. Лицо и данные должны быть читаемы.</p>
+
+      <div class="upload-card">
+        <div class="upload-label">Лицевая сторона документа</div>
+        <div class="upload-preview" id="preview-id_front">Нет фото</div>
+        <label class="btn-secondary full upload-btn">
+          Загрузить
+          <input type="file" accept="image/jpeg,image/png,image/webp" data-kyc-type="id_front" hidden>
+        </label>
+      </div>
+
+      <div class="upload-card">
+        <div class="upload-label">Обратная сторона (опционально)</div>
+        <div class="upload-preview" id="preview-id_back">Нет фото</div>
+        <label class="btn-secondary full upload-btn">
+          Загрузить
+          <input type="file" accept="image/jpeg,image/png,image/webp" data-kyc-type="id_back" hidden>
+        </label>
+      </div>
+
+      <div class="upload-card">
+        <div class="upload-label">Селфи с документом</div>
+        <div class="upload-preview" id="preview-selfie">Нет фото</div>
+        <label class="btn-secondary full upload-btn">
+          Загрузить
+          <input type="file" accept="image/jpeg,image/png,image/webp" data-kyc-type="selfie" hidden>
+        </label>
+      </div>
+
+      <div class="error" id="kyc-upload-error"></div>
+      <div class="actions-row">
+        <button class="btn-ghost" id="kyc-back-2">Назад</button>
+        <button class="btn-primary" id="kyc-next-2">Далее</button>
+      </div>
+    </div>
+
+    <div class="panel screen-hidden" id="kyc-step-3">
+      <div class="panel-title">Подтверждение</div>
+      <p class="muted">Проверьте данные и отправьте заявку. Обычно проверка занимает немного времени.</p>
+      <div class="info-list">
+        <div class="info-row"><span>ФИО</span><span id="kyc-review-fio">—</span></div>
+        <div class="info-row"><span>Страна</span><span id="kyc-review-country">—</span></div>
+      </div>
+      <div class="error" id="kyc-submit-error"></div>
+      <div class="actions-row">
+        <button class="btn-ghost" id="kyc-back-3">Назад</button>
+        <button class="btn-primary" id="kyc-submit">Отправить</button>
+      </div>
+    </div>
+
+    <div class="panel screen-hidden" id="kyc-done">
+      <div class="kyc-done-icon">✓</div>
+      <h2 style="margin:0 0 8px;text-align:center">Заявка отправлена</h2>
+      <p class="muted" style="text-align:center">Мы уведомим вас, когда проверка завершится.</p>
+      <button class="btn-primary full" data-back="profile">В профиль</button>
+    </div>
+  </section>
+
+  <!-- TRANSFER -->
+  <section id="screen-transfer" class="screen screen-hidden">
+    <button class="back-btn" data-back="wallet">← Назад</button>
+    <div class="section-head"><h1>Перевод USDT</h1></div>
+    <div class="panel">
+      <label>Номер счёта получателя</label>
+      <input type="text" id="transfer-account" placeholder="например 10002481" class="mono" autocomplete="off">
+      <div class="or-divider">или</div>
+      <label>Username в Telegram</label>
+      <input type="text" id="transfer-username" placeholder="username" autocomplete="off">
+      <label>Сумма (USDT)</label>
+      <input type="number" id="transfer-amount" placeholder="0.00" step="0.01" min="0" inputmode="decimal">
+      <div class="hint" id="transfer-hint">Доступно: 0 USDT</div>
+      <div class="error" id="transfer-error"></div>
+      <button class="btn-primary full" id="transfer-submit">Отправить</button>
+    </div>
+  </section>
+
+  <!-- HISTORY -->
+  <section id="screen-history" class="screen screen-hidden">
+    <button class="back-btn" data-back="wallet">← Назад</button>
+    <div class="section-head"><h1>История</h1></div>
+    <div class="panel" id="history-list"></div>
+  </section>
+
+  <!-- SUPPORT -->
+  <section id="screen-support" class="screen screen-hidden">
+    <button class="back-btn" data-back="profile">← Назад</button>
+    <div class="section-head"><h1>Поддержка</h1></div>
+    <div class="panel chat-card">
+      <div id="chat-messages" class="chat-messages"></div>
+      <div class="chat-input-row">
+        <input type="text" id="chat-input" placeholder="Написать сообщение">
+        <button id="chat-send" class="btn-primary">→</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<nav class="tabbar">
+  <button class="tab active" data-tab="markets"><span class="tab-ico">◈</span><span>Рынки</span></button>
+  <button class="tab" data-tab="wallet"><span class="tab-ico">◇</span><span>Активы</span></button>
+  <button class="tab" data-tab="profile"><span class="tab-ico">◎</span><span>Профиль</span></button>
+</nav>
+
+<script src="app.js"></script>
+</body>
+</html>
