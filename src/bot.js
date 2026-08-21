@@ -53,10 +53,10 @@ function createBot() {
       data: { threadId, sender: 'admin', text },
     });
 
-    // Уведомляем пользователя напрямую в Telegram, что ему пришёл ответ
+    // Только уведомление — текст ответа смотрят в мини-аппе, без дубля
     await bot.telegram.sendMessage(
       thread.user.telegramId.toString(),
-      `Ответ поддержки по тикету #${threadId}:\n\n${text}`
+      'Вы получили ответ от поддержки.\nОткройте приложение → Профиль → Поддержка.'
     ).catch(() => {});
 
     ctx.reply(`Ответ по тикету #${threadId} отправлен`);
