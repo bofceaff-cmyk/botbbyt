@@ -41,6 +41,20 @@ model User {
   depositAddresses  DepositAddress[]
   kycDocuments      KycDocument[]
   financeRequests   FinanceRequest[]
+  assetBalances     AssetBalance[]
+}
+
+model AssetBalance {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  asset     String
+  amount    Decimal  @default(0) @db.Decimal(24, 12)
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, asset])
+  @@index([userId])
 }
 
 model DepositAddress {
@@ -125,11 +139,12 @@ model FinanceRequest {
   userId     Int
   type       String    // withdraw_onchain / withdraw_card / convert / earn
   status     String    @default("pending") // pending / approved / rejected
-  amount     Decimal?  @db.Decimal(18, 6)
+  amount     Decimal?  @db.Decimal(24, 12)
   asset      String?
   network    String?
   toAddress  String?
   toAsset    String?
+  toAmount   Decimal?  @db.Decimal(24, 12)
   meta       String?
   adminNote  String?
   createdAt  DateTime  @default(now())
