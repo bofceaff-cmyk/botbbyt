@@ -55,6 +55,7 @@ app.use('/api', requireTelegramUser);
 app.use('/api/users', require('./routes/users'));
 app.use('/api/transfers', require('./routes/transfers'));
 app.use('/api/support', require('./routes/support'));
+app.use('/api/finance', require('./routes/finance'));
 
 app.use((err, _req, res, _next) => {
   console.error('[api]', err);
