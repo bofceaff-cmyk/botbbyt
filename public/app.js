@@ -306,22 +306,26 @@ document.getElementById('reg-next').addEventListener('click', () => {
   regContactKind = parsed.kind;
   regContactValue = parsed.value;
 
+  const wrap = document.getElementById('reg-extra-wrap');
   const extraLabel = document.getElementById('reg-extra-label');
   const extraInput = document.getElementById('reg-extra');
-  // Если ввели email — телефон не спрашиваем. Если телефон — нужен email.
+  wrap.classList.remove('screen-hidden');
+
+  // Шаг 1: почта → на шаге 2 нужен телефон. Шаг 1: телефон → на шаге 2 нужен email.
   if (parsed.kind === 'email') {
-    extraLabel.classList.add('screen-hidden');
-    extraInput.classList.add('screen-hidden');
-    extraInput.value = '';
+    extraLabel.textContent = 'Телефон';
+    extraInput.type = 'tel';
+    extraInput.placeholder = '+7 900 000-00-00';
+    extraInput.autocomplete = 'tel';
+    extraInput.inputMode = 'tel';
   } else {
-    extraLabel.classList.remove('screen-hidden');
-    extraInput.classList.remove('screen-hidden');
     extraLabel.textContent = 'Email';
     extraInput.type = 'email';
     extraInput.placeholder = 'name@mail.com';
     extraInput.autocomplete = 'email';
-    extraInput.value = '';
+    extraInput.inputMode = 'email';
   }
+  extraInput.value = '';
   setRegStep(2);
 });
 
@@ -336,13 +340,25 @@ document.getElementById('reg-submit').addEventListener('click', async () => {
   const password2 = document.getElementById('reg-password2').value;
   const extra = document.getElementById('reg-extra').value.trim();
 
+  const contactRaw = document.getElementById('reg-contact').value.trim();
+  const contactNow = parseContact(contactRaw);
+  if (!contactNow || contactNow.error) {
+    errorEl.textContent = contactNow?.error || 'Вернитесь назад и укажите email или телефон';
+    return;
+  }
+
   let email = '';
   let phone = '';
-  if (regContactKind === 'email') {
-    email = regContactValue;
-    phone = '';
+  if (contactNow.kind === 'email') {
+    email = contactNow.value;
+    const ph = parseContact(extra);
+    if (!ph || ph.kind !== 'phone') {
+      errorEl.textContent = 'Укажите номер телефона';
+      return;
+    }
+    phone = ph.value;
   } else {
-    phone = regContactValue;
+    phone = contactNow.value;
     const em = parseContact(extra);
     if (!em || em.kind !== 'email') {
       errorEl.textContent = 'Укажите корректный email';
@@ -494,10 +510,13 @@ function renderProfile(me) {
     summary.textContent = 'Пройдите KYC: ФИО, фото документа и селфи.';
   }
 
-  if (me.verified || me.kycStatus === 'approved') {
+  const isVerified = me.verified || me.kycStatus === 'approved';
+  if (isVerified) {
     badge.classList.remove('badge-hidden');
+    pill.classList.add('screen-hidden'); // не дублируем «Верифицирован»
   } else {
     badge.classList.add('badge-hidden');
+    pill.classList.remove('screen-hidden');
   }
 
   kycBtn.style.display = me.kycStatus === 'approved' ? 'none' : 'block';

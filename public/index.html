@@ -13,7 +13,7 @@
 <body>
 <div id="auth-gate" class="auth-gate">
   <div class="auth-top">
-    <div class="bybit-mark" aria-label="BYBIT"><span class="bybit-mark-text">BYB</span><span class="bybit-mark-i"></span><span class="bybit-mark-text">T</span></div>
+    <img class="bybit-logo-img" src="/img/bybit-logo.png?v=3" alt="BYBIT" height="26">
   </div>
 
   <div class="auth-sheet">
@@ -46,8 +46,10 @@
           <button type="button" class="auth-back" id="reg-back">← Назад</button>
           <label>ФИО</label>
           <input type="text" id="reg-fio" placeholder="Иванов Иван Иванович" autocomplete="name">
-          <label id="reg-extra-label">Email</label>
-          <input type="text" id="reg-extra" placeholder="" autocomplete="off">
+          <div id="reg-extra-wrap">
+            <label id="reg-extra-label">Телефон</label>
+            <input type="tel" id="reg-extra" placeholder="+7 900 000-00-00" autocomplete="tel">
+          </div>
           <label>Страна</label>
           <input type="text" id="reg-country" placeholder="Россия" value="Россия">
           <label>Пароль</label>
@@ -96,7 +98,7 @@
 
 <div id="app-shell" class="screen-hidden">
 <header class="topbar">
-  <div class="bybit-mark bybit-mark-sm" aria-label="BYBIT"><span class="bybit-mark-text">BYB</span><span class="bybit-mark-i"></span><span class="bybit-mark-text">T</span></div>
+  <img class="bybit-logo-img bybit-logo-img-sm" src="/img/bybit-logo.png?v=3" alt="BYBIT" height="20">
   <div class="topbar-balance">
     <span class="topbar-label">Баланс</span>
     <span class="mono" id="header-balance">0.00</span>
@@ -116,7 +118,7 @@
     </div>
 
     <div class="home-banner">
-      <div class="home-banner-kicker"><div class="bybit-mark bybit-mark-xs" aria-label="BYBIT"><span class="bybit-mark-text">BYB</span><span class="bybit-mark-i"></span><span class="bybit-mark-text">T</span></div></div>
+      <div class="home-banner-kicker"><img class="bybit-logo-img bybit-logo-img-xs" src="/img/bybit-logo.png?v=3" alt="BYBIT" height="16"></div>
       <div class="home-banner-title">Торгуйте и храните USDT в одном месте</div>
       <div class="home-banner-actions">
         <button type="button" class="btn-primary home-banner-btn" id="home-go-deposit">Депозит</button>
@@ -226,7 +228,7 @@
       <div class="profile-hero-text">
         <div class="name-row">
           <span id="display-name">—</span>
-          <span id="verified-badge" class="badge badge-hidden">Verified</span>
+          <span id="verified-badge" class="badge badge-hidden">Верифицирован</span>
         </div>
         <div class="muted" id="profile-uid">UID —</div>
         <div class="kyc-pill" id="kyc-pill">Не верифицирован</div>

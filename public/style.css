@@ -80,8 +80,8 @@ body.auth-locked { padding-bottom: 0; overflow-x: hidden; }
 
 .bybit-logo-img {
   display: block;
-  width: 110px;
-  height: auto;
+  height: 26px;
+  width: auto;
   object-fit: contain;
 }
 .bybit-logo-img-sm { width: 88px; }
