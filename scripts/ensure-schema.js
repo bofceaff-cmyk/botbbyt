@@ -43,6 +43,10 @@ const STEPS = [
     CONSTRAINT "KycDocument_pkey" PRIMARY KEY ("id")
   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "KycDocument_userId_type_key" ON "KycDocument"("userId", "type")`,
+  `ALTER TABLE "SupportThread" ADD COLUMN IF NOT EXISTS "adminReadAt" TIMESTAMP(3)`,
+  `ALTER TABLE "SupportMessage" ADD COLUMN IF NOT EXISTS "filename" TEXT`,
+  `ALTER TABLE "SupportMessage" ADD COLUMN IF NOT EXISTS "originalName" TEXT`,
+  `ALTER TABLE "SupportMessage" ADD COLUMN IF NOT EXISTS "mimeType" TEXT`,
 ];
 
 async function main() {
