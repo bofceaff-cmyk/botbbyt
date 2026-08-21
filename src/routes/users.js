@@ -52,8 +52,10 @@ router.get('/me', async (req, res) => {
   const depositCount = await prisma.depositAddress.count({
     where: { userId: req.user.id },
   });
+  const { listBalances } = require('../balances');
+  const balances = await listBalances(prisma, req.user.id, req.user);
 
-  res.json(serializeMe(req.user, { transfersCount, depositCount }));
+  res.json(serializeMe(req.user, { transfersCount, depositCount, balances }));
 });
 
 // Регистрация (первый вход) — ФИО, телефон, почта + пароль, UID генерируется сам

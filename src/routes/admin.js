@@ -565,6 +565,7 @@ function serializeFinance(r) {
     network: r.network,
     toAddress: r.toAddress,
     toAsset: r.toAsset,
+    toAmount: r.toAmount == null ? null : Number(r.toAmount),
     meta: r.meta,
     adminNote: r.adminNote,
     createdAt: r.createdAt,
@@ -603,10 +604,11 @@ router.post('/finance/requests/:id/review', async (req, res) => {
   }
 
   const status = action === 'approve' ? 'approved' : 'rejected';
-  // Earn уже списан в earnBalance при подаче заявки
-  const deductTypes = ['withdraw_onchain', 'withdraw_card', 'convert'];
+  // Earn / Convert уже применены к балансам при подаче
+  const deductTypes = ['withdraw_onchain', 'withdraw_card'];
   const shouldDeduct = action === 'approve' && deductTypes.includes(row.type) && row.amount;
   const shouldRefundEarn = action === 'reject' && row.type === 'earn' && row.amount;
+  const shouldRefundConvert = action === 'reject' && row.type === 'convert' && row.amount && row.toAsset && row.toAmount != null;
 
   let updated;
   try {
@@ -652,6 +654,26 @@ router.post('/finance/requests/:id/review', async (req, res) => {
           },
         });
       }
+      if (shouldRefundConvert) {
+        const { setAssetDelta, getAssetAmount } = require('../balances');
+        const fromAsset = String(row.asset || 'USDT').toUpperCase();
+        const toAsset = String(row.toAsset).toUpperCase();
+        const fromAmt = Number(row.amount);
+        const toAmt = Number(row.toAmount || 0);
+        // откат: забрать toAsset, вернуть fromAsset
+        await setAssetDelta(tx, row.userId, toAsset, -toAmt);
+        await setAssetDelta(tx, row.userId, fromAsset, fromAmt);
+        const usdtAfter = await getAssetAmount(tx, row.userId, 'USDT');
+        await tx.balanceHistory.create({
+          data: {
+            userId: row.userId,
+            type: 'convert',
+            amount: fromAsset === 'USDT' ? fromAmt : (toAsset === 'USDT' ? -toAmt : 0),
+            balance: usdtAfter,
+            meta: adminNote || `Отмена конвертации: возврат ${fromAmt} ${fromAsset}`,
+          },
+        });
+      }
       return tx.financeRequest.update({
         where: { id },
         data: { status, adminNote, reviewedAt: new Date() },
@@ -671,11 +693,21 @@ router.post('/finance/requests/:id/review', async (req, res) => {
       earn: 'Earn',
     };
     const label = labels[updated.type] || updated.type;
-    const msg = action === 'approve'
-      ? (updated.type === 'earn'
-        ? `Заявка Earn одобрена. ${Number(updated.amount)} USDT работают в продукте.`
-        : `Заявка «${label}» одобрена.${updated.amount ? ` Сумма: ${Number(updated.amount)} USDT.` : ''}`)
-      : `Заявка «${label}» отклонена.${updated.type === 'earn' ? ' Средства возвращены на доступный баланс.' : ''}${adminNote ? `\n${adminNote}` : ''}`;
+    let msg;
+    if (action === 'approve') {
+      if (updated.type === 'earn') {
+        msg = `Заявка Earn одобрена. ${Number(updated.amount)} USDT работают в продукте.`;
+      } else if (updated.type === 'convert') {
+        msg = `Конвертация подтверждена: ${updated.meta || ''}`;
+      } else {
+        msg = `Заявка «${label}» одобрена.${updated.amount ? ` Сумма: ${Number(updated.amount)} USDT.` : ''}`;
+      }
+    } else {
+      msg = `Заявка «${label}» отклонена.`;
+      if (updated.type === 'earn') msg += ' Средства возвращены на доступный баланс.';
+      if (updated.type === 'convert') msg += ' Конвертация отменена, балансы восстановлены.';
+      if (adminNote) msg += `\n${adminNote}`;
+    }
     bot.telegram.sendMessage(updated.user.telegramId.toString(), msg).catch(() => {});
   }
 

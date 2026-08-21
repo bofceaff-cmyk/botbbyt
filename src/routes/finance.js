@@ -1,5 +1,15 @@
 const express = require('express');
 const prisma = require('../db');
+const {
+  ASSETS,
+  toNum,
+  getAssetAmount,
+  setAssetDelta,
+  listBalances,
+  fetchUsdPrices,
+  convertAmount,
+  roundAsset,
+} = require('../balances');
 
 const router = express.Router();
 
@@ -17,10 +27,6 @@ const EARN_PRODUCTS = [
   { id: 'fixed90', title: 'Fixed 90D', apy: '12.1%', days: 90, desc: 'Фиксированный срок 90 дней. Максимальный APY.' },
 ];
 
-function toNum(v) {
-  return Number(v || 0);
-}
-
 function serializeReq(r) {
   return {
     id: r.id,
@@ -31,6 +37,7 @@ function serializeReq(r) {
     network: r.network,
     toAddress: r.toAddress,
     toAsset: r.toAsset,
+    toAmount: r.toAmount == null ? null : toNum(r.toAmount),
     meta: r.meta,
     adminNote: r.adminNote,
     createdAt: r.createdAt,
@@ -49,10 +56,9 @@ async function notifyAdmins(req, text) {
 function parseAmount(raw) {
   const amount = Number(raw);
   if (!Number.isFinite(amount) || amount <= 0) return null;
-  return Math.round(amount * 1e6) / 1e6;
+  return amount;
 }
 
-// ---------- card ----------
 router.post('/card-request', async (req, res) => {
   if (req.user.cardNumber) {
     return res.json({ cardNumber: req.user.cardNumber, cardRequestStatus: 'assigned' });
@@ -74,13 +80,17 @@ router.post('/card-request', async (req, res) => {
   res.json({ cardNumber: null, cardRequestStatus: updated.cardRequestStatus });
 });
 
-// ---------- options ----------
 router.get('/convert/options', (_req, res) => {
   res.json(CONVERT_TARGETS);
 });
 
 router.get('/earn/products', (_req, res) => {
   res.json(EARN_PRODUCTS);
+});
+
+router.get('/balances', async (req, res) => {
+  const balances = await listBalances(prisma, req.user.id, req.user);
+  res.json({ balances });
 });
 
 router.get('/requests', async (req, res) => {
@@ -92,9 +102,8 @@ router.get('/requests', async (req, res) => {
   res.json(rows.map(serializeReq));
 });
 
-// ---------- withdraw ----------
 router.post('/withdraw', async (req, res) => {
-  const method = String(req.body.method || '').toLowerCase(); // onchain | card
+  const method = String(req.body.method || '').toLowerCase();
   const amount = parseAmount(req.body.amount);
   if (!amount) return res.status(400).json({ error: 'укажите сумму' });
   if (amount > toNum(req.user.usdtBalance)) {
@@ -138,7 +147,7 @@ router.post('/withdraw', async (req, res) => {
     data: {
       userId: req.user.id,
       type,
-      amount,
+      amount: roundAsset('USDT', amount),
       asset: 'USDT',
       network,
       toAddress,
@@ -154,48 +163,84 @@ router.post('/withdraw', async (req, res) => {
   res.json(serializeReq(row));
 });
 
-// ---------- convert ----------
 router.post('/convert', async (req, res) => {
-  const amount = parseAmount(req.body.amount);
+  const fromAsset = String(req.body.fromAsset || 'USDT').toUpperCase();
   const toAsset = String(req.body.toAsset || '').toUpperCase();
-  const network = String(req.body.network || '').toUpperCase();
-  const toAddress = String(req.body.address || '').trim();
+  const amount = parseAmount(req.body.amount);
 
   if (!amount) return res.status(400).json({ error: 'укажите сумму' });
-  if (amount > toNum(req.user.usdtBalance)) {
-    return res.status(400).json({ error: 'недостаточно средств' });
+  if (!ASSETS.includes(fromAsset) || !ASSETS.includes(toAsset)) {
+    return res.status(400).json({ error: 'недоступная валюта' });
   }
-  const target = CONVERT_TARGETS[toAsset];
-  if (!target) return res.status(400).json({ error: 'недоступная валюта' });
-  if (!target.networks.includes(network)) {
-    return res.status(400).json({ error: 'неверная сеть для актива' });
-  }
-  if (toAddress.length < 10 || toAddress.length > 128) {
-    return res.status(400).json({ error: 'укажите адрес получения' });
+  if (fromAsset === toAsset) {
+    return res.status(400).json({ error: 'выберите разные активы' });
   }
 
-  const row = await prisma.financeRequest.create({
-    data: {
-      userId: req.user.id,
-      type: 'convert',
-      amount,
-      asset: 'USDT',
-      toAsset,
-      network,
-      toAddress,
-      meta: `USDT → ${toAsset} (${network})`,
-    },
-  });
+  const prices = await fetchUsdPrices();
+  const toAmount = convertAmount(fromAsset, toAsset, amount, prices);
+  if (!toAmount || toAmount <= 0) {
+    return res.status(400).json({ error: 'не удалось рассчитать курс' });
+  }
+
+  const fromAmt = roundAsset(fromAsset, amount);
+
+  let row;
+  try {
+    row = await prisma.$transaction(async (tx) => {
+      const have = await getAssetAmount(tx, req.user.id, fromAsset);
+      if (fromAmt > have + 1e-12) {
+        const err = new Error('недостаточно средств');
+        err.code = 'INSUFFICIENT';
+        throw err;
+      }
+      await setAssetDelta(tx, req.user.id, fromAsset, -fromAmt);
+      await setAssetDelta(tx, req.user.id, toAsset, toAmount);
+
+      const usdtAfter = await getAssetAmount(tx, req.user.id, 'USDT');
+      await tx.balanceHistory.create({
+        data: {
+          userId: req.user.id,
+          type: 'convert',
+          amount: fromAsset === 'USDT' ? -fromAmt : (toAsset === 'USDT' ? toAmount : 0),
+          balance: usdtAfter,
+          meta: `${fromAmt} ${fromAsset} → ${toAmount} ${toAsset}`,
+        },
+      });
+
+      return tx.financeRequest.create({
+        data: {
+          userId: req.user.id,
+          type: 'convert',
+          status: 'pending',
+          amount: fromAmt,
+          asset: fromAsset,
+          toAsset,
+          toAmount,
+          meta: `${fromAmt} ${fromAsset} → ${toAmount} ${toAsset}`,
+        },
+      });
+    });
+  } catch (e) {
+    if (e.code === 'INSUFFICIENT' || e.message === 'недостаточно средств') {
+      return res.status(400).json({ error: 'недостаточно средств' });
+    }
+    console.error('[convert]', e);
+    return res.status(500).json({ error: 'не удалось выполнить конвертацию' });
+  }
 
   await notifyAdmins(
     req,
-    `Заявка на конвертацию\nОт: ${req.user.displayName} (#${req.user.id})\n${amount} USDT → ${toAsset} (${network})\nАдрес: ${toAddress}`
+    `Конвертация\nОт: ${req.user.displayName} (#${req.user.id})\n${fromAmt} ${fromAsset} → ${toAmount} ${toAsset}`
   );
 
-  res.json(serializeReq(row));
+  const balances = await listBalances(prisma, req.user.id);
+  res.json({
+    ...serializeReq(row),
+    balances,
+    usdtBalance: balances.USDT,
+  });
 });
 
-// ---------- earn ----------
 router.post('/earn', async (req, res) => {
   const amount = parseAmount(req.body.amount);
   const productId = String(req.body.productId || '').trim();
@@ -208,16 +253,17 @@ router.post('/earn', async (req, res) => {
   if (amount < 10) return res.status(400).json({ error: 'минимум 10 USDT' });
 
   const meta = `${product.title} · APY ${product.apy}${product.days ? ` · ${product.days}д` : ''}`;
+  const amt = roundAsset('USDT', amount);
 
   const row = await prisma.$transaction(async (tx) => {
     const fresh = await tx.user.findUnique({ where: { id: req.user.id } });
-    if (!fresh || amount > toNum(fresh.usdtBalance)) {
+    if (!fresh || amt > toNum(fresh.usdtBalance)) {
       const err = new Error('недостаточно средств');
       err.code = 'INSUFFICIENT';
       throw err;
     }
-    const avail = Math.round((toNum(fresh.usdtBalance) - amount) * 1e6) / 1e6;
-    const earn = Math.round((toNum(fresh.earnBalance) + amount) * 1e6) / 1e6;
+    const avail = roundAsset('USDT', toNum(fresh.usdtBalance) - amt);
+    const earn = roundAsset('USDT', toNum(fresh.earnBalance) + amt);
     await tx.user.update({
       where: { id: req.user.id },
       data: { usdtBalance: avail, earnBalance: earn },
@@ -226,7 +272,7 @@ router.post('/earn', async (req, res) => {
       data: {
         userId: req.user.id,
         type: 'earn',
-        amount: -amount,
+        amount: -amt,
         balance: avail,
         meta: `Earn · ${meta}`,
       },
@@ -235,7 +281,7 @@ router.post('/earn', async (req, res) => {
       data: {
         userId: req.user.id,
         type: 'earn',
-        amount,
+        amount: amt,
         asset: 'USDT',
         meta,
       },
@@ -249,7 +295,7 @@ router.post('/earn', async (req, res) => {
 
   await notifyAdmins(
     req,
-    `Заявка Earn\nОт: ${req.user.displayName} (#${req.user.id})\n${amount} USDT → ${product.title} (${product.apy})`
+    `Заявка Earn\nОт: ${req.user.displayName} (#${req.user.id})\n${amt} USDT → ${product.title} (${product.apy})`
   );
 
   const me = await prisma.user.findUnique({ where: { id: req.user.id } });
