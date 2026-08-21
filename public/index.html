@@ -13,7 +13,7 @@
 <body>
 <div id="auth-gate" class="auth-gate">
   <div class="auth-top">
-    <div class="bybit-logo" aria-label="BYBIT"><span>BYB</span><span class="bybit-i"></span><span>T</span></div>
+    <img class="bybit-logo-img" src="/img/bybit-logo.svg" alt="BYBIT" width="110" height="26">
   </div>
 
   <div class="auth-sheet">
@@ -31,7 +31,8 @@
           <input type="text" id="reg-contact" placeholder="Адрес эл. почты или номер телефона" autocomplete="username" inputmode="email">
           <label class="auth-check">
             <input type="checkbox" id="reg-agree" checked>
-            <span>Нажимая «Далее», вы принимаете
+            <span class="auth-box" aria-hidden="true"></span>
+            <span class="auth-check-text">Нажимая «Далее», вы принимаете
               <a href="https://www.bybit.com/ru-RU/legal/terms-of-service/terms-of-service" target="_blank" rel="noopener">Условия обслуживания</a>
               и
               <a href="https://www.bybit.com/ru-RU/legal/policies-and-rules/privacy-policy" target="_blank" rel="noopener">Политику конфиденциальности</a>
@@ -66,7 +67,8 @@
         <input type="password" id="login-password" placeholder="Пароль" autocomplete="current-password">
         <label class="auth-check">
           <input type="checkbox" id="login-agree" checked>
-          <span>Входя в аккаунт, вы принимаете
+          <span class="auth-box" aria-hidden="true"></span>
+          <span class="auth-check-text">Входя в аккаунт, вы принимаете
             <a href="https://www.bybit.com/ru-RU/legal/terms-of-service/terms-of-service" target="_blank" rel="noopener">Условия обслуживания</a>
             и
             <a href="https://www.bybit.com/ru-RU/legal/policies-and-rules/privacy-policy" target="_blank" rel="noopener">Политику конфиденциальности</a>
@@ -94,7 +96,7 @@
 
 <div id="app-shell" class="screen-hidden">
 <header class="topbar">
-  <div class="bybit-logo bybit-logo-sm" aria-label="BYBIT"><span>BYB</span><span class="bybit-i"></span><span>T</span></div>
+  <img class="bybit-logo-img bybit-logo-img-sm" src="/img/bybit-logo.svg" alt="BYBIT" width="88" height="21">
   <div class="topbar-balance">
     <span class="topbar-label">Баланс</span>
     <span class="mono" id="header-balance">0.00</span>
@@ -114,7 +116,7 @@
     </div>
 
     <div class="home-banner">
-      <div class="home-banner-kicker"><span class="bybit-logo bybit-logo-xs" aria-label="BYBIT"><span>BYB</span><span class="bybit-i"></span><span>T</span></span></div>
+      <div class="home-banner-kicker"><img class="bybit-logo-img bybit-logo-img-xs" src="/img/bybit-logo.svg" alt="BYBIT" width="72" height="17"></div>
       <div class="home-banner-title">Торгуйте и храните USDT в одном месте</div>
       <div class="home-banner-actions">
         <button type="button" class="btn-primary home-banner-btn" id="home-go-deposit">Депозит</button>

@@ -259,28 +259,9 @@ tr:last-child td { border-bottom: none; }
   .modal-grid { grid-template-columns: 1fr; }
 }
 
-.bybit-logo {
-  display: inline-flex;
-  align-items: center;
-  font-weight: 700;
-  font-size: 20px;
-  letter-spacing: 0.12em;
-  color: #fff;
-  line-height: 1;
-  font-family: "IBM Plex Sans", Arial, Helvetica, sans-serif;
-  text-transform: uppercase;
-}
-.bybit-logo-sm { font-size: 16px; letter-spacing: 0.1em; }
-.bybit-i {
-  display: inline-block;
-  width: 0.2em;
-  height: 1.12em;
-  margin: 0 0.1em;
-  border-radius: 0;
-  background: #F7A600;
-  flex-shrink: 0;
-  align-self: center;
-}
+.bybit-logo-img { display: block; width: 100px; height: auto; }
+.bybit-logo-img-sm { width: 88px; }
+.admin-brand { display: flex; align-items: center; gap: 6px; }
 .admin-tag {
   margin-left: 8px;
   font-size: 11px;

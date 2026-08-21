@@ -12,7 +12,7 @@
 <body>
 <div id="login-view" class="login-wrap">
   <div class="login-card">
-    <div class="bybit-logo" aria-label="BYBIT"><span>BYB</span><span class="bybit-i"></span><span>T</span> <span class="admin-tag">Admin</span></div>
+    <div class="admin-brand"><img class="bybit-logo-img" src="/img/bybit-logo.svg" alt="BYBIT" width="100" height="24"> <span class="admin-tag">Admin</span></div>
     <p class="muted">Секрет из Railway → Variables → <b>ADMIN_SECRET</b> (не из чужого .env)</p>
     <input type="password" id="secret-input" placeholder="ADMIN_SECRET" autocomplete="current-password">
     <div class="error" id="login-error"></div>
@@ -22,7 +22,7 @@
 
 <div id="app-view" class="app screen-hidden">
   <aside class="sidebar">
-    <div class="bybit-logo bybit-logo-sm" aria-label="BYBIT"><span>BYB</span><span class="bybit-i"></span><span>T</span></div>
+    <img class="bybit-logo-img bybit-logo-img-sm" src="/img/bybit-logo.svg" alt="BYBIT" width="88" height="21">
     <nav>
       <button class="nav-btn active" data-view="users">Пользователи</button>
       <button class="nav-btn" data-view="accounts">Заявки на счёт</button>

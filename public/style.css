@@ -50,34 +50,18 @@ body.auth-locked { padding-bottom: 0; overflow-x: hidden; }
   border-bottom: 1px solid var(--line-soft);
 }
 
-/* BYBIT logo */
-.bybit-logo {
-  display: inline-flex;
-  align-items: center;
-  font-weight: 700;
-  font-size: 22px;
-  letter-spacing: 0.12em;
-  color: #fff;
-  line-height: 1;
-  font-family: "IBM Plex Sans", Arial, Helvetica, sans-serif;
-  text-transform: uppercase;
+/* BYBIT logo (готовая картинка) */
+.bybit-logo-img {
+  display: block;
+  width: 110px;
+  height: auto;
+  object-fit: contain;
 }
-.bybit-logo-sm { font-size: 17px; letter-spacing: 0.1em; }
-.bybit-logo-xs { font-size: 12px; letter-spacing: 0.1em; }
-/* Буква I в официальном логотипе Bybit — сплошная оранжевая вертикальная полоса */
-.bybit-i {
-  display: inline-block;
-  width: 0.2em;
-  height: 1.12em;
-  margin: 0 0.1em;
-  border-radius: 0;
-  background: #F7A600;
-  flex-shrink: 0;
-  align-self: center;
-}
+.bybit-logo-img-sm { width: 88px; }
+.bybit-logo-img-xs { width: 72px; }
 .admin-tag {
   margin-left: 8px;
-  font-size: 0.55em;
+  font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.08em;
   color: var(--text-2);
@@ -631,34 +615,42 @@ input:focus { border-color: rgba(247, 166, 0, 0.55); }
   font-weight: 400 !important;
   cursor: pointer;
 }
+/* прячем нативный чекбокс — иначе width:100% у input раздувает его на весь экран */
 .auth-check input[type="checkbox"] {
-  appearance: none;
-  -webkit-appearance: none;
-  margin: 3px 0 0;
-  width: 12px;
-  height: 12px;
+  position: absolute !important;
+  opacity: 0 !important;
+  width: 1px !important;
+  height: 1px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  pointer-events: none;
+}
+.auth-box {
+  flex: 0 0 14px;
+  width: 14px !important;
+  height: 14px !important;
+  margin-top: 2px;
   border: 1.5px solid #F7A600;
   border-radius: 2px;
   background: transparent;
-  flex-shrink: 0;
-  cursor: pointer;
+  box-sizing: border-box;
   position: relative;
 }
-.auth-check input[type="checkbox"]:checked {
+.auth-check input[type="checkbox"]:checked + .auth-box {
   background: #F7A600;
-  border-color: #F7A600;
 }
-.auth-check input[type="checkbox"]:checked::after {
+.auth-check input[type="checkbox"]:checked + .auth-box::after {
   content: "";
   position: absolute;
-  left: 3px;
-  top: 0.5px;
+  left: 3.5px;
+  top: 1px;
   width: 3px;
-  height: 6px;
+  height: 7px;
   border: solid #111;
   border-width: 0 1.5px 1.5px 0;
   transform: rotate(45deg);
 }
+.auth-check-text { flex: 1; min-width: 0; }
 .auth-check a {
   color: #F7A600;
   text-decoration: none;
