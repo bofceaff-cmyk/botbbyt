@@ -188,4 +188,48 @@ router.get('/news', async (_req, res) => {
   }
 });
 
+
+const klinesCache = new Map();
+const KLINES_TTL = 30 * 1000;
+
+router.get('/klines', async (req, res) => {
+  try {
+    const symbol = String(req.query.symbol || 'BTC').toUpperCase().replace(/USDT$/, '');
+    const coin = COINS.find((c) => c.symbol === symbol) || COINS[0];
+    const interval = String(req.query.interval || '1h');
+    const key = `${coin.binance}:${interval}`;
+    const hit = klinesCache.get(key);
+    if (hit && Date.now() - hit.at < KLINES_TTL) return res.json(hit.data);
+
+    const raw = await fetchJson(
+      `https://api.binance.com/api/v3/klines?symbol=${coin.binance}&interval=${interval}&limit=96`
+    );
+    const candles = raw.map((k) => ({
+      time: k[0],
+      open: Number(k[1]),
+      high: Number(k[2]),
+      low: Number(k[3]),
+      close: Number(k[4]),
+      volume: Number(k[5]),
+    }));
+    const data = {
+      symbol: coin.symbol,
+      name: coin.name,
+      pair: coin.binance,
+      interval,
+      candles,
+      last: candles.length ? candles[candles.length - 1].close : null,
+    };
+    klinesCache.set(key, { at: Date.now(), data });
+    res.json(data);
+  } catch (e) {
+    res.status(502).json({ error: 'не удалось загрузить график' });
+  }
+});
+
+router.use((_req, res) => {
+  res.status(404).json({ error: 'unknown market endpoint' });
+});
+
 module.exports = router;
+
