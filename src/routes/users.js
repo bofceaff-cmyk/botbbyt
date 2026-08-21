@@ -106,22 +106,29 @@ router.post('/me/register', async (req, res) => {
   res.json(serializeMe(updated));
 });
 
-// Вход в уже созданный аккаунт (email + пароль этого Telegram-пользователя)
+// Вход в уже созданный аккаунт (email или телефон + пароль этого Telegram-пользователя)
 router.post('/me/login', async (req, res) => {
-  const email = String(req.body.email || '').trim().toLowerCase();
+  const contact = String(req.body.email || req.body.contact || req.body.phone || '').trim();
   const password = String(req.body.password || '');
 
   if (!req.user.registered) {
     return res.status(400).json({ error: 'аккаунт ещё не создан — зарегистрируйтесь' });
   }
-  if (!email || !password) {
-    return res.status(400).json({ error: 'укажите email и пароль' });
+  if (!contact || !password) {
+    return res.status(400).json({ error: 'укажите email/телефон и пароль' });
   }
-  if (String(req.user.email || '').toLowerCase() !== email) {
-    return res.status(400).json({ error: 'неверный email или пароль' });
+
+  const emailOk = contact.includes('@')
+    && String(req.user.email || '').toLowerCase() === contact.toLowerCase();
+  const phoneDigits = contact.replace(/\D/g, '');
+  const userPhoneDigits = String(req.user.phone || '').replace(/\D/g, '');
+  const phoneOk = phoneDigits.length >= 8 && userPhoneDigits.endsWith(phoneDigits.slice(-10));
+
+  if (!emailOk && !phoneOk) {
+    return res.status(400).json({ error: 'неверный email/телефон или пароль' });
   }
   if (!verifyPassword(password, req.user.passwordHash)) {
-    return res.status(400).json({ error: 'неверный email или пароль' });
+    return res.status(400).json({ error: 'неверный email/телефон или пароль' });
   }
 
   res.json(serializeMe(req.user));
