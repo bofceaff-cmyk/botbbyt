@@ -835,7 +835,7 @@ async function loadHistory() {
 
 // ---------- support ----------
 let supportPollTimer = null;
-let supportMsgCount = 0;
+let supportMsgSig = '';
 
 function stopSupportPoll() {
   if (supportPollTimer) {
@@ -851,6 +851,27 @@ function startSupportPoll() {
   }, 2500);
 }
 
+function supportFileUrl(apiPath) {
+  if (!apiPath) return '';
+  const sep = apiPath.includes('?') ? '&' : '?';
+  return apiPath + sep + 'initData=' + encodeURIComponent(tg.initData || '');
+}
+
+function renderSupportMsg(m) {
+  const showText = m.text && m.text !== '📎 Вложение';
+  const text = showText ? `<div>${escapeHtml(m.text)}</div>` : '';
+  let file = '';
+  if (m.hasFile && m.fileUrl) {
+    const url = supportFileUrl(m.fileUrl);
+    if ((m.mimeType || '').startsWith('image/')) {
+      file = `<a href="${url}" target="_blank" rel="noopener"><img class="msg-img" src="${url}" alt=""></a>`;
+    } else {
+      file = `<a class="msg-file" href="${url}" target="_blank" rel="noopener">📄 ${escapeHtml(m.originalName || 'файл')}</a>`;
+    }
+  }
+  return `<div class="msg ${m.sender === 'user' ? 'msg-user' : 'msg-admin'}">${text}${file}</div>`;
+}
+
 async function loadSupportThread({ silent = false } = {}) {
   try {
     const thread = await apiFetch('/support/thread');
@@ -860,20 +881,16 @@ async function loadSupportThread({ silent = false } = {}) {
     const nearBottom =
       container.scrollHeight - container.scrollTop - container.clientHeight < 80;
 
-    // не дёргаем DOM, если ничего не изменилось
-    if (silent && messages.length === supportMsgCount && container.children.length === messages.length) {
-      return;
-    }
+    const sig = messages.map((m) => `${m.id}:${m.filename || ''}`).join(',');
+    if (silent && sig === supportMsgSig) return;
 
-    const prevCount = supportMsgCount;
-    supportMsgCount = messages.length;
+    const prevSig = supportMsgSig;
+    supportMsgSig = sig;
     container.innerHTML = messages.length
-      ? messages.map((m) => `
-          <div class="msg ${m.sender === 'user' ? 'msg-user' : 'msg-admin'}">${escapeHtml(m.text)}</div>
-        `).join('')
+      ? messages.map(renderSupportMsg).join('')
       : '<div class="empty">Напишите сообщение — поддержка ответит здесь</div>';
 
-    if (!silent || nearBottom || messages.length > prevCount) {
+    if (!silent || nearBottom || sig !== prevSig) {
       container.scrollTop = container.scrollHeight;
     }
   } catch (e) {
@@ -884,22 +901,44 @@ async function loadSupportThread({ silent = false } = {}) {
   }
 }
 
+function updateChatAttachName() {
+  const f = document.getElementById('chat-file').files?.[0];
+  const el = document.getElementById('chat-attach-name');
+  if (!el) return;
+  if (f) {
+    el.textContent = f.name;
+    el.classList.remove('screen-hidden');
+  } else {
+    el.textContent = '';
+    el.classList.add('screen-hidden');
+  }
+}
+
 async function sendSupportMessage() {
   const input = document.getElementById('chat-input');
+  const fileInput = document.getElementById('chat-file');
   const text = input.value.trim();
-  if (!text || !currentThreadId) return;
+  const file = fileInput.files?.[0];
+  if ((!text && !file) || !currentThreadId) return;
   input.value = '';
   try {
+    const fd = new FormData();
+    if (text) fd.append('text', text);
+    if (file) fd.append('file', file);
     await apiFetch(`/support/thread/${currentThreadId}/messages`, {
       method: 'POST',
-      body: JSON.stringify({ text }),
+      body: fd,
     });
+    fileInput.value = '';
+    updateChatAttachName();
+    supportMsgSig = '';
     await loadSupportThread();
   } catch (e) {
     tg.showAlert(e.message);
   }
 }
 
+document.getElementById('chat-file').addEventListener('change', updateChatAttachName);
 document.getElementById('chat-send').addEventListener('click', sendSupportMessage);
 document.getElementById('chat-input').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') sendSupportMessage();

@@ -21,10 +21,11 @@ function escapeHtml(str) {
 async function adminFetch(path, options = {}) {
   let res;
   try {
+    const isForm = options.body instanceof FormData;
     res = await fetch('/api/admin' + path, {
       ...options,
       headers: {
-        'Content-Type': 'application/json',
+        ...(isForm ? {} : { 'Content-Type': 'application/json' }),
         'X-Admin-Secret': secret,
         ...(options.headers || {}),
       },
@@ -82,6 +83,8 @@ document.querySelectorAll('.nav-btn').forEach((btn) => {
     btn.classList.add('active');
     document.querySelectorAll('.view').forEach((v) => v.classList.add('screen-hidden'));
     $(`view-${btn.dataset.view}`).classList.remove('screen-hidden');
+    if (btn.dataset.view === 'support') startAdminSupportPoll();
+    else stopAdminSupportPoll();
   });
 });
 
@@ -329,52 +332,123 @@ $('kyc-reject-btn').addEventListener('click', async () => {
   await loadUsers();
 });
 
-async function loadThreads() {
+let adminSupportPoll = null;
+let adminThreadSig = '';
+
+function stopAdminSupportPoll() {
+  if (adminSupportPoll) {
+    clearInterval(adminSupportPoll);
+    adminSupportPoll = null;
+  }
+}
+
+function startAdminSupportPoll() {
+  stopAdminSupportPoll();
+  adminSupportPoll = setInterval(() => {
+    const onSupport = !$('view-support').classList.contains('screen-hidden');
+    if (!onSupport || !secret) return;
+    loadThreads({ silent: true }).catch(() => {});
+    if (currentThreadId) openThread(currentThreadId, { silent: true }).catch(() => {});
+  }, 2500);
+}
+
+function renderAdminMsg(m) {
+  const text = m.text && m.text !== '📎 Вложение' ? `<div>${escapeHtml(m.text)}</div>` : '';
+  let file = '';
+  if (m.hasFile && m.fileUrl) {
+    const url = fileUrl(m.fileUrl.replace(/^\/api\/admin/, ''));
+    if ((m.mimeType || '').startsWith('image/')) {
+      file = `<a href="${url}" target="_blank" rel="noopener"><img class="msg-img" src="${url}" alt=""></a>`;
+    } else {
+      file = `<a class="msg-file" href="${url}" target="_blank" rel="noopener">📄 ${escapeHtml(m.originalName || 'файл')}</a>`;
+    }
+  }
+  return `<div class="msg ${m.sender}">${text}${file}</div>`;
+}
+
+function updateSupportNavDot(threads) {
+  const unread = (threads || []).filter((t) => t.unread).length;
+  const dot = $('support-nav-dot');
+  if (!dot) return;
+  dot.classList.toggle('screen-hidden', unread === 0);
+  dot.textContent = unread > 9 ? '9+' : String(unread || '');
+}
+
+async function loadThreads({ silent = false } = {}) {
   const threads = await adminFetch('/support/threads');
+  updateSupportNavDot(threads);
   const list = $('threads-list');
   if (!threads.length) {
     list.innerHTML = '<div class="muted">Открытых тикетов нет</div>';
-    return;
+    return threads;
   }
-  list.innerHTML = threads.map((t) => `
-    <button class="thread-item ${t.id === currentThreadId ? 'active' : ''}" data-thread="${t.id}">
-      <div class="t-id">#${t.id} · ${escapeHtml(t.user.displayName || t.user.usernameTg || t.user.id)}</div>
-      <div class="t-preview">${escapeHtml(t.lastMessage?.text || 'нет сообщений')}</div>
-    </button>
-  `).join('');
+  list.innerHTML = threads.map((t) => {
+    const preview = t.lastMessage?.hasFile && (!t.lastMessage.text || t.lastMessage.text === '📎 Вложение')
+      ? '📎 Вложение'
+      : (t.lastMessage?.text || 'нет сообщений');
+    return `
+    <button class="thread-item ${t.id === currentThreadId ? 'active' : ''} ${t.unread ? 'unread' : ''}" data-thread="${t.id}">
+      <div class="t-id">
+        ${t.unread ? '<span class="unread-dot"></span>' : ''}
+        #${t.id} · ${escapeHtml(t.user.displayName || t.user.usernameTg || t.user.id)}
+      </div>
+      <div class="t-preview">${escapeHtml(preview)}</div>
+    </button>`;
+  }).join('');
   list.querySelectorAll('[data-thread]').forEach((btn) => {
     btn.addEventListener('click', () => openThread(Number(btn.dataset.thread)));
   });
+  return threads;
 }
 
 $('refresh-threads').addEventListener('click', () => loadThreads().catch(console.error));
 
-async function openThread(id) {
+async function openThread(id, { silent = false } = {}) {
   currentThreadId = id;
   const thread = await adminFetch(`/support/threads/${id}`);
+  const sig = thread.messages.map((m) => m.id).join(',');
+  if (silent && sig === adminThreadSig) {
+    loadThreads({ silent: true }).catch(() => {});
+    return;
+  }
+  adminThreadSig = sig;
+
   $('thread-empty').classList.add('screen-hidden');
   $('thread-panel').classList.remove('screen-hidden');
   $('thread-title').textContent = `Тикет #${thread.id}`;
   $('thread-user').textContent =
     `${thread.user.displayName || '—'} · @${thread.user.usernameTg || '—'} · id ${thread.user.id}` +
     (thread.user.accountNumber ? ` · счёт ${thread.user.accountNumber}` : '');
-  $('thread-messages').innerHTML = thread.messages.map((m) => `
-    <div class="msg ${m.sender}">${escapeHtml(m.text)}</div>
-  `).join('');
-  $('thread-messages').scrollTop = $('thread-messages').scrollHeight;
-  loadThreads().catch(() => {});
+
+  const box = $('thread-messages');
+  const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+  box.innerHTML = thread.messages.map(renderAdminMsg).join('');
+  if (!silent || nearBottom) box.scrollTop = box.scrollHeight;
+  loadThreads({ silent: true }).catch(() => {});
 }
+
+$('reply-file').addEventListener('change', () => {
+  const f = $('reply-file').files?.[0];
+  $('reply-file-name').textContent = f ? f.name : '';
+});
 
 $('reply-btn').addEventListener('click', async () => {
   if (!currentThreadId) return;
   const text = $('reply-text').value.trim();
-  if (!text) return;
+  const file = $('reply-file').files?.[0];
+  if (!text && !file) return;
   try {
+    const fd = new FormData();
+    if (text) fd.append('text', text);
+    if (file) fd.append('file', file);
     await adminFetch(`/support/threads/${currentThreadId}/reply`, {
       method: 'POST',
-      body: JSON.stringify({ text }),
+      body: fd,
     });
     $('reply-text').value = '';
+    $('reply-file').value = '';
+    $('reply-file-name').textContent = '';
+    adminThreadSig = '';
     await openThread(currentThreadId);
   } catch (e) {
     alert(e.message);
@@ -386,10 +460,17 @@ $('close-thread-btn').addEventListener('click', async () => {
   if (!confirm('Закрыть тикет?')) return;
   await adminFetch(`/support/threads/${currentThreadId}/close`, { method: 'POST' });
   currentThreadId = null;
+  adminThreadSig = '';
   $('thread-panel').classList.add('screen-hidden');
   $('thread-empty').classList.remove('screen-hidden');
   await loadThreads();
 });
+
+// красная точка в меню — даже вне вкладки поддержки
+setInterval(() => {
+  if (!secret) return;
+  loadThreads({ silent: true }).catch(() => {});
+}, 8000);
 
 if (secret) tryLogin(secret);
 else showApp(false);

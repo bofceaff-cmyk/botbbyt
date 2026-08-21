@@ -72,6 +72,42 @@ body {
   color: var(--accent);
   border-color: rgba(247,166,0,0.2);
 }
+.nav-btn { position: relative; }
+.nav-dot {
+  display: inline-grid;
+  place-items: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  margin-left: 6px;
+  border-radius: 999px;
+  background: var(--red);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  vertical-align: middle;
+}
+.unread-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--red);
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.thread-item.unread .t-id { color: var(--text); }
+.thread-item.unread .t-preview { color: var(--text-2); }
+.msg-img { display: block; max-width: 240px; max-height: 240px; border-radius: 8px; margin-top: 6px; }
+.msg-file { display: inline-block; margin-top: 6px; color: inherit; font-size: 12px; }
+.reply-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.reply-actions .btn-primary { margin-left: auto; }
+.attach-btn {
+  display: inline-grid; place-items: center;
+  width: 40px; height: 40px; padding: 0; cursor: pointer;
+}
+.attach-name { font-size: 12px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 .content { padding: 24px; overflow: auto; }
 .view-head {
   display: flex;

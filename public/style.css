@@ -395,9 +395,18 @@ input:focus { border-color: rgba(247, 166, 0, 0.55); }
 .msg { max-width: 82%; padding: 9px 11px; border-radius: 10px; font-size: 13px; line-height: 1.4; }
 .msg-user { align-self: flex-end; background: var(--accent); color: #111; }
 .msg-admin { align-self: flex-start; background: var(--panel-2); }
-.chat-input-row { display: flex; gap: 8px; margin-top: 10px; }
-.chat-input-row input { flex: 1; }
+.msg-img { display: block; max-width: 220px; max-height: 220px; border-radius: 8px; margin-top: 6px; }
+.msg-file { display: inline-block; margin-top: 6px; color: inherit; text-decoration: underline; font-size: 12px; }
+.attach-name { font-size: 12px; margin: 0 0 6px; word-break: break-all; }
+.chat-input-row { display: flex; gap: 8px; margin-top: 10px; align-items: center; }
+.chat-input-row input[type="text"] { flex: 1; }
 .chat-input-row button { width: 48px; flex-shrink: 0; padding: 0; }
+.chat-attach-btn {
+  width: 40px; height: 40px; flex-shrink: 0;
+  display: grid; place-items: center;
+  border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel-2); cursor: pointer; font-size: 18px;
+}
 
 .tabbar {
   position: fixed;

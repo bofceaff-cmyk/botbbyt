@@ -420,7 +420,12 @@
     <div class="section-head"><h1>Поддержка</h1></div>
     <div class="panel chat-card">
       <div id="chat-messages" class="chat-messages"></div>
+      <div id="chat-attach-name" class="attach-name muted screen-hidden"></div>
       <div class="chat-input-row">
+        <label class="chat-attach-btn" title="Прикрепить фото или файл">
+          📎
+          <input type="file" id="chat-file" accept="image/jpeg,image/png,image/webp,image/gif,application/pdf" hidden>
+        </label>
         <input type="text" id="chat-input" placeholder="Написать сообщение">
         <button id="chat-send" class="btn-primary">→</button>
       </div>

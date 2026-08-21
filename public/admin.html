@@ -27,7 +27,7 @@
       <button class="nav-btn active" data-view="users">Пользователи</button>
       <button class="nav-btn" data-view="accounts">Заявки на счёт</button>
       <button class="nav-btn" data-view="kyc">KYC</button>
-      <button class="nav-btn" data-view="support">Поддержка</button>
+      <button class="nav-btn" data-view="support">Поддержка <span id="support-nav-dot" class="nav-dot screen-hidden"></span></button>
     </nav>
     <button class="btn-ghost" id="logout-btn">Выйти</button>
   </aside>
@@ -107,7 +107,14 @@
             <div id="thread-messages" class="thread-messages"></div>
             <div class="reply-row">
               <textarea id="reply-text" rows="3" placeholder="Ответ пользователю…"></textarea>
-              <button class="btn-primary" id="reply-btn">Отправить</button>
+              <div class="reply-actions">
+                <label class="btn-secondary attach-btn" title="Прикрепить файл">
+                  📎
+                  <input type="file" id="reply-file" accept="image/jpeg,image/png,image/webp,image/gif,application/pdf" hidden>
+                </label>
+                <span id="reply-file-name" class="muted attach-name"></span>
+                <button class="btn-primary" id="reply-btn">Отправить</button>
+              </div>
             </div>
           </div>
         </div>
