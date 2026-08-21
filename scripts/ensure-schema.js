@@ -54,6 +54,17 @@ const STEPS = [
   `ALTER TABLE "SupportMessage" ADD COLUMN IF NOT EXISTS "mimeType" TEXT`,
 
   `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "earnBalance" DECIMAL(18,6) NOT NULL DEFAULT 0`,
+  `ALTER TABLE "FinanceRequest" ADD COLUMN IF NOT EXISTS "toAmount" DECIMAL(24,12)`,
+  `CREATE TABLE IF NOT EXISTS "AssetBalance" (
+    "id" SERIAL NOT NULL,
+    "userId" INTEGER NOT NULL,
+    "asset" TEXT NOT NULL,
+    "amount" DECIMAL(24,12) NOT NULL DEFAULT 0,
+    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "AssetBalance_pkey" PRIMARY KEY ("id")
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "AssetBalance_userId_asset_key" ON "AssetBalance"("userId", "asset")`,
+  `CREATE INDEX IF NOT EXISTS "AssetBalance_userId_idx" ON "AssetBalance"("userId")`,
   `CREATE TABLE IF NOT EXISTS "FinanceRequest" (
     "id" SERIAL NOT NULL,
     "userId" INTEGER NOT NULL,
@@ -64,6 +75,7 @@ const STEPS = [
     "network" TEXT,
     "toAddress" TEXT,
     "toAsset" TEXT,
+    "toAmount" DECIMAL(24,12),
     "meta" TEXT,
     "adminNote" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -162,6 +174,13 @@ async function main() {
       IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'KycDocument_userId_fkey') THEN
         ALTER TABLE "KycDocument"
           ADD CONSTRAINT "KycDocument_userId_fkey"
+          FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+      END IF;
+    END $$`,
+    `DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'AssetBalance_userId_fkey') THEN
+        ALTER TABLE "AssetBalance"
+          ADD CONSTRAINT "AssetBalance_userId_fkey"
           FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
       END IF;
     END $$`,
