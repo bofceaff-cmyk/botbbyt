@@ -207,22 +207,57 @@ router.post('/earn', async (req, res) => {
   }
   if (amount < 10) return res.status(400).json({ error: 'минимум 10 USDT' });
 
-  const row = await prisma.financeRequest.create({
-    data: {
-      userId: req.user.id,
-      type: 'earn',
-      amount,
-      asset: 'USDT',
-      meta: `${product.title} · APY ${product.apy}${product.days ? ` · ${product.days}д` : ''}`,
-    },
+  const meta = `${product.title} · APY ${product.apy}${product.days ? ` · ${product.days}д` : ''}`;
+
+  const row = await prisma.$transaction(async (tx) => {
+    const fresh = await tx.user.findUnique({ where: { id: req.user.id } });
+    if (!fresh || amount > toNum(fresh.usdtBalance)) {
+      const err = new Error('недостаточно средств');
+      err.code = 'INSUFFICIENT';
+      throw err;
+    }
+    const avail = Math.round((toNum(fresh.usdtBalance) - amount) * 1e6) / 1e6;
+    const earn = Math.round((toNum(fresh.earnBalance) + amount) * 1e6) / 1e6;
+    await tx.user.update({
+      where: { id: req.user.id },
+      data: { usdtBalance: avail, earnBalance: earn },
+    });
+    await tx.balanceHistory.create({
+      data: {
+        userId: req.user.id,
+        type: 'earn',
+        amount: -amount,
+        balance: avail,
+        meta: `Earn · ${meta}`,
+      },
+    });
+    return tx.financeRequest.create({
+      data: {
+        userId: req.user.id,
+        type: 'earn',
+        amount,
+        asset: 'USDT',
+        meta,
+      },
+    });
+  }).catch((e) => {
+    if (e.code === 'INSUFFICIENT' || e.message === 'недостаточно средств') return null;
+    throw e;
   });
+
+  if (!row) return res.status(400).json({ error: 'недостаточно средств' });
 
   await notifyAdmins(
     req,
     `Заявка Earn\nОт: ${req.user.displayName} (#${req.user.id})\n${amount} USDT → ${product.title} (${product.apy})`
   );
 
-  res.json(serializeReq(row));
+  const me = await prisma.user.findUnique({ where: { id: req.user.id } });
+  res.json({
+    ...serializeReq(row),
+    usdtBalance: toNum(me.usdtBalance),
+    earnBalance: toNum(me.earnBalance),
+  });
 });
 
 module.exports = router;

@@ -33,6 +33,7 @@ function serializeMe(user, extra = {}) {
     country: user.country,
     usernameTg: user.usernameTg,
     usdtBalance: toNum(user.usdtBalance),
+    earnBalance: toNum(user.earnBalance),
     accountNumber: user.accountNumber,
     accountRequestStatus: user.accountRequestStatus,
     cardNumber: user.cardNumber,

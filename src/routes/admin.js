@@ -33,6 +33,7 @@ function serializeUser(u) {
     country: u.country,
     registered: Boolean(u.registered),
     usdtBalance: Number(u.usdtBalance),
+    earnBalance: Number(u.earnBalance || 0),
     accountNumber: u.accountNumber,
     accountRequestStatus: u.accountRequestStatus,
     cardNumber: u.cardNumber,
@@ -201,6 +202,8 @@ router.patch('/users/:id', async (req, res) => {
     data.usdtBalance = rounded;
   }
 
+  const balanceComment = String(req.body.balanceComment || '').trim();
+
   const updated = await prisma.$transaction(async (tx) => {
     const u = await tx.user.update({ where: { id }, data });
     if (balanceDelta !== null && balanceDelta !== 0) {
@@ -210,7 +213,7 @@ router.patch('/users/:id', async (req, res) => {
           type: 'admin_adjust',
           amount: balanceDelta,
           balance: u.usdtBalance,
-          meta: 'изменение баланса администратором',
+          meta: balanceComment || 'изменение баланса администратором',
         },
       });
     }
@@ -229,7 +232,7 @@ router.patch('/users/:id', async (req, res) => {
       const tail = String(data.cardNumber).slice(-4);
       bot.telegram.sendMessage(
         updated.telegramId.toString(),
-        `Вам выдана карта **** ${tail}.\nОткройте приложение → Активы → Моя карта.`
+        `Ваша заявка на карту одобрена. Карта **** ${tail} доступна в приложении → Активы → Моя карта.`
       ).catch(() => {});
     }
     if (data.kycStatus === 'approved' && user.kycStatus !== 'approved') {
@@ -247,6 +250,71 @@ router.patch('/users/:id', async (req, res) => {
   }
 
   res.json(serializeUser(updated));
+});
+
+// Начислить на баланс (+сумма + комментарий)
+router.post('/users/:id/credit', async (req, res) => {
+  const id = Number(req.params.id);
+  const amount = Number(req.body.amount);
+  const comment = String(req.body.comment || '').trim();
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return res.status(400).json({ error: 'укажите сумму больше 0' });
+  }
+  if (!comment || comment.length < 2) {
+    return res.status(400).json({ error: 'укажите комментарий (за что начисление)' });
+  }
+  if (comment.length > 200) {
+    return res.status(400).json({ error: 'комментарий слишком длинный' });
+  }
+
+  const user = await prisma.user.findUnique({ where: { id } });
+  if (!user) return res.status(404).json({ error: 'пользователь не найден' });
+
+  const add = Math.round(amount * 1e6) / 1e6;
+  const updated = await prisma.$transaction(async (tx) => {
+    const next = Math.round((Number(user.usdtBalance) + add) * 1e6) / 1e6;
+    const u = await tx.user.update({
+      where: { id },
+      data: { usdtBalance: next },
+    });
+    await tx.balanceHistory.create({
+      data: {
+        userId: id,
+        type: 'bonus',
+        amount: add,
+        balance: u.usdtBalance,
+        meta: comment,
+      },
+    });
+    return u;
+  });
+
+  const bot = req.app.get('bot');
+  if (bot) {
+    bot.telegram.sendMessage(
+      updated.telegramId.toString(),
+      `На ваш баланс зачислено +${add} USDT.\n${comment}`
+    ).catch(() => {});
+  }
+
+  res.json(serializeUser(updated));
+});
+
+router.get('/users/:id/history', async (req, res) => {
+  const id = Number(req.params.id);
+  const rows = await prisma.balanceHistory.findMany({
+    where: { userId: id },
+    orderBy: { createdAt: 'desc' },
+    take: 30,
+  });
+  res.json(rows.map((h) => ({
+    id: h.id,
+    type: h.type,
+    amount: Number(h.amount),
+    balance: Number(h.balance),
+    meta: h.meta,
+    createdAt: h.createdAt,
+  })));
 });
 
 // Адреса депозита
@@ -501,8 +569,10 @@ router.post('/finance/requests/:id/review', async (req, res) => {
   }
 
   const status = action === 'approve' ? 'approved' : 'rejected';
-  const deductTypes = ['withdraw_onchain', 'withdraw_card', 'convert', 'earn'];
+  // Earn уже списан в earnBalance при подаче заявки
+  const deductTypes = ['withdraw_onchain', 'withdraw_card', 'convert'];
   const shouldDeduct = action === 'approve' && deductTypes.includes(row.type) && row.amount;
+  const shouldRefundEarn = action === 'reject' && row.type === 'earn' && row.amount;
 
   let updated;
   try {
@@ -527,6 +597,27 @@ router.post('/finance/requests/:id/review', async (req, res) => {
           },
         });
       }
+      if (shouldRefundEarn) {
+        const user = await tx.user.findUnique({ where: { id: row.userId } });
+        const amt = Number(row.amount);
+        const earn = Number(user.earnBalance || 0);
+        if (amt > earn + 1e-9) throw new Error('некорректный Earn-баланс для возврата');
+        const nextAvail = Math.round((Number(user.usdtBalance) + amt) * 1e6) / 1e6;
+        const nextEarn = Math.round((earn - amt) * 1e6) / 1e6;
+        const u = await tx.user.update({
+          where: { id: row.userId },
+          data: { usdtBalance: nextAvail, earnBalance: nextEarn },
+        });
+        await tx.balanceHistory.create({
+          data: {
+            userId: row.userId,
+            type: 'earn',
+            amount: amt,
+            balance: u.usdtBalance,
+            meta: adminNote || 'Возврат из Earn (отклонено)',
+          },
+        });
+      }
       return tx.financeRequest.update({
         where: { id },
         data: { status, adminNote, reviewedAt: new Date() },
@@ -547,8 +638,10 @@ router.post('/finance/requests/:id/review', async (req, res) => {
     };
     const label = labels[updated.type] || updated.type;
     const msg = action === 'approve'
-      ? `Заявка «${label}» одобрена.${updated.amount ? ` Сумма: ${Number(updated.amount)} USDT.` : ''}`
-      : `Заявка «${label}» отклонена.${adminNote ? `\n${adminNote}` : ''}`;
+      ? (updated.type === 'earn'
+        ? `Заявка Earn одобрена. ${Number(updated.amount)} USDT работают в продукте.`
+        : `Заявка «${label}» одобрена.${updated.amount ? ` Сумма: ${Number(updated.amount)} USDT.` : ''}`)
+      : `Заявка «${label}» отклонена.${updated.type === 'earn' ? ' Средства возвращены на доступный баланс.' : ''}${adminNote ? `\n${adminNote}` : ''}`;
     bot.telegram.sendMessage(updated.user.telegramId.toString(), msg).catch(() => {});
   }
 
