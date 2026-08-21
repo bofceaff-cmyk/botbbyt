@@ -303,13 +303,14 @@ document.getElementById('reg-next').addEventListener('click', () => {
 
   const extraLabel = document.getElementById('reg-extra-label');
   const extraInput = document.getElementById('reg-extra');
+  // Если ввели email — телефон не спрашиваем. Если телефон — нужен email.
   if (parsed.kind === 'email') {
-    extraLabel.textContent = 'Телефон';
-    extraInput.type = 'tel';
-    extraInput.placeholder = '+7 900 000-00-00';
-    extraInput.autocomplete = 'tel';
+    extraLabel.classList.add('screen-hidden');
+    extraInput.classList.add('screen-hidden');
     extraInput.value = '';
   } else {
+    extraLabel.classList.remove('screen-hidden');
+    extraInput.classList.remove('screen-hidden');
     extraLabel.textContent = 'Email';
     extraInput.type = 'email';
     extraInput.placeholder = 'name@mail.com';
@@ -334,12 +335,7 @@ document.getElementById('reg-submit').addEventListener('click', async () => {
   let phone = '';
   if (regContactKind === 'email') {
     email = regContactValue;
-    const ph = parseContact(extra);
-    if (!ph || ph.kind !== 'phone') {
-      errorEl.textContent = 'Укажите номер телефона';
-      return;
-    }
-    phone = ph.value;
+    phone = '';
   } else {
     phone = regContactValue;
     const em = parseContact(extra);
@@ -525,7 +521,7 @@ document.getElementById('request-account-btn').addEventListener('click', async (
       renderAccount(profile);
       renderProfile(profile);
     }
-    tg.showAlert(res.accountNumber ? 'Номер уже назначен' : 'Заявка отправлена');
+    tg.showAlert(res.accountNumber ? 'Счёт уже создан' : 'Счёт создаётся, ожидайте');
   } catch (e) {
     tg.showAlert(e.message);
   }
@@ -614,10 +610,11 @@ async function loadDepositAddress() {
     );
     if (!data.assigned) {
       box.innerHTML = `
-        <div class="empty">${escapeHtml(data.message || 'Адрес ещё не выдан')}</div>
-        <p class="muted" style="margin-top:10px">Администратор назначит персональный адрес в админ-панели.</p>
-        <button class="btn-ghost" id="deposit-ask-support">Написать в поддержку</button>`;
-      document.getElementById('deposit-ask-support')?.addEventListener('click', () => showScreen('support'));
+        <div class="wallet-gen">
+          <div class="wallet-gen-spinner"></div>
+          <div class="wallet-gen-title">Генерация кошелька</div>
+          <p class="muted">${escapeHtml(data.message || 'Кошелёк генерируется. Ожидайте…')}</p>
+        </div>`;
       return;
     }
 
@@ -627,7 +624,7 @@ async function loadDepositAddress() {
       <div class="deposit-meta">${escapeHtml(data.asset)} · ${escapeHtml(data.network)}</div>
       <div class="deposit-addr mono" id="deposit-addr-text">${escapeHtml(data.address)}</div>
       <button class="btn-primary full" id="copy-deposit-addr">Скопировать адрес</button>
-      <p class="muted" style="margin-top:12px">Отправляйте только ${escapeHtml(data.asset)} в сети ${escapeHtml(data.network)}. Зачисление после подтверждения администратором.</p>`;
+      <p class="muted" style="margin-top:12px">Отправляйте только ${escapeHtml(data.asset)} в сети ${escapeHtml(data.network)}. После сети подтверждений средства появятся на балансе.</p>`;
     document.getElementById('copy-deposit-addr').addEventListener('click', async () => {
       try {
         await navigator.clipboard.writeText(data.address);
@@ -849,6 +846,109 @@ document.getElementById('chat-input').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') sendSupportMessage();
 });
 
+
+// ---------- chart ----------
+let chartSymbol = 'BTC';
+let chartInterval = '1h';
+let chartChange24h = null;
+
+function openChart(symbol, change24h) {
+  chartSymbol = symbol || 'BTC';
+  chartChange24h = change24h;
+  chartInterval = '1h';
+  document.querySelectorAll('#chart-intervals .seg-btn').forEach((b) => {
+    b.classList.toggle('active', b.dataset.interval === '1h');
+  });
+  showScreen('chart');
+  loadChart();
+}
+
+async function loadChart() {
+  const canvas = document.getElementById('chart-canvas');
+  const empty = document.getElementById('chart-empty');
+  empty.classList.remove('screen-hidden');
+  empty.textContent = 'Загрузка графика…';
+  document.getElementById('chart-title').textContent = `${chartSymbol} / USDT`;
+  try {
+    const r = await fetch(`/api/market/klines?symbol=${encodeURIComponent(chartSymbol)}&interval=${chartInterval}`);
+    const data = await r.json();
+    if (!r.ok || !data.candles?.length) throw new Error(data.error || 'bad');
+    empty.classList.add('screen-hidden');
+    document.getElementById('chart-price').textContent = `$${fmtUsdPrice(data.last)}`;
+    document.getElementById('chart-pair').textContent = data.pair || `${chartSymbol}USDT`;
+    const chg = fmtChange(chartChange24h == null || chartChange24h === '' ? null : Number(chartChange24h));
+    const chgEl = document.getElementById('chart-change');
+    chgEl.textContent = chg.text;
+    chgEl.className = chg.up ? 'chg-up' : 'chg-down';
+    drawCandles(canvas, data.candles);
+  } catch (e) {
+    empty.classList.remove('screen-hidden');
+    empty.textContent = e.message || 'Не удалось загрузить график';
+  }
+}
+
+function drawCandles(canvas, candles) {
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = canvas.clientWidth || 360;
+  const cssH = 220;
+  canvas.width = Math.floor(cssW * dpr);
+  canvas.height = Math.floor(cssH * dpr);
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, cssW, cssH);
+
+  const pad = { t: 12, r: 12, b: 20, l: 12 };
+  const w = cssW - pad.l - pad.r;
+  const h = cssH - pad.t - pad.b;
+  let min = Infinity;
+  let max = -Infinity;
+  candles.forEach((c) => {
+    min = Math.min(min, c.low);
+    max = Math.max(max, c.high);
+  });
+  const span = max - min || 1;
+  const slot = w / candles.length;
+
+  // grid
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 4; i++) {
+    const y = pad.t + (h * i) / 3;
+    ctx.beginPath();
+    ctx.moveTo(pad.l, y);
+    ctx.lineTo(pad.l + w, y);
+    ctx.stroke();
+  }
+
+  candles.forEach((c, i) => {
+    const x = pad.l + i * slot + slot / 2;
+    const yHigh = pad.t + ((max - c.high) / span) * h;
+    const yLow = pad.t + ((max - c.low) / span) * h;
+    const yOpen = pad.t + ((max - c.open) / span) * h;
+    const yClose = pad.t + ((max - c.close) / span) * h;
+    const up = c.close >= c.open;
+    ctx.strokeStyle = up ? '#0ecb81' : '#f6465d';
+    ctx.fillStyle = up ? '#0ecb81' : '#f6465d';
+    ctx.beginPath();
+    ctx.moveTo(x, yHigh);
+    ctx.lineTo(x, yLow);
+    ctx.stroke();
+    const bodyTop = Math.min(yOpen, yClose);
+    const bodyH = Math.max(1, Math.abs(yClose - yOpen));
+    ctx.fillRect(x - Math.max(1, slot * 0.3), bodyTop, Math.max(2, slot * 0.6), bodyH);
+  });
+}
+
+document.querySelectorAll('#chart-intervals [data-interval]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    chartInterval = btn.dataset.interval;
+    document.querySelectorAll('#chart-intervals .seg-btn').forEach((b) => {
+      b.classList.toggle('active', b === btn);
+    });
+    loadChart();
+  });
+});
+
 // ---------- markets ----------
 async function loadQuotes() {
   try {
@@ -871,7 +971,7 @@ async function loadQuotes() {
         ? `<img src="${escapeHtml(q.image)}" alt="" loading="lazy">`
         : `<div class="quote-ico">${escapeHtml(q.symbol.slice(0, 2))}</div>`;
       return `
-        <div class="quote-row" style="animation-delay:${i * 35}ms">
+        <button type="button" class="quote-row" data-symbol="${escapeHtml(q.symbol)}" data-change="${q.change24h ?? ''}" style="animation-delay:${i * 35}ms">
           ${img}
           <div>
             <div class="quote-name">${escapeHtml(q.symbol)}<span style="color:var(--text-3);font-weight:500"> / USDT</span></div>
@@ -881,11 +981,19 @@ async function loadQuotes() {
             <div class="quote-price mono">$${fmtUsdPrice(q.price)}</div>
             <span class="chg-pill ${chg.up ? 'up' : 'down'}">${chg.text}</span>
           </div>
-        </div>`;
+        </button>`;
     }).join('');
 
-    document.getElementById('quotes-updated').textContent =
-      `обн. ${new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`;
+    document.querySelectorAll('#quotes-list [data-symbol]').forEach((row) => {
+      row.addEventListener('click', () => openChart(row.dataset.symbol, row.dataset.change));
+    });
+    document.querySelectorAll('#ticker-strip .ticker-chip').forEach((chip, idx) => {
+      const q = quotes[idx];
+      if (!q) return;
+      chip.style.cursor = 'pointer';
+      chip.addEventListener('click', () => openChart(q.symbol, q.change24h));
+    });
+
   } catch {
     document.getElementById('ticker-strip').innerHTML = '';
     document.getElementById('quotes-list').innerHTML =

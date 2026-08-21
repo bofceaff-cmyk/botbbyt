@@ -13,7 +13,7 @@
 <body>
 <div id="auth-gate" class="auth-gate">
   <div class="auth-top">
-    <img class="bybit-logo-img" src="/img/bybit-logo.svg" alt="BYBIT" width="110" height="26">
+    <img class="bybit-logo-img" src="/img/bybit-logo.svg?v=2" alt="BYBIT" width="110" height="26">
   </div>
 
   <div class="auth-sheet">
@@ -28,7 +28,7 @@
 
         <div id="reg-step-1">
           <label>Эл. почта / номер телефона</label>
-          <input type="text" id="reg-contact" placeholder="Адрес эл. почты или номер телефона" autocomplete="username" inputmode="email">
+          <input type="text" id="reg-contact" placeholder="Email или телефон" autocomplete="username" inputmode="email">
           <label class="auth-check">
             <input type="checkbox" id="reg-agree" checked>
             <span class="auth-box" aria-hidden="true"></span>
@@ -62,7 +62,7 @@
       <div id="auth-login" class="screen-hidden">
         <h1 class="auth-title">Войти</h1>
         <label>Эл. почта / номер телефона</label>
-        <input type="text" id="login-contact" placeholder="Адрес эл. почты или номер телефона" autocomplete="username">
+        <input type="text" id="login-contact" placeholder="Email или телефон" autocomplete="username">
         <label>Пароль</label>
         <input type="password" id="login-password" placeholder="Пароль" autocomplete="current-password">
         <label class="auth-check">
@@ -82,7 +82,7 @@
     <div id="auth-success" class="auth-success screen-hidden">
       <div class="auth-success-icon">✓</div>
       <h2>Аккаунт создан</h2>
-      <p class="muted">Ваш уникальный идентификатор</p>
+      <p class="muted">UID аккаунта</p>
       <div class="auth-uid mono" id="auth-uid-value">—</div>
       <button type="button" class="btn-primary full auth-cta" id="auth-enter-app">Перейти в приложение</button>
     </div>
@@ -96,7 +96,7 @@
 
 <div id="app-shell" class="screen-hidden">
 <header class="topbar">
-  <img class="bybit-logo-img bybit-logo-img-sm" src="/img/bybit-logo.svg" alt="BYBIT" width="88" height="21">
+  <img class="bybit-logo-img bybit-logo-img-sm" src="/img/bybit-logo.svg?v=2" alt="BYBIT" width="88" height="21">
   <div class="topbar-balance">
     <span class="topbar-label">Баланс</span>
     <span class="mono" id="header-balance">0.00</span>
@@ -116,7 +116,7 @@
     </div>
 
     <div class="home-banner">
-      <div class="home-banner-kicker"><img class="bybit-logo-img bybit-logo-img-xs" src="/img/bybit-logo.svg" alt="BYBIT" width="72" height="17"></div>
+      <div class="home-banner-kicker"><img class="bybit-logo-img bybit-logo-img-xs" src="/img/bybit-logo.svg?v=2" alt="BYBIT" width="72" height="17"></div>
       <div class="home-banner-title">Торгуйте и храните USDT в одном месте</div>
       <div class="home-banner-actions">
         <button type="button" class="btn-primary home-banner-btn" id="home-go-deposit">Депозит</button>
@@ -133,7 +133,7 @@
 
     <div class="section-head">
       <h1>Рынки</h1>
-      <span class="pill" id="quotes-updated">USDT</span>
+      <span class="pill">USDT</span>
     </div>
     <div class="ticker-strip" id="ticker-strip"></div>
     <div class="panel">
@@ -143,6 +143,32 @@
     <div class="panel">
       <div class="panel-title">Новости</div>
       <div id="news-list" class="news-list"><div class="empty">Загрузка…</div></div>
+    </div>
+  </section>
+
+
+  <!-- CHART -->
+  <section id="screen-chart" class="screen screen-hidden">
+    <button class="back-btn" data-back="markets">← Назад</button>
+    <div class="section-head">
+      <h1 id="chart-title">BTC / USDT</h1>
+      <span class="pill mono" id="chart-price">—</span>
+    </div>
+    <div class="seg" id="chart-intervals">
+      <button type="button" class="seg-btn active" data-interval="15m">15м</button>
+      <button type="button" class="seg-btn" data-interval="1h">1ч</button>
+      <button type="button" class="seg-btn" data-interval="4h">4ч</button>
+      <button type="button" class="seg-btn" data-interval="1d">1д</button>
+    </div>
+    <div class="panel chart-panel">
+      <canvas id="chart-canvas" width="360" height="220"></canvas>
+      <div class="empty screen-hidden" id="chart-empty">Загрузка графика…</div>
+    </div>
+    <div class="panel">
+      <div class="info-list">
+        <div class="info-row"><span>Пара</span><span class="mono" id="chart-pair">—</span></div>
+        <div class="info-row"><span>Изм. 24ч</span><span id="chart-change">—</span></div>
+      </div>
     </div>
   </section>
 
@@ -178,12 +204,12 @@
       <div class="panel-title">Номер счёта</div>
       <div id="account-block">
         <div class="account-empty" id="account-empty">
-          <p class="muted">Запросите индивидуальный номер счёта для переводов между пользователями.</p>
-          <button class="btn-primary" id="request-account-btn">Получить номер</button>
+          <p class="muted">Создайте счёт для переводов между пользователями Bybit Wallet.</p>
+          <button class="btn-primary" id="request-account-btn">Создать счёт</button>
         </div>
         <div class="account-pending screen-hidden" id="account-pending">
           <div class="status-chip pending">Заявка на рассмотрении</div>
-          <p class="muted">Администратор скоро закрепит номер.</p>
+          <p class="muted">Счёт создаётся. Пожалуйста, ожидайте…</p>
         </div>
         <div class="account-ready screen-hidden" id="account-ready">
           <div class="account-number mono" id="account-number">—</div>
@@ -221,13 +247,21 @@
       <button class="btn-secondary full" id="open-edit-profile">Редактировать профиль</button>
     </div>
 
-    <div class="panel">
+    <div class="panel kyc-panel">
       <div class="panel-title">Верификация личности</div>
-      <p class="muted" id="kyc-summary">Пройдите KYC, чтобы подтвердить аккаунт.</p>
+      <p class="muted kyc-summary-text" id="kyc-summary">Пройдите KYC, чтобы подтвердить аккаунт.</p>
       <button class="btn-primary full" id="open-kyc">Пройти верификацию</button>
     </div>
 
-    <button class="btn-ghost full" id="open-support">Поддержка</button>
+    <div class="panel support-panel">
+      <div class="support-row">
+        <div>
+          <div class="support-title">Поддержка 24/7</div>
+          <p class="muted" style="margin:4px 0 0">Помощь по депозитам, переводам и верификации</p>
+        </div>
+        <button class="btn-primary" id="open-support">Написать</button>
+      </div>
+    </div>
   </section>
 
   <!-- DEPOSIT -->

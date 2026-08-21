@@ -145,10 +145,18 @@ main { padding: 12px 14px 8px; }
   gap: 10px;
   align-items: center;
   padding: 10px 0;
+  border: none;
   border-bottom: 1px solid var(--line-soft);
   animation: fadeUp 0.4s ease both;
+  width: 100%;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 .quote-row:last-child { border-bottom: none; }
+.quote-row:active { background: var(--panel-2); border-radius: 8px; }
 .quote-row img {
   width: 28px; height: 28px; border-radius: 50%;
   background: var(--panel-2);
@@ -816,3 +824,44 @@ input:focus { border-color: rgba(247, 166, 0, 0.55); }
 }
 .home-quick-item:active { background: var(--panel-2); }
 
+
+
+.kyc-panel .kyc-summary-text { margin: 0 0 14px; }
+.kyc-panel #open-kyc { margin-top: 0; }
+
+.support-panel { padding: 14px; }
+.support-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.support-title { font-weight: 650; font-size: 15px; }
+.support-row .btn-primary {
+  flex: 0 0 auto;
+  padding: 10px 16px;
+  border-radius: 999px;
+  margin: 0;
+}
+
+.wallet-gen { padding: 18px 8px 8px; }
+.wallet-gen-spinner {
+  width: 36px; height: 36px;
+  margin: 0 auto 14px;
+  border-radius: 50%;
+  border: 3px solid var(--line);
+  border-top-color: var(--accent);
+  animation: spin 0.85s linear infinite;
+}
+.wallet-gen-title {
+  font-weight: 700;
+  font-size: 16px;
+  margin-bottom: 6px;
+}
+
+.chart-panel { padding: 10px; overflow: hidden; }
+#chart-canvas {
+  width: 100%;
+  height: 220px;
+  display: block;
+}
