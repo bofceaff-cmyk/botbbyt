@@ -6,7 +6,7 @@ function createBot() {
 
   bot.start((ctx) => {
     ctx.reply(
-      'Добро пожаловать в BYX — кошелёк USDT, рынки и переводы между пользователями.',
+      'Добро пожаловать в Bybit Wallet — кошелёк USDT, рынки и переводы.',
       Markup.inlineKeyboard([
         Markup.button.webApp('Открыть приложение', process.env.WEBAPP_URL),
       ])
