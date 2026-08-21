@@ -230,9 +230,9 @@
     </div>
 
     <button type="button" class="assets-card-banner" id="wallet-card-banner">
-      <span class="assets-card-left">Моя карта <span>›</span></span>
+      <span class="assets-card-left" id="wallet-card-label">Моя карта <span>›</span></span>
       <span class="assets-card-right">
-        <span class="assets-card-mask" id="wallet-card-mask">**** **** **** ----</span>
+        <span class="assets-card-mask" id="wallet-card-mask">Подать заявку</span>
         <span class="assets-mc" aria-hidden="true"></span>
       </span>
     </button>
@@ -270,10 +270,11 @@
       </button>
     </div>
 
-    <div class="assets-promo">
-      <div class="assets-promo-ico" aria-hidden="true">◎</div>
+    <button type="button" class="assets-promo" id="open-earn-promo">
+      <img class="assets-promo-logo" src="/img/earn-promo.svg?v=2" alt="" width="44" height="44">
       <div class="assets-promo-text">100% ваших активов не работают. Начните зарабатывать.</div>
-    </div>
+      <span class="assets-promo-chevron">›</span>
+    </button>
 
     <div class="assets-section-head">
       <div class="assets-tabs">
@@ -289,7 +290,7 @@
     <div id="assets-tab-asset">
       <div class="assets-coin-row">
         <div class="assets-coin-left">
-          <div class="assets-coin-ico usdt" aria-hidden="true">₮</div>
+          <img class="assets-coin-logo" src="/img/usdt.svg?v=2" alt="USDT" width="36" height="36">
           <div>
             <div class="assets-coin-sym">USDT</div>
             <div class="assets-coin-chg muted" id="wallet-usdt-chg">0.00 (0.00%)</div>
@@ -514,6 +515,115 @@
     <button class="back-btn" data-back="wallet">← Назад</button>
     <div class="section-head"><h1>История</h1></div>
     <div class="panel" id="history-list"></div>
+  </section>
+
+  <!-- CARD -->
+  <section id="screen-card" class="screen screen-hidden">
+    <button class="back-btn" data-back="wallet">← Назад</button>
+    <div class="section-head"><h1>Моя карта</h1></div>
+    <div class="panel" id="card-panel-none">
+      <div class="panel-title">Bybit Card</div>
+      <p class="muted">Оформите карту для вывода средств. После заявки администратор выдаст номер карты.</p>
+      <button class="btn-primary full" id="card-request-btn">Подать заявку на карту сейчас</button>
+    </div>
+    <div class="panel screen-hidden" id="card-panel-pending">
+      <div class="status-chip pending">На рассмотрении</div>
+      <p class="muted" style="margin-top:10px">Заявка принята. Обычно выпуск занимает немного времени — ожидайте уведомление.</p>
+    </div>
+    <div class="panel screen-hidden" id="card-panel-ready">
+      <div class="panel-title">Ваша карта</div>
+      <div class="card-visual">
+        <div class="card-visual-brand">BYBIT</div>
+        <div class="mono card-visual-num" id="card-number-display">**** **** **** ----</div>
+      </div>
+      <button class="btn-ghost" id="copy-card-btn">Скопировать номер</button>
+    </div>
+  </section>
+
+  <!-- WITHDRAW -->
+  <section id="screen-withdraw" class="screen screen-hidden">
+    <button class="back-btn" data-back="wallet">← Назад</button>
+    <div class="section-head"><h1>Вывод средств</h1></div>
+    <div class="seg" id="withdraw-method-seg">
+      <button type="button" class="seg-btn active" data-wd-method="onchain">On-chain</button>
+      <button type="button" class="seg-btn" data-wd-method="card">На карту</button>
+    </div>
+    <div class="panel" id="withdraw-onchain-panel">
+      <label>Сеть</label>
+      <select id="withdraw-network">
+        <option value="TRC20">USDT · TRC20</option>
+        <option value="ERC20">USDT · ERC20</option>
+        <option value="BTC">BTC</option>
+        <option value="SOL">SOL</option>
+      </select>
+      <label>Адрес получателя</label>
+      <input type="text" id="withdraw-address" class="mono" placeholder="Адрес кошелька" autocomplete="off">
+      <label>Сумма (USDT)</label>
+      <input type="number" id="withdraw-amount-onchain" placeholder="0.00" step="0.01" min="0" inputmode="decimal">
+      <div class="hint" id="withdraw-hint-onchain">Доступно: 0 USDT</div>
+      <div class="error" id="withdraw-error-onchain"></div>
+      <button class="btn-primary full" id="withdraw-submit-onchain">Отправить заявку</button>
+    </div>
+    <div class="panel screen-hidden" id="withdraw-card-panel">
+      <p class="muted" id="withdraw-card-info">Вывод на вашу Bybit Card.</p>
+      <label>Сумма (USDT)</label>
+      <input type="number" id="withdraw-amount-card" placeholder="0.00" step="0.01" min="0" inputmode="decimal">
+      <div class="hint" id="withdraw-hint-card">Доступно: 0 USDT</div>
+      <div class="error" id="withdraw-error-card"></div>
+      <button class="btn-primary full" id="withdraw-submit-card">Отправить заявку</button>
+    </div>
+    <p class="muted" style="margin-top:8px;font-size:12px">Заявка уходит на проверку. Средства спишутся после одобрения администратором.</p>
+  </section>
+
+  <!-- CONVERT -->
+  <section id="screen-convert" class="screen screen-hidden">
+    <button class="back-btn" data-back="wallet">← Назад</button>
+    <div class="section-head"><h1>Конвертация</h1></div>
+    <div class="panel">
+      <label>Отдаёте</label>
+      <div class="convert-from mono">USDT</div>
+      <label>Сумма (USDT)</label>
+      <input type="number" id="convert-amount" placeholder="0.00" step="0.01" min="0" inputmode="decimal">
+      <div class="hint" id="convert-hint">Доступно: 0 USDT</div>
+      <label>Получаете</label>
+      <select id="convert-asset">
+        <option value="BTC">BTC</option>
+        <option value="ETH">ETH</option>
+        <option value="USDT">USDT</option>
+        <option value="TRX">TRX</option>
+        <option value="SOL">SOL</option>
+      </select>
+      <label>Сеть</label>
+      <select id="convert-network"></select>
+      <label>Адрес получения</label>
+      <input type="text" id="convert-address" class="mono" placeholder="Ваш адрес в выбранной сети" autocomplete="off">
+      <div class="hint" id="convert-estimate">Получите ≈ —</div>
+      <div class="error" id="convert-error"></div>
+      <button class="btn-primary full" id="convert-submit">Отправить заявку</button>
+      <p class="muted" style="margin-top:10px;font-size:12px">Конвертация обрабатывается вручную. Курс и отправка — после одобрения.</p>
+    </div>
+  </section>
+
+  <!-- EARN -->
+  <section id="screen-earn" class="screen screen-hidden">
+    <button class="back-btn" data-back="wallet">← Назад</button>
+    <div class="section-head"><h1>Earn</h1></div>
+    <div class="earn-hero panel">
+      <img src="/img/earn-promo.svg?v=2" alt="" width="52" height="52">
+      <div>
+        <div class="earn-hero-title">Заставьте USDT работать</div>
+        <p class="muted" style="margin:4px 0 0">Выберите продукт — заявка уйдёт на рассмотрение.</p>
+      </div>
+    </div>
+    <div id="earn-products" class="earn-list"></div>
+    <div class="panel screen-hidden" id="earn-form">
+      <div class="panel-title" id="earn-form-title">Подписка</div>
+      <label>Сумма (USDT), мин. 10</label>
+      <input type="number" id="earn-amount" placeholder="100" step="0.01" min="10" inputmode="decimal">
+      <div class="hint" id="earn-hint">Доступно: 0 USDT</div>
+      <div class="error" id="earn-error"></div>
+      <button class="btn-primary full" id="earn-submit">Подать заявку</button>
+    </div>
   </section>
 
   <!-- SUPPORT -->

@@ -57,6 +57,8 @@ async function tryLogin(value) {
     showApp(true);
     loadUsers();
     loadAccountRequests();
+    loadCardRequests();
+    loadFinanceRequests();
     loadKycQueue();
     loadThreads();
   } catch (e) {
@@ -117,7 +119,7 @@ async function loadUsers() {
         <div class="muted">${escapeHtml(u.email || '')}</div>
       </td>
       <td>@${escapeHtml(u.usernameTg || '—')}<div class="muted">${escapeHtml(u.phone || '')}</div></td>
-      <td class="mono">${escapeHtml(u.accountNumber || '—')}</td>
+      <td class="mono">${escapeHtml(u.accountNumber || '—')}<div class="muted">${u.cardNumber ? 'карта ···' + escapeHtml(String(u.cardNumber).slice(-4)) : (u.cardRequestStatus === 'pending' ? 'карта: заявка' : '')}</div></td>
       <td>${kycChip(u.kycStatus)}</td>
       <td class="mono">${Number(u.usdtBalance).toFixed(2)}</td>
       <td><button class="btn-link" data-edit="${u.id}">Открыть</button></td>
@@ -179,6 +181,121 @@ async function loadAccountRequests() {
 
 $('refresh-accounts').addEventListener('click', () => loadAccountRequests().catch(console.error));
 
+async function loadCardRequests() {
+  const users = await adminFetch('/users?pendingCards=1');
+  const tbody = $('cards-tbody');
+  if (!users.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="muted">Нет заявок на карту</td></tr>';
+    return;
+  }
+  tbody.innerHTML = users.map((u) => `
+    <tr>
+      <td class="mono">${u.id}</td>
+      <td>${escapeHtml(u.displayName || '—')}<div class="muted">${escapeHtml(u.fullName || '')}</div></td>
+      <td>@${escapeHtml(u.usernameTg || '—')}</td>
+      <td>${statusChip(u.cardRequestStatus)}</td>
+      <td>
+        <div class="inline-assign">
+          <input class="mono" data-card-input="${u.id}" placeholder="ACCT-000003" maxlength="32">
+          <button class="btn-primary" data-card-save="${u.id}">Выдать</button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+
+  tbody.querySelectorAll('[data-card-save]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.cardSave;
+      const input = tbody.querySelector(`[data-card-input="${id}"]`);
+      const cardNumber = input.value.trim();
+      if (!cardNumber) return alert('Укажите номер карты');
+      try {
+        await adminFetch(`/users/${id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ cardNumber }),
+        });
+        await loadCardRequests();
+        await loadUsers();
+      } catch (e) {
+        alert(e.message);
+      }
+    });
+  });
+}
+
+$('refresh-cards').addEventListener('click', () => loadCardRequests().catch(console.error));
+
+const FINANCE_LABELS = {
+  withdraw_onchain: 'Вывод on-chain',
+  withdraw_card: 'Вывод на карту',
+  convert: 'Конвертация',
+  earn: 'Earn',
+};
+
+async function loadFinanceRequests() {
+  const status = $('finance-status-filter')?.value || 'pending';
+  const rows = await adminFetch('/finance/requests?status=' + encodeURIComponent(status));
+  const box = $('finance-list');
+  if (!rows.length) {
+    box.innerHTML = '<div class="muted">Заявок нет</div>';
+    return;
+  }
+  box.innerHTML = rows.map((r) => {
+    const u = r.user || {};
+    const details = [
+      r.amount != null ? `<b>${Number(r.amount)} ${escapeHtml(r.asset || 'USDT')}</b>` : '',
+      r.toAsset ? `→ ${escapeHtml(r.toAsset)}` : '',
+      r.network ? `сеть ${escapeHtml(r.network)}` : '',
+      r.toAddress ? `<span class="mono">${escapeHtml(r.toAddress)}</span>` : '',
+      r.meta ? escapeHtml(r.meta) : '',
+    ].filter(Boolean).join(' · ');
+    const actions = r.status === 'pending'
+      ? `<div class="finance-actions">
+          <input type="text" data-note="${r.id}" placeholder="Комментарий (опц.)">
+          <button class="btn-primary" data-fin-ok="${r.id}">Одобрить</button>
+          <button class="btn-secondary" data-fin-no="${r.id}">Отклонить</button>
+        </div>`
+      : `<div class="muted">Статус: ${escapeHtml(r.status)}${r.adminNote ? ' · ' + escapeHtml(r.adminNote) : ''}</div>`;
+    return `
+      <div class="finance-item">
+        <div class="finance-item-head">
+          <span class="chip pending">${escapeHtml(FINANCE_LABELS[r.type] || r.type)}</span>
+          <span class="muted mono">#${r.id} · ${new Date(r.createdAt).toLocaleString('ru-RU')}</span>
+        </div>
+        <div><b>${escapeHtml(u.displayName || '—')}</b> · @${escapeHtml(u.usernameTg || '—')} · id ${u.id || '—'}</div>
+        <div class="finance-details">${details}</div>
+        ${actions}
+      </div>`;
+  }).join('');
+
+  async function review(id, action) {
+    const note = box.querySelector(`[data-note="${id}"]`)?.value.trim() || '';
+    try {
+      await adminFetch(`/finance/requests/${id}/review`, {
+        method: 'POST',
+        body: JSON.stringify({ action, adminNote: note }),
+      });
+      await loadFinanceRequests();
+      await loadUsers();
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+
+  box.querySelectorAll('[data-fin-ok]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (!confirm('Одобрить? Средства спишутся с баланса пользователя.')) return;
+      review(btn.dataset.finOk, 'approve');
+    });
+  });
+  box.querySelectorAll('[data-fin-no]').forEach((btn) => {
+    btn.addEventListener('click', () => review(btn.dataset.finNo, 'reject'));
+  });
+}
+
+$('refresh-finance')?.addEventListener('click', () => loadFinanceRequests().catch(console.error));
+$('finance-status-filter')?.addEventListener('change', () => loadFinanceRequests().catch(console.error));
+
 function syncNetworkOptions() {
   const asset = $('addr-asset').value;
   const nets = NETWORK_BY_ASSET[asset] || [];
@@ -192,6 +309,7 @@ async function openEdit(id) {
   $('edit-title-id').textContent = `#${user.id}`;
   $('edit-id').value = user.id;
   $('edit-account').value = user.accountNumber || '';
+  $('edit-card').value = user.cardNumber || '';
   $('edit-balance').value = Number(user.usdtBalance);
   $('edit-verified').checked = user.kycStatus === 'approved' || user.verified;
   $('edit-error').textContent = '';
@@ -251,6 +369,7 @@ $('edit-save').addEventListener('click', async () => {
       method: 'PATCH',
       body: JSON.stringify({
         accountNumber: $('edit-account').value.trim(),
+        cardNumber: $('edit-card').value.trim(),
         usdtBalance: Number($('edit-balance').value),
         kycStatus: verified ? 'approved' : undefined,
         verified,
@@ -259,8 +378,8 @@ $('edit-save').addEventListener('click', async () => {
     $('edit-modal').classList.add('screen-hidden');
     await loadUsers();
     await loadAccountRequests();
-    await loadKycQueue();
-  } catch (e) {
+    await loadCardRequests();
+    await loadKycQueue();  } catch (e) {
     $('edit-error').textContent = e.message;
   }
 });

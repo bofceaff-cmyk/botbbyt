@@ -26,6 +26,8 @@
     <nav>
       <button class="nav-btn active" data-view="users">Пользователи</button>
       <button class="nav-btn" data-view="accounts">Заявки на счёт</button>
+      <button class="nav-btn" data-view="cards">Заявки на карту</button>
+      <button class="nav-btn" data-view="finance">Вывод / Convert / Earn</button>
       <button class="nav-btn" data-view="kyc">KYC</button>
       <button class="nav-btn" data-view="support">Поддержка <span id="support-nav-dot" class="nav-dot screen-hidden"></span></button>
     </nav>
@@ -75,6 +77,43 @@
           <tbody id="accounts-tbody"></tbody>
         </table>
       </div>
+    </section>
+
+    <section id="view-cards" class="view screen-hidden">
+      <div class="view-head">
+        <h1>Заявки на карту</h1>
+        <button class="btn-secondary" id="refresh-cards">Обновить</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Имя</th>
+              <th>Telegram</th>
+              <th>Статус</th>
+              <th>Выдать номер карты</th>
+            </tr>
+          </thead>
+          <tbody id="cards-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="view-finance" class="view screen-hidden">
+      <div class="view-head">
+        <h1>Финансовые заявки</h1>
+        <div class="head-actions">
+          <select id="finance-status-filter">
+            <option value="pending">Ожидают</option>
+            <option value="approved">Одобренные</option>
+            <option value="rejected">Отклонённые</option>
+            <option value="all">Все</option>
+          </select>
+          <button class="btn-secondary" id="refresh-finance">Обновить</button>
+        </div>
+      </div>
+      <div id="finance-list" class="finance-list"></div>
     </section>
 
     <section id="view-kyc" class="view screen-hidden">
@@ -132,6 +171,8 @@
       <div>
         <label>Номер счёта</label>
         <input type="text" id="edit-account" class="mono" placeholder="оставьте пустым чтобы сбросить">
+        <label>Номер карты</label>
+        <input type="text" id="edit-card" class="mono" placeholder="16 цифр, пусто = сбросить">
         <label>Баланс USDT</label>
         <input type="number" id="edit-balance" step="0.01" min="0">
         <label class="check-row"><input type="checkbox" id="edit-verified"> Верифицирован (approved)</label>

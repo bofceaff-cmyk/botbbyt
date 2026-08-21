@@ -20,6 +20,10 @@ const TYPE_LABELS = {
   transfer_out: 'Исходящий перевод',
   admin_adjust: 'Корректировка',
   bonus: 'Бонус',
+  withdraw_onchain: 'Вывод on-chain',
+  withdraw_card: 'Вывод на карту',
+  convert: 'Конвертация',
+  earn: 'Earn',
 };
 
 const KYC_LABELS = {
@@ -138,8 +142,11 @@ function showScreen(name) {
   screen.classList.remove('screen-hidden');
 
   document.querySelectorAll('.tab').forEach((t) => {
+    const walletScreens = new Set([
+      'deposit', 'transfer', 'history', 'withdraw', 'convert', 'earn', 'card',
+    ]);
     const tab = MAIN_TABS.has(name) ? name : (
-      name === 'deposit' || name === 'transfer' || name === 'history' ? 'wallet' : 'profile'
+      walletScreens.has(name) ? 'wallet' : 'profile'
     );
     t.classList.toggle('active', t.dataset.tab === tab);
   });
@@ -158,6 +165,10 @@ function showScreen(name) {
   }
   if (name === 'edit-profile' && profile) fillEditForm();
   if (name === 'kyc') initKycScreen();
+  if (name === 'card') renderCardScreen();
+  if (name === 'withdraw') prepareWithdrawScreen();
+  if (name === 'convert') prepareConvertScreen();
+  if (name === 'earn') prepareEarnScreen();
 }
 
 document.querySelectorAll('[data-back]').forEach((btn) => {
@@ -171,22 +182,11 @@ document.getElementById('open-deposit').addEventListener('click', () => showScre
 document.getElementById('open-transfer').addEventListener('click', () => showScreen('transfer'));
 document.getElementById('open-history').addEventListener('click', () => showScreen('history'));
 document.getElementById('wallet-go-profile')?.addEventListener('click', () => showScreen('profile'));
-document.getElementById('open-withdraw')?.addEventListener('click', () => {
-  tg.showAlert('Вывод средств — через поддержку. Откройте Профиль → Поддержка.');
-});
-document.getElementById('open-convert')?.addEventListener('click', () => {
-  tg.showAlert('Конвертация скоро будет доступна.');
-});
-document.getElementById('open-earn')?.addEventListener('click', () => {
-  tg.showAlert('Earn скоро будет доступен.');
-});
-document.getElementById('wallet-card-banner')?.addEventListener('click', () => {
-  document.querySelectorAll('.assets-tab').forEach((t) => {
-    t.classList.toggle('active', t.dataset.assetsTab === 'account');
-  });
-  document.getElementById('assets-tab-asset')?.classList.add('screen-hidden');
-  document.getElementById('assets-tab-account')?.classList.remove('screen-hidden');
-});
+document.getElementById('open-withdraw')?.addEventListener('click', () => showScreen('withdraw'));
+document.getElementById('open-convert')?.addEventListener('click', () => showScreen('convert'));
+document.getElementById('open-earn')?.addEventListener('click', () => showScreen('earn'));
+document.getElementById('open-earn-promo')?.addEventListener('click', () => showScreen('earn'));
+document.getElementById('wallet-card-banner')?.addEventListener('click', () => showScreen('card'));
 
 document.querySelectorAll('.assets-tab').forEach((btn) => {
   btn.addEventListener('click', () => {
@@ -201,6 +201,9 @@ document.querySelectorAll('.assets-tab').forEach((btn) => {
 let balanceHidden = localStorage.getItem('byx_hide_bal') === '1';
 let lastWalletBalance = 0;
 let lastBtcPrice = 77420;
+let convertOptions = null;
+let earnProducts = [];
+let selectedEarnProduct = null;
 
 function maskBal(text) {
   return balanceHidden ? '******' : text;
@@ -237,10 +240,268 @@ function renderWalletAmounts(bal) {
   if (pnl) pnl.textContent = '+0.00 USD (+0.00%)';
 }
 
+function formatCardMask(num) {
+  if (!num) return 'Подать заявку';
+  const digits = String(num).replace(/\D/g, '');
+  const tail = digits.slice(-4) || '----';
+  return `**** **** **** ${tail}`;
+}
+
+function renderCardBanner(me) {
+  const mask = document.getElementById('wallet-card-mask');
+  const label = document.getElementById('wallet-card-label');
+  if (!mask) return;
+  if (me.cardNumber) {
+    mask.textContent = formatCardMask(me.cardNumber);
+    if (label) label.innerHTML = 'Моя карта <span>›</span>';
+  } else if (me.cardRequestStatus === 'pending') {
+    mask.textContent = 'На рассмотрении';
+    if (label) label.innerHTML = 'Моя карта <span>›</span>';
+  } else {
+    mask.textContent = 'Подать заявку';
+    if (label) label.innerHTML = 'Моя карта <span>›</span>';
+  }
+}
+
+function renderCardScreen() {
+  const me = profile || {};
+  const none = document.getElementById('card-panel-none');
+  const pending = document.getElementById('card-panel-pending');
+  const ready = document.getElementById('card-panel-ready');
+  [none, pending, ready].forEach((el) => el?.classList.add('screen-hidden'));
+  if (me.cardNumber) {
+    ready?.classList.remove('screen-hidden');
+    const digits = String(me.cardNumber).replace(/\D/g, '');
+    const pretty = digits.replace(/(\d{4})(?=\d)/g, '$1 ').trim();
+    document.getElementById('card-number-display').textContent = pretty;
+  } else if (me.cardRequestStatus === 'pending') {
+    pending?.classList.remove('screen-hidden');
+  } else {
+    none?.classList.remove('screen-hidden');
+  }
+}
+
 document.getElementById('toggle-balance-eye')?.addEventListener('click', () => {
   balanceHidden = !balanceHidden;
   localStorage.setItem('byx_hide_bal', balanceHidden ? '1' : '0');
   applyBalanceVisibility();
+});
+
+document.getElementById('card-request-btn')?.addEventListener('click', async () => {
+  try {
+    const res = await apiFetch('/finance/card-request', { method: 'POST', body: JSON.stringify({}) });
+    if (profile) {
+      profile.cardNumber = res.cardNumber;
+      profile.cardRequestStatus = res.cardRequestStatus;
+    }
+    renderCardBanner(profile || res);
+    renderCardScreen();
+    tg.showAlert(res.cardNumber ? 'Карта уже выдана' : 'Заявка на карту отправлена');
+  } catch (e) {
+    tg.showAlert(e.message);
+  }
+});
+
+document.getElementById('copy-card-btn')?.addEventListener('click', async () => {
+  const num = profile?.cardNumber;
+  if (!num) return;
+  try {
+    await navigator.clipboard.writeText(String(num));
+    tg.showAlert('Номер скопирован');
+  } catch {
+    tg.showAlert(String(num));
+  }
+});
+
+function prepareWithdrawScreen() {
+  const bal = profile ? fmtUsdt(profile.usdtBalance) : '0.00';
+  document.getElementById('withdraw-hint-onchain').textContent = `Доступно: ${bal} USDT`;
+  document.getElementById('withdraw-hint-card').textContent = `Доступно: ${bal} USDT`;
+  const info = document.getElementById('withdraw-card-info');
+  if (profile?.cardNumber) {
+    info.textContent = `Вывод на карту ${formatCardMask(profile.cardNumber)}`;
+  } else if (profile?.cardRequestStatus === 'pending') {
+    info.textContent = 'Карта на рассмотрении. Дождитесь выдачи или оформите заявку в «Моя карта».';
+  } else {
+    info.textContent = 'Сначала оформите карту: Активы → Моя карта.';
+  }
+}
+
+document.querySelectorAll('#withdraw-method-seg [data-wd-method]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#withdraw-method-seg .seg-btn').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+    const method = btn.dataset.wdMethod;
+    document.getElementById('withdraw-onchain-panel').classList.toggle('screen-hidden', method !== 'onchain');
+    document.getElementById('withdraw-card-panel').classList.toggle('screen-hidden', method !== 'card');
+  });
+});
+
+async function submitWithdraw(method) {
+  const amountEl = method === 'onchain'
+    ? document.getElementById('withdraw-amount-onchain')
+    : document.getElementById('withdraw-amount-card');
+  const errEl = method === 'onchain'
+    ? document.getElementById('withdraw-error-onchain')
+    : document.getElementById('withdraw-error-card');
+  errEl.textContent = '';
+  const body = {
+    method,
+    amount: amountEl.value,
+  };
+  if (method === 'onchain') {
+    body.network = document.getElementById('withdraw-network').value;
+    body.address = document.getElementById('withdraw-address').value.trim();
+  }
+  try {
+    await apiFetch('/finance/withdraw', { method: 'POST', body: JSON.stringify(body) });
+    amountEl.value = '';
+    if (method === 'onchain') document.getElementById('withdraw-address').value = '';
+    tg.showAlert('Заявка на вывод отправлена на рассмотрение');
+    showScreen('wallet');
+  } catch (e) {
+    errEl.textContent = e.message;
+  }
+}
+
+document.getElementById('withdraw-submit-onchain')?.addEventListener('click', () => submitWithdraw('onchain'));
+document.getElementById('withdraw-submit-card')?.addEventListener('click', () => submitWithdraw('card'));
+
+const CONVERT_NETS = {
+  BTC: ['BTC'],
+  ETH: ['ERC20'],
+  USDT: ['TRC20', 'ERC20'],
+  TRX: ['TRC20'],
+  SOL: ['SOL'],
+};
+
+function syncConvertNetworks() {
+  const asset = document.getElementById('convert-asset').value;
+  const nets = CONVERT_NETS[asset] || ['TRC20'];
+  const sel = document.getElementById('convert-network');
+  sel.innerHTML = nets.map((n) => `<option value="${n}">${n}</option>`).join('');
+}
+
+function prepareConvertScreen() {
+  const bal = profile ? fmtUsdt(profile.usdtBalance) : '0.00';
+  document.getElementById('convert-hint').textContent = `Доступно: ${bal} USDT`;
+  syncConvertNetworks();
+  updateConvertEstimate();
+}
+
+async function updateConvertEstimate() {
+  const el = document.getElementById('convert-estimate');
+  if (!el) return;
+  const amount = Number(document.getElementById('convert-amount')?.value);
+  const asset = document.getElementById('convert-asset')?.value || 'BTC';
+  if (!Number.isFinite(amount) || amount <= 0) {
+    el.textContent = 'Ориентировочно получите ≈ — (курс после одобрения)';
+    return;
+  }
+  try {
+    const r = await fetch('/api/market/quotes');
+    const quotes = await r.json().catch(() => []);
+    const q = Array.isArray(quotes)
+      ? quotes.find((x) => String(x.symbol).toUpperCase() === asset)
+      : null;
+    if (asset === 'USDT') {
+      el.textContent = `Ориентировочно ≈ ${fmtUsdt(amount)} USDT`;
+      return;
+    }
+    if (q?.price) {
+      const got = amount / Number(q.price);
+      el.textContent = `Ориентировочно ≈ ${got.toFixed(asset === 'BTC' ? 8 : 6)} ${asset} (по рынку)`;
+    } else {
+      el.textContent = 'Курс уточнит администратор при одобрении';
+    }
+  } catch {
+    el.textContent = 'Курс уточнит администратор при одобрении';
+  }
+}
+
+document.getElementById('convert-asset')?.addEventListener('change', () => {
+  syncConvertNetworks();
+  updateConvertEstimate();
+});
+document.getElementById('convert-amount')?.addEventListener('input', updateConvertEstimate);
+
+document.getElementById('convert-submit')?.addEventListener('click', async () => {
+  const err = document.getElementById('convert-error');
+  err.textContent = '';
+  try {
+    await apiFetch('/finance/convert', {
+      method: 'POST',
+      body: JSON.stringify({
+        amount: document.getElementById('convert-amount').value,
+        toAsset: document.getElementById('convert-asset').value,
+        network: document.getElementById('convert-network').value,
+        address: document.getElementById('convert-address').value.trim(),
+      }),
+    });
+    document.getElementById('convert-amount').value = '';
+    document.getElementById('convert-address').value = '';
+    tg.showAlert('Заявка на конвертацию отправлена');
+    showScreen('wallet');
+  } catch (e) {
+    err.textContent = e.message;
+  }
+});
+
+async function prepareEarnScreen() {
+  const bal = profile ? fmtUsdt(profile.usdtBalance) : '0.00';
+  document.getElementById('earn-hint').textContent = `Доступно: ${bal} USDT`;
+  document.getElementById('earn-form')?.classList.add('screen-hidden');
+  selectedEarnProduct = null;
+  try {
+    earnProducts = await apiFetch('/finance/earn/products');
+  } catch {
+    earnProducts = [];
+  }
+  const box = document.getElementById('earn-products');
+  box.innerHTML = earnProducts.map((p) => `
+    <button type="button" class="earn-card" data-earn="${escapeHtml(p.id)}">
+      <div class="earn-card-top">
+        <span class="earn-card-title">${escapeHtml(p.title)}</span>
+        <span class="earn-card-apy">${escapeHtml(p.apy)} APY</span>
+      </div>
+      <div class="earn-card-desc">${escapeHtml(p.desc)}</div>
+    </button>
+  `).join('') || '<div class="muted">Продукты временно недоступны</div>';
+
+  box.querySelectorAll('[data-earn]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      box.querySelectorAll('.earn-card').forEach((c) => c.classList.remove('selected'));
+      btn.classList.add('selected');
+      selectedEarnProduct = earnProducts.find((p) => p.id === btn.dataset.earn);
+      const form = document.getElementById('earn-form');
+      form.classList.remove('screen-hidden');
+      document.getElementById('earn-form-title').textContent =
+        selectedEarnProduct ? `${selectedEarnProduct.title} · ${selectedEarnProduct.apy}` : 'Подписка';
+    });
+  });
+}
+
+document.getElementById('earn-submit')?.addEventListener('click', async () => {
+  const err = document.getElementById('earn-error');
+  err.textContent = '';
+  if (!selectedEarnProduct) {
+    err.textContent = 'выберите продукт';
+    return;
+  }
+  try {
+    await apiFetch('/finance/earn', {
+      method: 'POST',
+      body: JSON.stringify({
+        productId: selectedEarnProduct.id,
+        amount: document.getElementById('earn-amount').value,
+      }),
+    });
+    document.getElementById('earn-amount').value = '';
+    tg.showAlert('Заявка Earn отправлена на рассмотрение');
+    showScreen('wallet');
+  } catch (e) {
+    err.textContent = e.message;
+  }
 });
 
 document.getElementById('open-support').addEventListener('click', () => showScreen('support'));
@@ -554,16 +815,8 @@ function renderProfile(me) {
 
   lastWalletBalance = Number(me.usdtBalance) || 0;
   applyBalanceVisibility();
+  renderCardBanner(me);
 
-  const cardMask = document.getElementById('wallet-card-mask');
-  if (cardMask) {
-    if (me.accountNumber) {
-      const tail = String(me.accountNumber).slice(-4);
-      cardMask.textContent = `**** **** **** ${tail}`;
-    } else {
-      cardMask.textContent = '**** **** **** ----';
-    }
-  }
   const hello = document.getElementById('home-hello-name');
   if (hello) hello.textContent = name;
   const uidChip = document.getElementById('home-uid-chip');

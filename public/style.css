@@ -574,19 +574,59 @@ input:focus { border-color: rgba(247, 166, 0, 0.55); }
 
 .assets-promo {
   display: flex; align-items: center; gap: 12px;
+  width: 100%; text-align: left;
   padding: 12px 14px;
   margin-bottom: 16px;
   border-radius: 12px;
   border: 1px solid var(--line);
   background: #12161c;
+  color: inherit; font: inherit; cursor: pointer;
 }
+.assets-promo-logo {
+  width: 44px; height: 44px; flex-shrink: 0; border-radius: 10px;
+}
+.assets-promo-text { flex: 1; font-size: 13px; color: var(--text); line-height: 1.35; font-weight: 500; }
+.assets-promo-chevron { color: var(--text-3); font-size: 18px; }
 .assets-promo-ico {
   width: 40px; height: 40px; border-radius: 10px; flex-shrink: 0;
   display: grid; place-items: center;
   background: linear-gradient(145deg, #3a4554, #1e2631);
   color: var(--accent); font-size: 18px;
 }
-.assets-promo-text { font-size: 13px; color: var(--text); line-height: 1.35; font-weight: 500; }
+.assets-coin-logo {
+  width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0;
+}
+.card-visual {
+  background: linear-gradient(135deg, #2a3340, #151a21 55%, #1a222c);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 18px 16px;
+  margin-bottom: 12px;
+  min-height: 110px;
+  display: flex; flex-direction: column; justify-content: space-between;
+}
+.card-visual-brand { font-weight: 800; letter-spacing: 0.12em; font-size: 13px; color: var(--accent); }
+.card-visual-num { font-size: 18px; letter-spacing: 0.08em; margin-top: 18px; }
+.convert-from {
+  padding: 10px 12px; border-radius: 8px; background: var(--panel-2);
+  border: 1px solid var(--line); margin-bottom: 10px; font-weight: 600;
+}
+.earn-hero {
+  display: flex; gap: 12px; align-items: center;
+}
+.earn-hero-title { font-weight: 700; font-size: 15px; }
+.earn-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.earn-card {
+  width: 100%; text-align: left;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 12px; padding: 14px; color: inherit; font: inherit; cursor: pointer;
+}
+.earn-card:active, .earn-card.selected { border-color: rgba(247,166,0,0.45); background: #1a212b; }
+.earn-card-top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.earn-card-title { font-weight: 700; }
+.earn-card-apy { color: var(--green); font-weight: 700; font-size: 15px; }
+.earn-card-desc { margin-top: 6px; font-size: 12px; color: var(--text-3); line-height: 1.4; }
+
 
 .assets-section-head {
   display: flex; align-items: center; justify-content: space-between;
