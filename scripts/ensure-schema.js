@@ -53,6 +53,7 @@ const STEPS = [
   `ALTER TABLE "SupportMessage" ADD COLUMN IF NOT EXISTS "originalName" TEXT`,
   `ALTER TABLE "SupportMessage" ADD COLUMN IF NOT EXISTS "mimeType" TEXT`,
 
+  `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "earnBalance" DECIMAL(18,6) NOT NULL DEFAULT 0`,
   `CREATE TABLE IF NOT EXISTS "FinanceRequest" (
     "id" SERIAL NOT NULL,
     "userId" INTEGER NOT NULL,
@@ -83,6 +84,7 @@ const REQUIRED_USER_COLS = [
   'kycStatus',
   'uid',
   'registered',
+  'earnBalance',
 ];
 
 async function columnExists(name) {
@@ -141,6 +143,7 @@ async function main() {
     ['passwordHash', 'TEXT'],
     ['registered', 'BOOLEAN NOT NULL DEFAULT false'],
     ['registeredAt', 'TIMESTAMP(3)'],
+    ['earnBalance', 'DECIMAL(18,6) NOT NULL DEFAULT 0'],
   ];
   for (const [name, typ] of forced) {
     await forceAddUserColumn(name, typ);
