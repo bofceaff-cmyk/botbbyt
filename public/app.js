@@ -200,6 +200,7 @@ document.querySelectorAll('.assets-tab').forEach((btn) => {
 
 let balanceHidden = localStorage.getItem('byx_hide_bal') === '1';
 let lastWalletBalance = 0;
+let lastEarnBalance = 0;
 let lastBtcPrice = 77420;
 let convertOptions = null;
 let earnProducts = [];
@@ -214,27 +215,54 @@ function applyBalanceVisibility() {
   const closed = document.getElementById('eye-closed');
   open?.classList.toggle('screen-hidden', balanceHidden);
   closed?.classList.toggle('screen-hidden', !balanceHidden);
-  renderWalletAmounts(lastWalletBalance);
+  renderWalletAmounts(lastWalletBalance, lastEarnBalance);
 }
 
-function renderWalletAmounts(bal) {
-  lastWalletBalance = Number(bal) || 0;
-  const usd = fmtUsdt(lastWalletBalance);
-  const btc = lastBtcPrice > 0 ? (lastWalletBalance / lastBtcPrice) : 0;
+function renderWalletAmounts(available, earn) {
+  lastWalletBalance = Number(available) || 0;
+  lastEarnBalance = Number(earn) || 0;
+  const total = lastWalletBalance + lastEarnBalance;
+  const usdTotal = fmtUsdt(total);
+  const usdAvail = fmtUsdt(lastWalletBalance);
+  const usdEarn = fmtUsdt(lastEarnBalance);
+  const btc = lastBtcPrice > 0 ? (total / lastBtcPrice) : 0;
   const btcStr = btc.toFixed(8);
+  const idlePct = total > 0
+    ? Math.max(0, Math.min(100, Math.round((lastWalletBalance / total) * 100)))
+    : 100;
 
   const set = (id, val) => {
     const el = document.getElementById(id);
     if (el) el.textContent = val;
   };
 
-  set('wallet-balance', maskBal(usd));
-  set('wallet-available', maskBal(`${usd} USD`));
-  set('wallet-in-use', maskBal('0.00 USD'));
+  set('wallet-balance', maskBal(usdTotal));
+  set('wallet-available', maskBal(`${usdAvail} USD`));
+  set('wallet-in-use', maskBal(`${usdEarn} USD`));
   set('wallet-btc', balanceHidden ? '≈ **** BTC' : `≈ ${btcStr} BTC`);
   set('wallet-usdt-amt', maskBal(fmtUsdt(lastWalletBalance, 4)));
-  set('wallet-fiat', maskBal(`${usd} USD`));
+  set('wallet-fiat', maskBal(`${usdAvail} USD`));
   set('wallet-usdt-chg', '0.00 (0.00%)');
+
+  const earnAmt = document.getElementById('wallet-earn-amt');
+  const earnFiat = document.getElementById('wallet-earn-fiat');
+  const earnRow = document.getElementById('assets-earn-row');
+  if (earnRow) earnRow.classList.toggle('screen-hidden', lastEarnBalance <= 0);
+  if (earnAmt) earnAmt.textContent = maskBal(fmtUsdt(lastEarnBalance, 4));
+  if (earnFiat) earnFiat.textContent = maskBal(`${usdEarn} USD`);
+
+  const promo = document.querySelector('#open-earn-promo .assets-promo-text');
+  if (promo) {
+    if (total <= 0) {
+      promo.textContent = '100% ваших активов не работают. Начните зарабатывать.';
+    } else if (idlePct <= 0) {
+      promo.textContent = 'Ваши активы работают. Отлично!';
+    } else if (idlePct >= 100) {
+      promo.textContent = '100% ваших активов не работают. Начните зарабатывать.';
+    } else {
+      promo.textContent = `${idlePct}% ваших активов не работают. Начните зарабатывать.`;
+    }
+  }
 
   const pnl = document.querySelector('#wallet-pnl .pnl-val');
   if (pnl) pnl.textContent = '+0.00 USD (+0.00%)';
@@ -296,7 +324,9 @@ document.getElementById('card-request-btn')?.addEventListener('click', async () 
     }
     renderCardBanner(profile || res);
     renderCardScreen();
-    tg.showAlert(res.cardNumber ? 'Карта уже выдана' : 'Заявка на карту отправлена');
+    tg.showAlert(res.cardNumber
+      ? 'Карта уже оформлена'
+      : 'Заявка отправлена на рассмотрение. После решения вы получите уведомление.');
   } catch (e) {
     tg.showAlert(e.message);
   }
@@ -357,7 +387,7 @@ async function submitWithdraw(method) {
     await apiFetch('/finance/withdraw', { method: 'POST', body: JSON.stringify(body) });
     amountEl.value = '';
     if (method === 'onchain') document.getElementById('withdraw-address').value = '';
-    tg.showAlert('Заявка на вывод отправлена на рассмотрение');
+    tg.showAlert('Заявка принята. Средства будут выведены после проверки и одобрения системой.');
     showScreen('wallet');
   } catch (e) {
     errEl.textContent = e.message;
@@ -367,35 +397,86 @@ async function submitWithdraw(method) {
 document.getElementById('withdraw-submit-onchain')?.addEventListener('click', () => submitWithdraw('onchain'));
 document.getElementById('withdraw-submit-card')?.addEventListener('click', () => submitWithdraw('card'));
 
-const CONVERT_NETS = {
-  BTC: ['BTC'],
-  ETH: ['ERC20'],
-  USDT: ['TRC20', 'ERC20'],
-  TRX: ['TRC20'],
-  SOL: ['SOL'],
-};
+const CONVERT_ASSETS = [
+  { id: 'BTC', name: 'Bitcoin', color: '#F7931A', nets: ['BTC'] },
+  { id: 'ETH', name: 'Ethereum', color: '#627EEA', nets: ['ERC20'] },
+  { id: 'USDT', name: 'Tether', color: '#26A17B', nets: ['TRC20', 'ERC20'] },
+  { id: 'TRX', name: 'TRON', color: '#FF0013', nets: ['TRC20'] },
+  { id: 'SOL', name: 'Solana', color: '#14F195', nets: ['SOL'] },
+];
 
-function syncConvertNetworks() {
-  const asset = document.getElementById('convert-asset').value;
-  const nets = CONVERT_NETS[asset] || ['TRC20'];
-  const sel = document.getElementById('convert-network');
-  sel.innerHTML = nets.map((n) => `<option value="${n}">${n}</option>`).join('');
+let convertToAsset = 'BTC';
+
+function convertAssetMeta(id) {
+  return CONVERT_ASSETS.find((a) => a.id === id) || CONVERT_ASSETS[0];
+}
+
+function renderConvertNetChips() {
+  const meta = convertAssetMeta(convertToAsset);
+  const box = document.getElementById('convert-net-chips');
+  const cur = document.getElementById('convert-network').value;
+  const next = meta.nets.includes(cur) ? cur : meta.nets[0];
+  document.getElementById('convert-network').value = next;
+  box.innerHTML = meta.nets.map((n) => `
+    <button type="button" class="net-chip ${n === next ? 'active' : ''}" data-net="${n}">${n}</button>
+  `).join('');
+  box.querySelectorAll('[data-net]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.getElementById('convert-network').value = btn.dataset.net;
+      box.querySelectorAll('.net-chip').forEach((c) => c.classList.toggle('active', c === btn));
+    });
+  });
+}
+
+function setConvertToAsset(id) {
+  convertToAsset = id;
+  const meta = convertAssetMeta(id);
+  document.getElementById('convert-asset').value = id;
+  document.getElementById('convert-to-label').textContent = id;
+  const dot = document.getElementById('convert-to-dot');
+  if (dot) {
+    dot.dataset.sym = id;
+    dot.style.background = meta.color;
+    dot.textContent = id.slice(0, 1);
+  }
+  renderConvertNetChips();
+  updateConvertEstimate();
+  document.getElementById('convert-asset-sheet')?.classList.add('screen-hidden');
+}
+
+function openConvertAssetSheet() {
+  const list = document.getElementById('convert-asset-list');
+  list.innerHTML = CONVERT_ASSETS.map((a) => `
+    <button type="button" class="sheet-item ${a.id === convertToAsset ? 'active' : ''}" data-pick="${a.id}">
+      <span class="coin-dot" style="background:${a.color}">${a.id.slice(0, 1)}</span>
+      <span>
+        <div class="sheet-item-title">${a.id}</div>
+        <div class="muted" style="font-size:12px">${escapeHtml(a.name)}</div>
+      </span>
+    </button>
+  `).join('');
+  list.querySelectorAll('[data-pick]').forEach((btn) => {
+    btn.addEventListener('click', () => setConvertToAsset(btn.dataset.pick));
+  });
+  document.getElementById('convert-asset-sheet').classList.remove('screen-hidden');
 }
 
 function prepareConvertScreen() {
   const bal = profile ? fmtUsdt(profile.usdtBalance) : '0.00';
-  document.getElementById('convert-hint').textContent = `Доступно: ${bal} USDT`;
-  syncConvertNetworks();
+  document.getElementById('convert-hint').textContent = bal;
+  setConvertToAsset(convertToAsset || 'BTC');
   updateConvertEstimate();
 }
 
 async function updateConvertEstimate() {
   const el = document.getElementById('convert-estimate');
+  const out = document.getElementById('convert-out');
   if (!el) return;
   const amount = Number(document.getElementById('convert-amount')?.value);
-  const asset = document.getElementById('convert-asset')?.value || 'BTC';
+  const asset = convertToAsset || 'BTC';
   if (!Number.isFinite(amount) || amount <= 0) {
-    el.textContent = 'Ориентировочно получите ≈ — (курс после одобрения)';
+    el.textContent = 'Ориентировочный курс появится после ввода суммы';
+    if (out) out.textContent = '—';
     return;
   }
   try {
@@ -406,24 +487,37 @@ async function updateConvertEstimate() {
       : null;
     if (asset === 'USDT') {
       el.textContent = `Ориентировочно ≈ ${fmtUsdt(amount)} USDT`;
+      if (out) out.textContent = fmtUsdt(amount);
       return;
     }
     if (q?.price) {
       const got = amount / Number(q.price);
-      el.textContent = `Ориентировочно ≈ ${got.toFixed(asset === 'BTC' ? 8 : 6)} ${asset} (по рынку)`;
+      const text = got.toFixed(asset === 'BTC' ? 8 : 6);
+      el.textContent = `Ориентировочно ≈ ${text} ${asset}`;
+      if (out) out.textContent = text;
     } else {
-      el.textContent = 'Курс уточнит администратор при одобрении';
+      el.textContent = 'Курс будет уточнён при проверке операции';
+      if (out) out.textContent = '—';
     }
   } catch {
-    el.textContent = 'Курс уточнит администратор при одобрении';
+    el.textContent = 'Курс будет уточнён при проверке операции';
+    if (out) out.textContent = '—';
   }
 }
 
-document.getElementById('convert-asset')?.addEventListener('change', () => {
-  syncConvertNetworks();
-  updateConvertEstimate();
+document.getElementById('convert-to-pick')?.addEventListener('click', openConvertAssetSheet);
+document.getElementById('convert-sheet-close')?.addEventListener('click', () => {
+  document.getElementById('convert-asset-sheet')?.classList.add('screen-hidden');
 });
 document.getElementById('convert-amount')?.addEventListener('input', updateConvertEstimate);
+document.getElementById('convert-max')?.addEventListener('click', () => {
+  if (!profile) return;
+  document.getElementById('convert-amount').value = String(Number(profile.usdtBalance) || 0);
+  updateConvertEstimate();
+});
+document.getElementById('convert-bal-link')?.addEventListener('click', () => {
+  document.getElementById('convert-max')?.click();
+});
 
 document.getElementById('convert-submit')?.addEventListener('click', async () => {
   const err = document.getElementById('convert-error');
@@ -440,7 +534,7 @@ document.getElementById('convert-submit')?.addEventListener('click', async () =>
     });
     document.getElementById('convert-amount').value = '';
     document.getElementById('convert-address').value = '';
-    tg.showAlert('Заявка на конвертацию отправлена');
+    tg.showAlert('Заявка принята. Операция проходит проверку — при успехе средства будут зачислены.');
     showScreen('wallet');
   } catch (e) {
     err.textContent = e.message;
@@ -489,7 +583,7 @@ document.getElementById('earn-submit')?.addEventListener('click', async () => {
     return;
   }
   try {
-    await apiFetch('/finance/earn', {
+    const res = await apiFetch('/finance/earn', {
       method: 'POST',
       body: JSON.stringify({
         productId: selectedEarnProduct.id,
@@ -497,7 +591,14 @@ document.getElementById('earn-submit')?.addEventListener('click', async () => {
       }),
     });
     document.getElementById('earn-amount').value = '';
-    tg.showAlert('Заявка Earn отправлена на рассмотрение');
+    if (profile) {
+      if (res.usdtBalance != null) profile.usdtBalance = res.usdtBalance;
+      if (res.earnBalance != null) profile.earnBalance = res.earnBalance;
+    }
+    lastWalletBalance = Number(res.usdtBalance ?? profile?.usdtBalance) || 0;
+    lastEarnBalance = Number(res.earnBalance ?? profile?.earnBalance) || 0;
+    applyBalanceVisibility();
+    tg.showAlert('Средства направлены в Earn. Статус заявки — на проверке.');
     showScreen('wallet');
   } catch (e) {
     err.textContent = e.message;
@@ -809,11 +910,14 @@ function renderProfile(me) {
   document.getElementById('avatar').textContent = initials;
   document.getElementById('display-name').textContent = name;
   document.getElementById('profile-uid').textContent = `UID ${me.uid || me.id}`;
-  document.getElementById('header-balance').textContent = fmtUsdt(me.usdtBalance);
+  document.getElementById('header-balance').textContent = fmtUsdt(
+    (Number(me.usdtBalance) || 0) + (Number(me.earnBalance) || 0)
+  );
   const wAvatar = document.getElementById('wallet-avatar');
   if (wAvatar) wAvatar.textContent = initials;
 
   lastWalletBalance = Number(me.usdtBalance) || 0;
+  lastEarnBalance = Number(me.earnBalance) || 0;
   applyBalanceVisibility();
   renderCardBanner(me);
 

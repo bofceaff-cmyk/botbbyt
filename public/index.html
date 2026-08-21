@@ -301,6 +301,19 @@
           <div class="muted assets-coin-fiat" id="wallet-fiat">0.00 USD</div>
         </div>
       </div>
+      <div class="assets-coin-row screen-hidden" id="assets-earn-row">
+        <div class="assets-coin-left">
+          <img class="assets-promo-logo" src="/img/earn-promo.svg?v=2" alt="" width="36" height="36">
+          <div>
+            <div class="assets-coin-sym">Earn</div>
+            <div class="assets-coin-chg muted">В работе</div>
+          </div>
+        </div>
+        <div class="assets-coin-right">
+          <div class="mono assets-coin-amt" id="wallet-earn-amt">0.00</div>
+          <div class="muted assets-coin-fiat" id="wallet-earn-fiat">0.00 USD</div>
+        </div>
+      </div>
     </div>
 
     <div id="assets-tab-account" class="screen-hidden">
@@ -523,12 +536,12 @@
     <div class="section-head"><h1>Моя карта</h1></div>
     <div class="panel" id="card-panel-none">
       <div class="panel-title">Bybit Card</div>
-      <p class="muted">Оформите карту для вывода средств. После заявки администратор выдаст номер карты.</p>
-      <button class="btn-primary full" id="card-request-btn">Подать заявку на карту сейчас</button>
+      <p class="muted">Подайте заявку на выпуск карты. Заявка уйдёт на проверку: при одобрении вы получите уведомление в Telegram, и карта появится в этом разделе. При отклонении также придёт уведомление.</p>
+      <button class="btn-primary full" id="card-request-btn">Подать заявку на карту</button>
     </div>
     <div class="panel screen-hidden" id="card-panel-pending">
       <div class="status-chip pending">На рассмотрении</div>
-      <p class="muted" style="margin-top:10px">Заявка принята. Обычно выпуск занимает немного времени — ожидайте уведомление.</p>
+      <p class="muted" style="margin-top:10px">Заявка принята и находится на проверке. После успешного одобрения вы получите уведомление — карта станет доступна здесь. Если заявку отклонят, придёт отдельное уведомление.</p>
     </div>
     <div class="panel screen-hidden" id="card-panel-ready">
       <div class="panel-title">Ваша карта</div>
@@ -572,35 +585,70 @@
       <div class="error" id="withdraw-error-card"></div>
       <button class="btn-primary full" id="withdraw-submit-card">Отправить заявку</button>
     </div>
-    <p class="muted" style="margin-top:8px;font-size:12px">Заявка уходит на проверку. Средства спишутся после одобрения администратором.</p>
+    <p class="muted" style="margin-top:8px;font-size:12px">Средства будут выведены после проверки и одобрения системой. Вы получите уведомление о результате.</p>
   </section>
 
   <!-- CONVERT -->
   <section id="screen-convert" class="screen screen-hidden">
     <button class="back-btn" data-back="wallet">← Назад</button>
     <div class="section-head"><h1>Конвертация</h1></div>
-    <div class="panel">
-      <label>Отдаёте</label>
-      <div class="convert-from mono">USDT</div>
-      <label>Сумма (USDT)</label>
-      <input type="number" id="convert-amount" placeholder="0.00" step="0.01" min="0" inputmode="decimal">
-      <div class="hint" id="convert-hint">Доступно: 0 USDT</div>
-      <label>Получаете</label>
-      <select id="convert-asset">
-        <option value="BTC">BTC</option>
-        <option value="ETH">ETH</option>
-        <option value="USDT">USDT</option>
-        <option value="TRX">TRX</option>
-        <option value="SOL">SOL</option>
-      </select>
-      <label>Сеть</label>
-      <select id="convert-network"></select>
+
+    <div class="convert-box">
+      <div class="convert-side">
+        <div class="convert-side-top">
+          <span>От</span>
+          <button type="button" class="link-btn" id="convert-bal-link">Доступный баланс: <span id="convert-hint">0</span> ›</button>
+        </div>
+        <div class="convert-side-row">
+          <button type="button" class="coin-pick" id="convert-from-pick" disabled>
+            <img src="/img/usdt.svg?v=2" alt="" width="22" height="22">
+            <span>USDT</span>
+          </button>
+          <div class="convert-amt-wrap">
+            <input type="number" id="convert-amount" class="convert-amt" placeholder="0.01–10000" step="0.01" min="0" inputmode="decimal">
+            <button type="button" class="convert-max" id="convert-max">Макс.</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="convert-swap-row" aria-hidden="true">
+        <span class="convert-swap-ico">⇅</span>
+      </div>
+
+      <div class="convert-side">
+        <div class="convert-side-top">
+          <span>Кому</span>
+        </div>
+        <div class="convert-side-row">
+          <button type="button" class="coin-pick" id="convert-to-pick">
+            <span class="coin-dot" id="convert-to-dot" data-sym="BTC"></span>
+            <span id="convert-to-label">BTC</span>
+            <span class="coin-caret">▾</span>
+          </button>
+          <div class="convert-out mono" id="convert-out">—</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel convert-extra">
+      <label>Сеть получения</label>
+      <div class="net-chips" id="convert-net-chips"></div>
+      <input type="hidden" id="convert-asset" value="BTC">
+      <input type="hidden" id="convert-network" value="BTC">
       <label>Адрес получения</label>
       <input type="text" id="convert-address" class="mono" placeholder="Ваш адрес в выбранной сети" autocomplete="off">
-      <div class="hint" id="convert-estimate">Получите ≈ —</div>
+      <div class="hint" id="convert-estimate">Ориентировочный курс появится после ввода суммы</div>
       <div class="error" id="convert-error"></div>
-      <button class="btn-primary full" id="convert-submit">Отправить заявку</button>
-      <p class="muted" style="margin-top:10px;font-size:12px">Конвертация обрабатывается вручную. Курс и отправка — после одобрения.</p>
+      <button class="btn-primary full" id="convert-submit">Запрос</button>
+      <p class="muted" style="margin-top:10px;font-size:12px">Операция проходит проверку. В случае успешной конвертации средства будут зачислены на указанный адрес.</p>
+    </div>
+
+    <div id="convert-asset-sheet" class="sheet screen-hidden">
+      <div class="sheet-backdrop" id="convert-sheet-close"></div>
+      <div class="sheet-card">
+        <div class="sheet-title">Выберите актив</div>
+        <div id="convert-asset-list" class="sheet-list"></div>
+      </div>
     </div>
   </section>
 

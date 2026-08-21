@@ -327,3 +327,10 @@ tr:last-child td { border-bottom: none; }
 .bybit-mark-i { width: 5px; height: 20px; margin: 0 4px; background: #F7A600; }
 .bybit-mark-sm .bybit-mark-text { font-size: 16px; }
 .bybit-mark-sm .bybit-mark-i { width: 4px; height: 16px; }
+
+.balance-block { margin: 10px 0 12px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: #10141a; }
+.balance-now { font-size: 20px; font-weight: 700; margin: 4px 0 10px; }
+.bal-history { max-height: 180px; overflow: auto; display: flex; flex-direction: column; gap: 8px; }
+.bal-row { padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
+.bal-row:last-child { border-bottom: none; }
+.bal-row-top { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; margin-bottom: 2px; }

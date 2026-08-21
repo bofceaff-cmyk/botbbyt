@@ -284,7 +284,7 @@ async function loadFinanceRequests() {
 
   box.querySelectorAll('[data-fin-ok]').forEach((btn) => {
     btn.addEventListener('click', () => {
-      if (!confirm('Одобрить? Средства спишутся с баланса пользователя.')) return;
+      if (!confirm('Одобрить заявку?')) return;
       review(btn.dataset.finOk, 'approve');
     });
   });
@@ -310,14 +310,69 @@ async function openEdit(id) {
   $('edit-id').value = user.id;
   $('edit-account').value = user.accountNumber || '';
   $('edit-card').value = user.cardNumber || '';
-  $('edit-balance').value = Number(user.usdtBalance);
+  $('edit-balance-now').textContent =
+    `${Number(user.usdtBalance).toFixed(2)} доступно` +
+    (Number(user.earnBalance) > 0 ? ` · ${Number(user.earnBalance).toFixed(2)} Earn` : '') +
+    ` USDT`;
+  $('edit-credit-amount').value = '';
+  $('edit-credit-comment').value = '';
   $('edit-verified').checked = user.kycStatus === 'approved' || user.verified;
   $('edit-error').textContent = '';
   $('addr-value').value = '';
   syncNetworkOptions();
   renderAddrList(user.depositAddresses || []);
+  await loadEditHistory(id);
   $('edit-modal').classList.remove('screen-hidden');
 }
+
+async function loadEditHistory(id) {
+  const box = $('edit-balance-history');
+  try {
+    const rows = await adminFetch(`/users/${id}/history`);
+    if (!rows.length) {
+      box.innerHTML = '<div class="muted">Пока пусто</div>';
+      return;
+    }
+    box.innerHTML = rows.map((h) => {
+      const sign = h.amount >= 0 ? '+' : '';
+      const when = new Date(h.createdAt).toLocaleString('ru-RU');
+      return `<div class="bal-row">
+        <div class="bal-row-top">
+          <span class="mono">${sign}${Number(h.amount).toFixed(2)}</span>
+          <span class="muted">${escapeHtml(when)}</span>
+        </div>
+        <div class="muted">${escapeHtml(h.meta || h.type)}</div>
+        <div class="muted">итог: ${Number(h.balance).toFixed(2)} USDT</div>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    box.innerHTML = `<div class="muted">${escapeHtml(e.message)}</div>`;
+  }
+}
+
+$('edit-credit-btn')?.addEventListener('click', async () => {
+  const id = $('edit-id').value;
+  $('edit-error').textContent = '';
+  try {
+    const updated = await adminFetch(`/users/${id}/credit`, {
+      method: 'POST',
+      body: JSON.stringify({
+        amount: Number($('edit-credit-amount').value),
+        comment: $('edit-credit-comment').value.trim(),
+      }),
+    });
+    $('edit-balance-now').textContent =
+      `${Number(updated.usdtBalance).toFixed(2)} доступно` +
+      (Number(updated.earnBalance) > 0 ? ` · ${Number(updated.earnBalance).toFixed(2)} Earn` : '') +
+      ` USDT`;
+    $('edit-credit-amount').value = '';
+    $('edit-credit-comment').value = '';
+    await loadEditHistory(id);
+    await loadUsers();
+  } catch (e) {
+    $('edit-error').textContent = e.message;
+  }
+});
 
 function renderAddrList(list) {
   const box = $('addr-list');
@@ -370,7 +425,6 @@ $('edit-save').addEventListener('click', async () => {
       body: JSON.stringify({
         accountNumber: $('edit-account').value.trim(),
         cardNumber: $('edit-card').value.trim(),
-        usdtBalance: Number($('edit-balance').value),
         kycStatus: verified ? 'approved' : undefined,
         verified,
       }),
@@ -379,7 +433,8 @@ $('edit-save').addEventListener('click', async () => {
     await loadUsers();
     await loadAccountRequests();
     await loadCardRequests();
-    await loadKycQueue();  } catch (e) {
+    await loadKycQueue();
+  } catch (e) {
     $('edit-error').textContent = e.message;
   }
 });
