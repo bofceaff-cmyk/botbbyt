@@ -1,7 +1,7 @@
 const express = require('express');
 const fs = require('fs');
 const prisma = require('../db');
-const { absolutePath } = require('../upload');
+const { absolutePath, supportAbsolutePath, supportUpload } = require('../upload');
 
 const router = express.Router();
 
@@ -290,15 +290,30 @@ router.get('/support/threads', async (_req, res) => {
     take: 100,
   });
 
-  res.json(threads.map((t) => ({
-    id: t.id,
-    status: t.status,
-    createdAt: t.createdAt,
-    user: serializeUser(t.user),
-    lastMessage: t.messages[0]
-      ? { sender: t.messages[0].sender, text: t.messages[0].text, createdAt: t.messages[0].createdAt }
-      : null,
-  })));
+  res.json(threads.map((t) => {
+    const last = t.messages[0] || null;
+    const unread = Boolean(
+      last
+      && last.sender === 'user'
+      && (!t.adminReadAt || new Date(last.createdAt) > new Date(t.adminReadAt))
+    );
+    return {
+      id: t.id,
+      status: t.status,
+      createdAt: t.createdAt,
+      adminReadAt: t.adminReadAt,
+      unread,
+      user: serializeUser(t.user),
+      lastMessage: last
+        ? {
+          sender: last.sender,
+          text: last.text,
+          createdAt: last.createdAt,
+          hasFile: Boolean(last.filename),
+        }
+        : null,
+    };
+  }));
 });
 
 router.get('/support/threads/:id', async (req, res) => {
@@ -312,39 +327,90 @@ router.get('/support/threads/:id', async (req, res) => {
   });
   if (!thread) return res.status(404).json({ error: 'тикет не найден' });
 
+  // помечаем как прочитанное админом
+  await prisma.supportThread.update({
+    where: { id },
+    data: { adminReadAt: new Date() },
+  }).catch(() => {});
+
   res.json({
     id: thread.id,
     status: thread.status,
     createdAt: thread.createdAt,
     user: serializeUser(thread.user),
-    messages: thread.messages,
+    messages: thread.messages.map((m) => ({
+      id: m.id,
+      sender: m.sender,
+      text: m.text || '',
+      filename: m.filename,
+      originalName: m.originalName,
+      mimeType: m.mimeType,
+      createdAt: m.createdAt,
+      hasFile: Boolean(m.filename),
+      fileUrl: m.filename ? `/api/admin/support/messages/${m.id}/file` : null,
+    })),
   });
 });
 
-router.post('/support/threads/:id/reply', async (req, res) => {
+router.get('/support/messages/:id/file', async (req, res) => {
   const id = Number(req.params.id);
-  const text = (req.body.text || '').trim();
-  if (!text) return res.status(400).json({ error: 'пустое сообщение' });
-
-  const thread = await prisma.supportThread.findUnique({
-    where: { id },
-    include: { user: true },
-  });
-  if (!thread) return res.status(404).json({ error: 'тикет не найден' });
-
-  const message = await prisma.supportMessage.create({
-    data: { threadId: id, sender: 'admin', text },
-  });
-
-  const bot = req.app.get('bot');
-  if (bot) {
-    bot.telegram.sendMessage(
-      thread.user.telegramId.toString(),
-      'Вы получили ответ от поддержки.\nОткройте приложение → Профиль → Поддержка.'
-    ).catch(() => {});
+  const msg = await prisma.supportMessage.findUnique({ where: { id } });
+  if (!msg?.filename) return res.status(404).json({ error: 'файл не найден' });
+  const filePath = supportAbsolutePath(msg.filename);
+  if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'файл отсутствует' });
+  res.setHeader('Content-Type', msg.mimeType || 'application/octet-stream');
+  if (msg.originalName) {
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(msg.originalName)}"`);
   }
+  fs.createReadStream(filePath).pipe(res);
+});
 
-  res.json(message);
+router.post('/support/threads/:id/reply', (req, res) => {
+  supportUpload.single('file')(req, res, async (err) => {
+    if (err) return res.status(400).json({ error: err.message || 'ошибка загрузки' });
+    try {
+      const id = Number(req.params.id);
+      const text = String(req.body.text || '').trim();
+      if (!text && !req.file) {
+        return res.status(400).json({ error: 'пустое сообщение' });
+      }
+
+      const thread = await prisma.supportThread.findUnique({
+        where: { id },
+        include: { user: true },
+      });
+      if (!thread) return res.status(404).json({ error: 'тикет не найден' });
+
+      const message = await prisma.supportMessage.create({
+        data: {
+          threadId: id,
+          sender: 'admin',
+          text: text || (req.file ? '📎 Вложение' : ''),
+          filename: req.file?.filename || null,
+          originalName: req.file?.originalname || null,
+          mimeType: req.file?.mimetype || null,
+        },
+      });
+
+      await prisma.supportThread.update({
+        where: { id },
+        data: { adminReadAt: new Date() },
+      }).catch(() => {});
+
+      const bot = req.app.get('bot');
+      if (bot) {
+        bot.telegram.sendMessage(
+          thread.user.telegramId.toString(),
+          'Вы получили ответ от поддержки.\nОткройте приложение → Профиль → Поддержка.'
+        ).catch(() => {});
+      }
+
+      res.json(message);
+    } catch (e) {
+      console.error('[admin/reply]', e);
+      res.status(500).json({ error: 'не удалось ответить' });
+    }
+  });
 });
 
 router.post('/support/threads/:id/close', async (req, res) => {
