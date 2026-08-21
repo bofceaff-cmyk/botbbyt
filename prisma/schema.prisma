@@ -92,21 +92,25 @@ model BalanceHistory {
 }
 
 model SupportThread {
-  id        Int      @id @default(autoincrement())
-  userId    Int
-  status    String   @default("open")
-  createdAt DateTime @default(now())
+  id          Int       @id @default(autoincrement())
+  userId      Int
+  status      String    @default("open")
+  createdAt   DateTime  @default(now())
+  adminReadAt DateTime?
 
   user     User             @relation(fields: [userId], references: [id])
   messages SupportMessage[]
 }
 
 model SupportMessage {
-  id        Int      @id @default(autoincrement())
-  threadId  Int
-  sender    String
-  text      String
-  createdAt DateTime @default(now())
+  id           Int      @id @default(autoincrement())
+  threadId     Int
+  sender       String
+  text         String   @default("")
+  filename     String?
+  originalName String?
+  mimeType     String?
+  createdAt    DateTime @default(now())
 
   thread SupportThread @relation(fields: [threadId], references: [id])
 }
