@@ -35,6 +35,8 @@ function serializeUser(u) {
     usdtBalance: Number(u.usdtBalance),
     accountNumber: u.accountNumber,
     accountRequestStatus: u.accountRequestStatus,
+    cardNumber: u.cardNumber,
+    cardRequestStatus: u.cardRequestStatus,
     kycStatus: u.kycStatus,
     kycRejectReason: u.kycRejectReason,
     verified: u.verified || u.kycStatus === 'approved',
@@ -46,10 +48,12 @@ router.get('/users', async (req, res) => {
   try {
     const q = (req.query.q || '').trim();
     const pendingOnly = req.query.pendingAccounts === '1';
+    const pendingCards = req.query.pendingCards === '1';
     const kycPending = req.query.kycPending === '1';
 
     const where = {};
     if (pendingOnly) where.accountRequestStatus = 'pending';
+    if (pendingCards) where.cardRequestStatus = 'pending';
     if (kycPending) where.kycStatus = 'pending';
     if (q) {
       where.OR = [
@@ -57,6 +61,7 @@ router.get('/users', async (req, res) => {
         { fullName: { contains: q, mode: 'insensitive' } },
         { usernameTg: { contains: q, mode: 'insensitive' } },
         { accountNumber: { contains: q, mode: 'insensitive' } },
+        { cardNumber: { contains: q, mode: 'insensitive' } },
         { email: { contains: q, mode: 'insensitive' } },
         { phone: { contains: q, mode: 'insensitive' } },
         { uid: { contains: q, mode: 'insensitive' } },
@@ -111,7 +116,7 @@ router.patch('/users/:id', async (req, res) => {
   const id = Number(req.params.id);
   const {
     accountNumber, usdtBalance, accountRequestStatus, verified,
-    kycStatus, kycRejectReason, fullName,
+    kycStatus, kycRejectReason, fullName, cardNumber, cardRequestStatus,
   } = req.body;
 
   const user = await prisma.user.findUnique({ where: { id } });
@@ -136,6 +141,23 @@ router.patch('/users/:id', async (req, res) => {
     }
   }
 
+  if (cardNumber !== undefined) {
+    const num = cardNumber === null || cardNumber === ''
+      ? null
+      : String(cardNumber).replace(/\s+/g, '');
+    if (num) {
+      if (!/^\d{12,19}$/.test(num)) {
+        return res.status(400).json({ error: 'номер карты: 12–19 цифр' });
+      }
+      data.cardNumber = num;
+      data.cardRequestStatus = 'assigned';
+    } else {
+      data.cardNumber = null;
+      data.cardRequestStatus = 'none';
+    }
+  }
+
+  if (cardRequestStatus !== undefined) data.cardRequestStatus = cardRequestStatus;
   if (accountRequestStatus !== undefined) data.accountRequestStatus = accountRequestStatus;
   if (fullName !== undefined) data.fullName = String(fullName || '').trim() || null;
 
@@ -201,6 +223,13 @@ router.patch('/users/:id', async (req, res) => {
       bot.telegram.sendMessage(
         updated.telegramId.toString(),
         `Вам назначен номер счёта: ${data.accountNumber}`
+      ).catch(() => {});
+    }
+    if (data.cardNumber && data.cardNumber !== user.cardNumber) {
+      const tail = String(data.cardNumber).slice(-4);
+      bot.telegram.sendMessage(
+        updated.telegramId.toString(),
+        `Вам выдана карта **** ${tail}.\nОткройте приложение → Активы → Моя карта.`
       ).catch(() => {});
     }
     if (data.kycStatus === 'approved' && user.kycStatus !== 'approved') {
@@ -421,6 +450,109 @@ router.post('/support/threads/:id/close', async (req, res) => {
   }).catch(() => null);
   if (!thread) return res.status(404).json({ error: 'тикет не найден' });
   res.json({ ok: true });
+});
+
+// ---------- finance requests ----------
+function serializeFinance(r) {
+  return {
+    id: r.id,
+    type: r.type,
+    status: r.status,
+    amount: r.amount == null ? null : Number(r.amount),
+    asset: r.asset,
+    network: r.network,
+    toAddress: r.toAddress,
+    toAsset: r.toAsset,
+    meta: r.meta,
+    adminNote: r.adminNote,
+    createdAt: r.createdAt,
+    reviewedAt: r.reviewedAt,
+    user: r.user ? serializeUser(r.user) : null,
+  };
+}
+
+router.get('/finance/requests', async (req, res) => {
+  const status = String(req.query.status || 'pending');
+  const where = status === 'all' ? {} : { status };
+  const rows = await prisma.financeRequest.findMany({
+    where,
+    include: { user: true },
+    orderBy: { createdAt: 'desc' },
+    take: 150,
+  });
+  res.json(rows.map(serializeFinance));
+});
+
+router.post('/finance/requests/:id/review', async (req, res) => {
+  const id = Number(req.params.id);
+  const action = String(req.body.action || '').toLowerCase(); // approve | reject
+  const adminNote = String(req.body.adminNote || '').trim() || null;
+  if (!['approve', 'reject'].includes(action)) {
+    return res.status(400).json({ error: 'action: approve или reject' });
+  }
+
+  const row = await prisma.financeRequest.findUnique({
+    where: { id },
+    include: { user: true },
+  });
+  if (!row) return res.status(404).json({ error: 'заявка не найдена' });
+  if (row.status !== 'pending') {
+    return res.status(400).json({ error: 'заявка уже обработана' });
+  }
+
+  const status = action === 'approve' ? 'approved' : 'rejected';
+  const deductTypes = ['withdraw_onchain', 'withdraw_card', 'convert', 'earn'];
+  const shouldDeduct = action === 'approve' && deductTypes.includes(row.type) && row.amount;
+
+  let updated;
+  try {
+    updated = await prisma.$transaction(async (tx) => {
+      if (shouldDeduct) {
+        const user = await tx.user.findUnique({ where: { id: row.userId } });
+        const bal = Number(user.usdtBalance);
+        const amt = Number(row.amount);
+        if (amt > bal) throw new Error('недостаточно средств у пользователя');
+        const next = Math.round((bal - amt) * 1e6) / 1e6;
+        const u = await tx.user.update({
+          where: { id: row.userId },
+          data: { usdtBalance: next },
+        });
+        await tx.balanceHistory.create({
+          data: {
+            userId: row.userId,
+            type: row.type,
+            amount: -amt,
+            balance: u.usdtBalance,
+            meta: adminNote || row.meta || row.type,
+          },
+        });
+      }
+      return tx.financeRequest.update({
+        where: { id },
+        data: { status, adminNote, reviewedAt: new Date() },
+        include: { user: true },
+      });
+    });
+  } catch (e) {
+    return res.status(400).json({ error: e.message || 'ошибка обработки' });
+  }
+
+  const bot = req.app.get('bot');
+  if (bot && updated.user) {
+    const labels = {
+      withdraw_onchain: 'вывод on-chain',
+      withdraw_card: 'вывод на карту',
+      convert: 'конвертация',
+      earn: 'Earn',
+    };
+    const label = labels[updated.type] || updated.type;
+    const msg = action === 'approve'
+      ? `Заявка «${label}» одобрена.${updated.amount ? ` Сумма: ${Number(updated.amount)} USDT.` : ''}`
+      : `Заявка «${label}» отклонена.${adminNote ? `\n${adminNote}` : ''}`;
+    bot.telegram.sendMessage(updated.user.telegramId.toString(), msg).catch(() => {});
+  }
+
+  res.json(serializeFinance(updated));
 });
 
 module.exports = router;

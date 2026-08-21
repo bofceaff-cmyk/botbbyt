@@ -35,6 +35,8 @@ function serializeMe(user, extra = {}) {
     usdtBalance: toNum(user.usdtBalance),
     accountNumber: user.accountNumber,
     accountRequestStatus: user.accountRequestStatus,
+    cardNumber: user.cardNumber,
+    cardRequestStatus: user.cardRequestStatus,
     kycStatus: user.kycStatus,
     kycRejectReason: user.kycRejectReason,
     verified: user.verified || user.kycStatus === 'approved',
