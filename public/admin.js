@@ -19,16 +19,21 @@ function escapeHtml(str) {
 }
 
 async function adminFetch(path, options = {}) {
-  const res = await fetch('/api/admin' + path, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Admin-Secret': secret,
-      ...(options.headers || {}),
-    },
-  });
+  let res;
+  try {
+    res = await fetch('/api/admin' + path, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Admin-Secret': secret,
+        ...(options.headers || {}),
+      },
+    });
+  } catch {
+    throw new Error('Нет связи с сервером Railway');
+  }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || 'Ошибка запроса');
+  if (!res.ok) throw new Error(data.error || `Ошибка сервера (${res.status})`);
   return data;
 }
 
@@ -102,12 +107,13 @@ async function loadUsers() {
   }
   tbody.innerHTML = users.map((u) => `
     <tr>
-      <td class="mono">${u.id}</td>
+      <td class="mono">${u.id}<div class="muted">UID ${escapeHtml(u.uid || '—')}</div></td>
       <td>
-        <div>${escapeHtml(u.displayName || '—')}</div>
+        <div>${escapeHtml(u.displayName || '—')} ${u.registered ? '' : '<span class="muted">(не рег.)</span>'}</div>
         <div class="muted">${escapeHtml(u.fullName || '')}</div>
+        <div class="muted">${escapeHtml(u.email || '')}</div>
       </td>
-      <td>@${escapeHtml(u.usernameTg || '—')}</td>
+      <td>@${escapeHtml(u.usernameTg || '—')}<div class="muted">${escapeHtml(u.phone || '')}</div></td>
       <td class="mono">${escapeHtml(u.accountNumber || '—')}</td>
       <td>${kycChip(u.kycStatus)}</td>
       <td class="mono">${Number(u.usdtBalance).toFixed(2)}</td>
@@ -266,6 +272,8 @@ async function loadKycQueue() {
   box.innerHTML = users.map((u) => `
     <div class="kyc-card">
       <h3>${escapeHtml(u.fullName || u.displayName || '—')}</h3>
+      <div class="muted mono">UID ${escapeHtml(u.uid || '—')} · #${u.id}</div>
+      <div class="muted">${escapeHtml(u.email || 'нет email')} · ${escapeHtml(u.phone || 'нет телефона')}</div>
       <div class="muted">ID ${u.id} · @${escapeHtml(u.usernameTg || '—')}</div>
       <div class="muted">${escapeHtml(u.country || '')}</div>
       <div style="margin-top:10px">

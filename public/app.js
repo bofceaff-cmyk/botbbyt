@@ -34,6 +34,9 @@ let depositAsset = 'USDT';
 let depositNetwork = 'TRC20';
 let currentThreadId = null;
 let kycDocs = {};
+let appReady = false;
+let quotesTimer = null;
+let profileTimer = null;
 
 function apiFetch(path, options = {}) {
   return fetch(API_BASE + path, {
@@ -45,8 +48,14 @@ function apiFetch(path, options = {}) {
     },
   }).then(async (r) => {
     const data = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(data.error || 'Ошибка запроса');
+    if (!r.ok) {
+      const msg = data.error || `Ошибка сервера (${r.status})`;
+      throw new Error(msg);
+    }
     return data;
+  }).catch((e) => {
+    if (e.message && !/Failed to fetch|NetworkError/i.test(e.message)) throw e;
+    throw new Error('Нет связи с сервером. Проверьте деплой на Railway.');
   });
 }
 
@@ -86,7 +95,9 @@ function escapeHtml(str) {
 
 function showScreen(name) {
   document.querySelectorAll('.screen').forEach((el) => el.classList.add('screen-hidden'));
-  document.getElementById(`screen-${name}`).classList.remove('screen-hidden');
+  const screen = document.getElementById(`screen-${name}`);
+  if (!screen) return;
+  screen.classList.remove('screen-hidden');
 
   document.querySelectorAll('.tab').forEach((t) => {
     const tab = MAIN_TABS.has(name) ? name : (
@@ -120,6 +131,177 @@ document.getElementById('open-support').addEventListener('click', () => showScre
 document.getElementById('open-edit-profile').addEventListener('click', () => showScreen('edit-profile'));
 document.getElementById('open-kyc').addEventListener('click', () => showScreen('kyc'));
 
+document.getElementById('home-go-deposit')?.addEventListener('click', () => showScreen('deposit'));
+document.getElementById('home-go-wallet')?.addEventListener('click', () => showScreen('wallet'));
+document.getElementById('home-q-deposit')?.addEventListener('click', () => showScreen('deposit'));
+document.getElementById('home-q-transfer')?.addEventListener('click', () => showScreen('transfer'));
+document.getElementById('home-q-markets')?.addEventListener('click', () => {
+  document.getElementById('quotes-list')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+document.getElementById('home-q-profile')?.addEventListener('click', () => showScreen('profile'));
+document.getElementById('home-uid-chip')?.addEventListener('click', async () => {
+  const uid = profile?.uid;
+  if (!uid) return;
+  try {
+    await navigator.clipboard.writeText(String(uid));
+    tg.showAlert('UID скопирован');
+  } catch {
+    tg.showAlert(String(uid));
+  }
+});
+
+// ---------- auth ----------
+function setAuthTab(which) {
+  const isReg = which === 'register';
+  document.getElementById('tab-register').classList.toggle('active', isReg);
+  document.getElementById('tab-login').classList.toggle('active', !isReg);
+  document.getElementById('auth-register').classList.toggle('screen-hidden', !isReg);
+  document.getElementById('auth-login').classList.toggle('screen-hidden', isReg);
+  document.getElementById('auth-sub-text').textContent = isReg
+    ? 'Создайте аккаунт, чтобы открыть кошелёк, рынки и переводы'
+    : 'Войдите с email и паролем вашего аккаунта';
+  document.getElementById('reg-error').textContent = '';
+  document.getElementById('login-error').textContent = '';
+}
+
+document.getElementById('tab-register').addEventListener('click', () => setAuthTab('register'));
+document.getElementById('tab-login').addEventListener('click', () => setAuthTab('login'));
+
+document.querySelectorAll('.auth-gate a[href^="http"]').forEach((a) => {
+  a.addEventListener('click', (e) => {
+    e.preventDefault();
+    const url = a.href;
+    try {
+      if (tg.openLink) tg.openLink(url);
+      else window.open(url, '_blank');
+    } catch {
+      window.open(url, '_blank');
+    }
+  });
+});
+
+function showAuthGate(mode = 'forms') {
+  document.body.classList.add('auth-locked');
+  document.getElementById('auth-gate').classList.remove('screen-hidden');
+  document.getElementById('app-shell').classList.add('screen-hidden');
+  if (mode === 'success') {
+    document.getElementById('auth-forms').classList.add('screen-hidden');
+    document.getElementById('auth-success').classList.remove('screen-hidden');
+    document.getElementById('auth-sub-text').textContent = 'Регистрация завершена';
+  } else {
+    document.getElementById('auth-forms').classList.remove('screen-hidden');
+    document.getElementById('auth-success').classList.add('screen-hidden');
+    setAuthTab('register');
+  }
+}
+
+function enterApp(me, { startScreen = 'markets' } = {}) {
+  profile = me;
+  renderProfile(me);
+  document.body.classList.remove('auth-locked');
+  document.getElementById('auth-gate').classList.add('screen-hidden');
+  document.getElementById('app-shell').classList.remove('screen-hidden');
+  showScreen(startScreen);
+  if (!appReady) {
+    appReady = true;
+    loadQuotes();
+    loadNews();
+    quotesTimer = setInterval(loadQuotes, 60_000);
+    profileTimer = setInterval(() => loadProfile().catch(() => {}), 30_000);
+  }
+}
+
+document.getElementById('auth-enter-app').addEventListener('click', () => {
+  if (profile) enterApp(profile);
+});
+
+document.getElementById('reg-submit').addEventListener('click', async () => {
+  const errorEl = document.getElementById('reg-error');
+  errorEl.textContent = '';
+  const fullName = document.getElementById('reg-fio').value.trim();
+  const email = document.getElementById('reg-email').value.trim();
+  const phone = document.getElementById('reg-phone').value.trim();
+  const country = document.getElementById('reg-country').value.trim();
+  const password = document.getElementById('reg-password').value;
+  const password2 = document.getElementById('reg-password2').value;
+
+  if (fullName.length < 3) {
+    errorEl.textContent = 'Укажите ФИО полностью';
+    return;
+  }
+  if (!email.includes('@')) {
+    errorEl.textContent = 'Укажите корректный email';
+    return;
+  }
+  if (phone.length < 8) {
+    errorEl.textContent = 'Укажите номер телефона';
+    return;
+  }
+  if (password.length < 6) {
+    errorEl.textContent = 'Пароль от 6 символов';
+    return;
+  }
+  if (password !== password2) {
+    errorEl.textContent = 'Пароли не совпадают';
+    return;
+  }
+
+  const btn = document.getElementById('reg-submit');
+  btn.disabled = true;
+  btn.textContent = 'Создание…';
+  try {
+    const me = await apiFetch('/users/me/register', {
+      method: 'POST',
+      body: JSON.stringify({ fullName, email, phone, country, password }),
+    });
+    profile = me;
+    document.getElementById('auth-uid-value').textContent = me.uid || '—';
+    showAuthGate('success');
+  } catch (e) {
+    errorEl.textContent = e.message || 'Не удалось зарегистрироваться';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Зарегистрироваться';
+  }
+});
+
+document.getElementById('login-submit').addEventListener('click', async () => {
+  const errorEl = document.getElementById('login-error');
+  errorEl.textContent = '';
+  const email = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  if (!email || !password) {
+    errorEl.textContent = 'Укажите email и пароль';
+    return;
+  }
+  const btn = document.getElementById('login-submit');
+  btn.disabled = true;
+  btn.textContent = 'Вход…';
+  try {
+    const me = await apiFetch('/users/me/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    });
+    enterApp(me);
+  } catch (e) {
+    errorEl.textContent = e.message || 'Неверный email или пароль';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Войти';
+  }
+});
+
+['reg-password2', 'reg-password', 'reg-phone', 'reg-email', 'reg-fio'].forEach((id) => {
+  document.getElementById(id)?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('reg-submit').click();
+  });
+});
+['login-email', 'login-password'].forEach((id) => {
+  document.getElementById(id)?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('login-submit').click();
+  });
+});
+
 // ---------- profile ----------
 function renderAccount(me) {
   const empty = document.getElementById('account-empty');
@@ -138,13 +320,19 @@ function renderAccount(me) {
 }
 
 function renderProfile(me) {
-  const initials = (me.displayName || '??').slice(0, 2).toUpperCase();
+  const name = me.displayName || me.fullName || 'Пользователь';
+  const initials = name.slice(0, 2).toUpperCase();
   document.getElementById('avatar').textContent = initials;
-  document.getElementById('display-name').textContent = me.displayName || '—';
-  document.getElementById('profile-uid').textContent = `UID ${me.id}`;
+  document.getElementById('display-name').textContent = name;
+  document.getElementById('profile-uid').textContent = `UID ${me.uid || me.id}`;
   document.getElementById('wallet-balance').textContent = fmtUsdt(me.usdtBalance);
   document.getElementById('header-balance').textContent = fmtUsdt(me.usdtBalance);
   document.getElementById('wallet-fiat').textContent = `≈ $${fmtUsdt(me.usdtBalance)}`;
+
+  const hello = document.getElementById('home-hello-name');
+  if (hello) hello.textContent = name;
+  const uidChip = document.getElementById('home-uid-chip');
+  if (uidChip) uidChip.textContent = `UID ${me.uid || '—'}`;
 
   document.getElementById('info-display').textContent = me.displayName || '—';
   document.getElementById('info-fullname').textContent = me.fullName || 'не указано';
@@ -192,6 +380,7 @@ async function loadProfile() {
   const me = await apiFetch('/users/me');
   profile = me;
   renderProfile(me);
+  return me;
 }
 
 document.getElementById('request-account-btn').addEventListener('click', async () => {
@@ -461,39 +650,49 @@ document.getElementById('transfer-submit').addEventListener('click', async () =>
 
 // ---------- history ----------
 async function loadHistory() {
-  const items = await apiFetch('/users/me/history');
-  const list = document.getElementById('history-list');
-  if (!items.length) {
-    list.innerHTML = '<div class="empty">Пока нет операций</div>';
-    return;
+  try {
+    const items = await apiFetch('/users/me/history');
+    const list = document.getElementById('history-list');
+    if (!items.length) {
+      list.innerHTML = '<div class="empty">Пока нет операций</div>';
+      return;
+    }
+    list.innerHTML = items.map((item) => {
+      const isPositive = item.amount > 0;
+      const sign = isPositive ? '+' : '';
+      const date = new Date(item.createdAt).toLocaleString('ru-RU');
+      const label = TYPE_LABELS[item.type] || item.type;
+      return `
+        <div class="history-item">
+          <div>
+            <div>${escapeHtml(label)}</div>
+            <div class="history-meta">${date}${item.meta ? ' · ' + escapeHtml(item.meta) : ''}</div>
+          </div>
+          <div class="mono ${isPositive ? 'history-amount-pos' : 'history-amount-neg'}">
+            ${sign}${fmtUsdt(item.amount)}
+          </div>
+        </div>`;
+    }).join('');
+  } catch (e) {
+    document.getElementById('history-list').innerHTML =
+      `<div class="empty">${escapeHtml(e.message)}</div>`;
   }
-  list.innerHTML = items.map((item) => {
-    const isPositive = item.amount > 0;
-    const sign = isPositive ? '+' : '';
-    const date = new Date(item.createdAt).toLocaleString('ru-RU');
-    const label = TYPE_LABELS[item.type] || item.type;
-    return `
-      <div class="history-item">
-        <div>
-          <div>${escapeHtml(label)}</div>
-          <div class="history-meta">${date}${item.meta ? ' · ' + escapeHtml(item.meta) : ''}</div>
-        </div>
-        <div class="mono ${isPositive ? 'history-amount-pos' : 'history-amount-neg'}">
-          ${sign}${fmtUsdt(item.amount)}
-        </div>
-      </div>`;
-  }).join('');
 }
 
 // ---------- support ----------
 async function loadSupportThread() {
-  const thread = await apiFetch('/support/thread');
-  currentThreadId = thread.id;
-  const container = document.getElementById('chat-messages');
-  container.innerHTML = thread.messages.map((m) => `
-    <div class="msg ${m.sender === 'user' ? 'msg-user' : 'msg-admin'}">${escapeHtml(m.text)}</div>
-  `).join('');
-  container.scrollTop = container.scrollHeight;
+  try {
+    const thread = await apiFetch('/support/thread');
+    currentThreadId = thread.id;
+    const container = document.getElementById('chat-messages');
+    container.innerHTML = thread.messages.map((m) => `
+      <div class="msg ${m.sender === 'user' ? 'msg-user' : 'msg-admin'}">${escapeHtml(m.text)}</div>
+    `).join('');
+    container.scrollTop = container.scrollHeight;
+  } catch (e) {
+    document.getElementById('chat-messages').innerHTML =
+      `<div class="empty">${escapeHtml(e.message)}</div>`;
+  }
 }
 
 async function sendSupportMessage() {
@@ -501,11 +700,15 @@ async function sendSupportMessage() {
   const text = input.value.trim();
   if (!text || !currentThreadId) return;
   input.value = '';
-  await apiFetch(`/support/thread/${currentThreadId}/messages`, {
-    method: 'POST',
-    body: JSON.stringify({ text }),
-  });
-  loadSupportThread();
+  try {
+    await apiFetch(`/support/thread/${currentThreadId}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({ text }),
+    });
+    loadSupportThread();
+  } catch (e) {
+    tg.showAlert(e.message);
+  }
 }
 
 document.getElementById('chat-send').addEventListener('click', sendSupportMessage);
@@ -516,8 +719,9 @@ document.getElementById('chat-input').addEventListener('keydown', (e) => {
 // ---------- markets ----------
 async function loadQuotes() {
   try {
-    const quotes = await fetch('/api/market/quotes').then((r) => r.json());
-    if (!Array.isArray(quotes)) throw new Error('bad');
+    const r = await fetch('/api/market/quotes');
+    const quotes = await r.json().catch(() => null);
+    if (!r.ok || !Array.isArray(quotes)) throw new Error(quotes?.error || 'bad');
     document.getElementById('ticker-strip').innerHTML = quotes.slice(0, 6).map((q, i) => {
       const chg = fmtChange(q.change24h);
       return `
@@ -550,6 +754,7 @@ async function loadQuotes() {
     document.getElementById('quotes-updated').textContent =
       `обн. ${new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`;
   } catch {
+    document.getElementById('ticker-strip').innerHTML = '';
     document.getElementById('quotes-list').innerHTML =
       '<div class="empty">Не удалось загрузить котировки</div>';
   }
@@ -557,8 +762,9 @@ async function loadQuotes() {
 
 async function loadNews() {
   try {
-    const news = await fetch('/api/market/news').then((r) => r.json());
-    if (!Array.isArray(news)) throw new Error('bad');
+    const r = await fetch('/api/market/news');
+    const news = await r.json().catch(() => null);
+    if (!r.ok || !Array.isArray(news)) throw new Error(news?.error || 'bad');
     const list = document.getElementById('news-list');
     if (!news.length) {
       list.innerHTML = '<div class="empty">Новостей пока нет</div>';
@@ -588,8 +794,27 @@ async function loadNews() {
   }
 }
 
-loadProfile().catch(console.error);
-loadQuotes();
-loadNews();
-setInterval(loadQuotes, 60_000);
-setInterval(() => loadProfile().catch(() => {}), 30_000);
+async function boot() {
+  showAuthGate('forms');
+  try {
+    const me = await apiFetch('/users/me');
+    if (me.registered) {
+      enterApp(me);
+      return;
+    }
+    // префилл из Telegram
+    const tgUser = tg.initDataUnsafe?.user;
+    if (tgUser?.first_name && !document.getElementById('reg-fio').value) {
+      const parts = [tgUser.first_name, tgUser.last_name].filter(Boolean).join(' ');
+      if (parts) document.getElementById('reg-fio').value = parts;
+    }
+    showAuthGate('forms');
+  } catch (e) {
+    console.error(e);
+    document.getElementById('reg-error').textContent =
+      e.message || 'Не удалось связаться с сервером';
+    try { tg.showAlert(e.message || 'Не удалось загрузить профиль'); } catch (_) {}
+  }
+}
+
+boot();
