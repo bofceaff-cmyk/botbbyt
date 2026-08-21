@@ -636,7 +636,10 @@ input:focus { border-color: rgba(247, 166, 0, 0.55); }
   cursor: pointer; flex-shrink: 0;
 }
 .coin-pick:disabled { opacity: 1; cursor: default; }
-.coin-pick img { width: 22px; height: 22px; border-radius: 50%; }
+.coin-pick img, .coin-logo {
+  width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0; object-fit: cover;
+}
+.sheet-item .coin-logo { width: 28px; height: 28px; }
 .coin-dot {
   width: 22px; height: 22px; border-radius: 50%;
   display: grid; place-items: center;

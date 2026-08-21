@@ -398,17 +398,21 @@ document.getElementById('withdraw-submit-onchain')?.addEventListener('click', ()
 document.getElementById('withdraw-submit-card')?.addEventListener('click', () => submitWithdraw('card'));
 
 const CONVERT_ASSETS = [
-  { id: 'BTC', name: 'Bitcoin', color: '#F7931A', nets: ['BTC'] },
-  { id: 'ETH', name: 'Ethereum', color: '#627EEA', nets: ['ERC20'] },
-  { id: 'USDT', name: 'Tether', color: '#26A17B', nets: ['TRC20', 'ERC20'] },
-  { id: 'TRX', name: 'TRON', color: '#FF0013', nets: ['TRC20'] },
-  { id: 'SOL', name: 'Solana', color: '#14F195', nets: ['SOL'] },
+  { id: 'BTC', name: 'Bitcoin', icon: '/img/btc.svg?v=1', nets: ['BTC'] },
+  { id: 'ETH', name: 'Ethereum', icon: '/img/eth.svg?v=1', nets: ['ERC20'] },
+  { id: 'USDT', name: 'Tether', icon: '/img/usdt.svg?v=2', nets: ['TRC20', 'ERC20'] },
+  { id: 'TRX', name: 'TRON', icon: '/img/trx.svg?v=1', nets: ['TRC20'] },
+  { id: 'SOL', name: 'Solana', icon: '/img/sol.svg?v=1', nets: ['SOL'] },
 ];
 
 let convertToAsset = 'BTC';
 
 function convertAssetMeta(id) {
   return CONVERT_ASSETS.find((a) => a.id === id) || CONVERT_ASSETS[0];
+}
+
+function coinIconHtml(a, size = 22) {
+  return `<img class="coin-logo" src="${a.icon}" alt="" width="${size}" height="${size}">`;
 }
 
 function renderConvertNetChips() {
@@ -433,11 +437,10 @@ function setConvertToAsset(id) {
   const meta = convertAssetMeta(id);
   document.getElementById('convert-asset').value = id;
   document.getElementById('convert-to-label').textContent = id;
-  const dot = document.getElementById('convert-to-dot');
-  if (dot) {
-    dot.dataset.sym = id;
-    dot.style.background = meta.color;
-    dot.textContent = id.slice(0, 1);
+  const ico = document.getElementById('convert-to-icon');
+  if (ico) {
+    ico.src = meta.icon;
+    ico.alt = meta.id;
   }
   renderConvertNetChips();
   updateConvertEstimate();
@@ -448,7 +451,7 @@ function openConvertAssetSheet() {
   const list = document.getElementById('convert-asset-list');
   list.innerHTML = CONVERT_ASSETS.map((a) => `
     <button type="button" class="sheet-item ${a.id === convertToAsset ? 'active' : ''}" data-pick="${a.id}">
-      <span class="coin-dot" style="background:${a.color}">${a.id.slice(0, 1)}</span>
+      ${coinIconHtml(a, 28)}
       <span>
         <div class="sheet-item-title">${a.id}</div>
         <div class="muted" style="font-size:12px">${escapeHtml(a.name)}</div>
