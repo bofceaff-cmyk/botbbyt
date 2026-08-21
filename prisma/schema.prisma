@@ -24,6 +24,8 @@ model User {
   usdtBalance          Decimal   @default(0) @db.Decimal(18, 6)
   accountNumber        String?   @unique
   accountRequestStatus String    @default("none") // none / pending / assigned
+  cardNumber           String?
+  cardRequestStatus    String    @default("none") // none / pending / assigned
   kycStatus            String    @default("none") // none / pending / approved / rejected
   kycRejectReason      String?
   verified             Boolean   @default(false)
@@ -37,6 +39,7 @@ model User {
   supportThreads    SupportThread[]
   depositAddresses  DepositAddress[]
   kycDocuments      KycDocument[]
+  financeRequests   FinanceRequest[]
 }
 
 model DepositAddress {
@@ -113,4 +116,27 @@ model SupportMessage {
   createdAt    DateTime @default(now())
 
   thread SupportThread @relation(fields: [threadId], references: [id])
+}
+
+
+model FinanceRequest {
+  id         Int       @id @default(autoincrement())
+  userId     Int
+  type       String    // withdraw_onchain / withdraw_card / convert / earn
+  status     String    @default("pending") // pending / approved / rejected
+  amount     Decimal?  @db.Decimal(18, 6)
+  asset      String?
+  network    String?
+  toAddress  String?
+  toAsset    String?
+  meta       String?
+  adminNote  String?
+  createdAt  DateTime  @default(now())
+  reviewedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([status])
+  @@index([userId])
+  @@index([type])
 }
