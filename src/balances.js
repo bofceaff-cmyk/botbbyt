@@ -1,5 +1,3 @@
-const prisma = require('../db');
-
 const ASSETS = ['USDT', 'BTC', 'ETH', 'TRX', 'SOL'];
 
 function toNum(v) {
@@ -114,5 +112,4 @@ module.exports = {
   listBalances,
   fetchUsdPrices,
   convertAmount,
-  prisma,
 };
