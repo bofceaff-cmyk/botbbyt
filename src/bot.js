@@ -1,16 +1,38 @@
 const { Telegraf, Markup } = require('telegraf');
 const prisma = require('./db');
 
+function httpsUrl(raw) {
+  const v = String(raw || '').trim();
+  if (!v) return '';
+  if (/^https:\/\//i.test(v)) return v.replace(/\/$/, '');
+  if (/^http:\/\//i.test(v)) return v.replace(/^http:\/\//i, 'https://').replace(/\/$/, '');
+  return `https://${v.replace(/^\/+/, '')}`.replace(/\/$/, '');
+}
+
 function createBot() {
   const bot = new Telegraf(process.env.BOT_TOKEN);
+  const webappUrl = httpsUrl(process.env.WEBAPP_URL);
 
-  bot.start((ctx) => {
-    ctx.reply(
-      'Добро пожаловать в Bybit Wallet — кошелёк USDT, рынки и переводы.',
-      Markup.inlineKeyboard([
-        Markup.button.webApp('Открыть приложение', process.env.WEBAPP_URL),
-      ])
-    );
+  bot.start(async (ctx) => {
+    try {
+      if (!webappUrl) {
+        await ctx.reply(
+          'Приложение временно недоступно: WEBAPP_URL не задан на сервере.'
+        );
+        return;
+      }
+      await ctx.reply(
+        'Добро пожаловать в Bybit Wallet — кошелёк USDT, рынки и переводы.',
+        Markup.inlineKeyboard([
+          Markup.button.webApp('Открыть приложение', webappUrl),
+        ])
+      );
+    } catch (e) {
+      console.error('[bot/start]', e.message || e);
+      try {
+        await ctx.reply('Не удалось открыть кнопку приложения. Проверьте WEBAPP_URL (нужен https://...).');
+      } catch (_) { /* ignore */ }
+    }
   });
 
   // Ответ админа на тикет поддержки: /reply_42 текст ответа
@@ -48,7 +70,12 @@ function createBot() {
     ctx.reply(`Тикет #${threadId} закрыт`);
   });
 
+  bot.catch((err) => {
+    console.error('[bot]', err.message || err);
+  });
+
   return bot;
 }
 
 module.exports = createBot;
+module.exports.httpsUrl = httpsUrl;
