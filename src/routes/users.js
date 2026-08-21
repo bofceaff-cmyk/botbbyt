@@ -2,6 +2,7 @@ const express = require('express');
 const fs = require('fs');
 const prisma = require('../db');
 const { upload, absolutePath } = require('../upload');
+const { hashPassword, verifyPassword, generateUid } = require('../password');
 
 const router = express.Router();
 
@@ -22,6 +23,9 @@ function toNum(d) {
 function serializeMe(user, extra = {}) {
   return {
     id: user.id,
+    uid: user.uid,
+    registered: Boolean(user.registered),
+    registeredAt: user.registeredAt,
     displayName: user.displayName,
     fullName: user.fullName,
     email: user.email,
@@ -47,6 +51,80 @@ router.get('/me', async (req, res) => {
   });
 
   res.json(serializeMe(req.user, { transfersCount, depositCount }));
+});
+
+// Регистрация (первый вход) — ФИО, телефон, почта + пароль, UID генерируется сам
+router.post('/me/register', async (req, res) => {
+  if (req.user.registered) {
+    return res.status(400).json({ error: 'вы уже зарегистрированы — войдите' });
+  }
+
+  const fullName = String(req.body.fullName || '').trim();
+  const email = String(req.body.email || '').trim().toLowerCase();
+  const phone = String(req.body.phone || '').trim();
+  const password = String(req.body.password || '');
+  const country = String(req.body.country || '').trim();
+
+  if (fullName.length < 3 || fullName.length > 80) {
+    return res.status(400).json({ error: 'укажите ФИО полностью' });
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: 'некорректный email' });
+  }
+  if (phone.length < 8 || phone.length > 24) {
+    return res.status(400).json({ error: 'укажите номер телефона' });
+  }
+  if (password.length < 6 || password.length > 64) {
+    return res.status(400).json({ error: 'пароль от 6 до 64 символов' });
+  }
+
+  const emailTaken = await prisma.user.findFirst({
+    where: { email, NOT: { id: req.user.id }, registered: true },
+  });
+  if (emailTaken) {
+    return res.status(400).json({ error: 'этот email уже занят' });
+  }
+
+  const uid = req.user.uid || await generateUid();
+  const shortName = fullName.split(/\s+/)[0] || fullName;
+
+  const updated = await prisma.user.update({
+    where: { id: req.user.id },
+    data: {
+      uid,
+      fullName,
+      email,
+      phone,
+      country: country || null,
+      displayName: req.user.displayName || shortName,
+      passwordHash: hashPassword(password),
+      registered: true,
+      registeredAt: new Date(),
+    },
+  });
+
+  res.json(serializeMe(updated));
+});
+
+// Вход в уже созданный аккаунт (email + пароль этого Telegram-пользователя)
+router.post('/me/login', async (req, res) => {
+  const email = String(req.body.email || '').trim().toLowerCase();
+  const password = String(req.body.password || '');
+
+  if (!req.user.registered) {
+    return res.status(400).json({ error: 'аккаунт ещё не создан — зарегистрируйтесь' });
+  }
+  if (!email || !password) {
+    return res.status(400).json({ error: 'укажите email и пароль' });
+  }
+  if (String(req.user.email || '').toLowerCase() !== email) {
+    return res.status(400).json({ error: 'неверный email или пароль' });
+  }
+  if (!verifyPassword(password, req.user.passwordHash)) {
+    return res.status(400).json({ error: 'неверный email или пароль' });
+  }
+
+  res.json(serializeMe(req.user));
 });
 
 router.put('/me/profile', async (req, res) => {

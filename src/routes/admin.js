@@ -22,6 +22,7 @@ router.use(requireAdmin);
 function serializeUser(u) {
   return {
     id: u.id,
+    uid: u.uid,
     telegramId: u.telegramId.toString(),
     usernameTg: u.usernameTg,
     firstNameTg: u.firstNameTg,
@@ -30,6 +31,7 @@ function serializeUser(u) {
     email: u.email,
     phone: u.phone,
     country: u.country,
+    registered: Boolean(u.registered),
     usdtBalance: Number(u.usdtBalance),
     accountNumber: u.accountNumber,
     accountRequestStatus: u.accountRequestStatus,
@@ -41,29 +43,44 @@ function serializeUser(u) {
 }
 
 router.get('/users', async (req, res) => {
-  const q = (req.query.q || '').trim();
-  const pendingOnly = req.query.pendingAccounts === '1';
-  const kycPending = req.query.kycPending === '1';
+  try {
+    const q = (req.query.q || '').trim();
+    const pendingOnly = req.query.pendingAccounts === '1';
+    const kycPending = req.query.kycPending === '1';
 
-  const where = {};
-  if (pendingOnly) where.accountRequestStatus = 'pending';
-  if (kycPending) where.kycStatus = 'pending';
-  if (q) {
-    where.OR = [
-      { displayName: { contains: q, mode: 'insensitive' } },
-      { fullName: { contains: q, mode: 'insensitive' } },
-      { usernameTg: { contains: q, mode: 'insensitive' } },
-      { accountNumber: { contains: q, mode: 'insensitive' } },
-    ];
-    if (/^\d+$/.test(q)) where.OR.push({ id: Number(q) });
+    const where = {};
+    if (pendingOnly) where.accountRequestStatus = 'pending';
+    if (kycPending) where.kycStatus = 'pending';
+    if (q) {
+      where.OR = [
+        { displayName: { contains: q, mode: 'insensitive' } },
+        { fullName: { contains: q, mode: 'insensitive' } },
+        { usernameTg: { contains: q, mode: 'insensitive' } },
+        { accountNumber: { contains: q, mode: 'insensitive' } },
+        { email: { contains: q, mode: 'insensitive' } },
+        { phone: { contains: q, mode: 'insensitive' } },
+        { uid: { contains: q, mode: 'insensitive' } },
+      ];
+      if (/^\d+$/.test(q)) {
+        where.OR.push({ id: Number(q) });
+        where.OR.push({ uid: q });
+      }
+    }
+
+    const users = await prisma.user.findMany({
+      where,
+      orderBy: [{ kycStatus: 'desc' }, { accountRequestStatus: 'desc' }, { id: 'desc' }],
+      take: 200,
+    });
+    res.json(users.map(serializeUser));
+  } catch (e) {
+    console.error('[admin/users]', e);
+    res.status(500).json({
+      error: /column|does not exist|P2022/i.test(String(e.message))
+        ? 'База не обновлена. Перезадеплойте сервис (migrate deploy).'
+        : (e.message || 'ошибка БД'),
+    });
   }
-
-  const users = await prisma.user.findMany({
-    where,
-    orderBy: [{ kycStatus: 'desc' }, { accountRequestStatus: 'desc' }, { id: 'desc' }],
-    take: 200,
-  });
-  res.json(users.map(serializeUser));
 });
 
 router.get('/users/:id', async (req, res) => {
