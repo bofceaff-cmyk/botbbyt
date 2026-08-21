@@ -12,13 +12,11 @@
 </head>
 <body>
 <div id="auth-gate" class="auth-gate">
-  <div class="auth-card">
-    <div class="auth-brand-mark" aria-hidden="true">
-      <svg viewBox="0 0 48 48" width="44" height="44"><path fill="#F7A600" d="M8 10h12l4 8 4-8h12L28 38H20L8 10zm16 10l4 8h-8l4-8z"/></svg>
-    </div>
-    <div class="auth-logo">Bybit</div>
-    <p class="auth-sub" id="auth-sub-text">Создайте аккаунт, чтобы открыть кошелёк, рынки и переводы</p>
+  <div class="auth-top">
+    <div class="bybit-logo" aria-label="BYBIT"><span>BYB</span><span class="bybit-i"></span><span>T</span></div>
+  </div>
 
+  <div class="auth-sheet">
     <div id="auth-forms">
       <div class="seg auth-tabs">
         <button type="button" class="seg-btn active" id="tab-register">Регистрация</button>
@@ -26,35 +24,56 @@
       </div>
 
       <div id="auth-register">
-        <label>ФИО</label>
-        <input type="text" id="reg-fio" placeholder="Иванов Иван Иванович" autocomplete="name">
-        <label>Email</label>
-        <input type="email" id="reg-email" placeholder="name@mail.com" autocomplete="email">
-        <label>Телефон</label>
-        <input type="tel" id="reg-phone" placeholder="+7 900 000-00-00" autocomplete="tel">
-        <label>Страна</label>
-        <input type="text" id="reg-country" placeholder="Россия" value="Россия">
-        <label>Пароль</label>
-        <input type="password" id="reg-password" placeholder="минимум 6 символов" autocomplete="new-password">
-        <label>Повтор пароля</label>
-        <input type="password" id="reg-password2" placeholder="ещё раз" autocomplete="new-password">
-        <div class="error" id="reg-error"></div>
-        <button type="button" class="btn-primary full" id="reg-submit">Зарегистрироваться</button>
-        <p class="auth-legal">Нажимая «Зарегистрироваться», вы принимаете
-          <a href="https://www.bybit.com/ru-RU/legal/terms-of-service/terms-of-service" target="_blank" rel="noopener">Условия пользования</a>
-          и
-          <a href="https://www.bybit.com/ru-RU/legal/policies-and-rules/privacy-policy" target="_blank" rel="noopener">Политику конфиденциальности</a>
-        </p>
+        <h1 class="auth-title" id="reg-title">Зарегистрироваться</h1>
+
+        <div id="reg-step-1">
+          <label>Эл. почта / номер телефона</label>
+          <input type="text" id="reg-contact" placeholder="Адрес эл. почты или номер телефона" autocomplete="username" inputmode="email">
+          <label class="auth-check">
+            <input type="checkbox" id="reg-agree" checked>
+            <span>Нажимая «Далее», вы принимаете
+              <a href="https://www.bybit.com/ru-RU/legal/terms-of-service/terms-of-service" target="_blank" rel="noopener">Условия обслуживания</a>
+              и
+              <a href="https://www.bybit.com/ru-RU/legal/policies-and-rules/privacy-policy" target="_blank" rel="noopener">Политику конфиденциальности</a>
+            </span>
+          </label>
+          <div class="error" id="reg-error-1"></div>
+          <button type="button" class="btn-primary full auth-cta" id="reg-next">Далее</button>
+        </div>
+
+        <div id="reg-step-2" class="screen-hidden">
+          <button type="button" class="auth-back" id="reg-back">← Назад</button>
+          <label>ФИО</label>
+          <input type="text" id="reg-fio" placeholder="Иванов Иван Иванович" autocomplete="name">
+          <label id="reg-extra-label">Email</label>
+          <input type="text" id="reg-extra" placeholder="" autocomplete="off">
+          <label>Страна</label>
+          <input type="text" id="reg-country" placeholder="Россия" value="Россия">
+          <label>Пароль</label>
+          <input type="password" id="reg-password" placeholder="минимум 6 символов" autocomplete="new-password">
+          <label>Повтор пароля</label>
+          <input type="password" id="reg-password2" placeholder="ещё раз" autocomplete="new-password">
+          <div class="error" id="reg-error"></div>
+          <button type="button" class="btn-primary full auth-cta" id="reg-submit">Зарегистрироваться</button>
+        </div>
       </div>
 
       <div id="auth-login" class="screen-hidden">
-        <label>Email</label>
-        <input type="email" id="login-email" placeholder="name@mail.com" autocomplete="username">
+        <h1 class="auth-title">Войти</h1>
+        <label>Эл. почта / номер телефона</label>
+        <input type="text" id="login-contact" placeholder="Адрес эл. почты или номер телефона" autocomplete="username">
         <label>Пароль</label>
         <input type="password" id="login-password" placeholder="ваш пароль" autocomplete="current-password">
+        <label class="auth-check">
+          <input type="checkbox" id="login-agree" checked>
+          <span>Входя в аккаунт, вы принимаете
+            <a href="https://www.bybit.com/ru-RU/legal/terms-of-service/terms-of-service" target="_blank" rel="noopener">Условия обслуживания</a>
+            и
+            <a href="https://www.bybit.com/ru-RU/legal/policies-and-rules/privacy-policy" target="_blank" rel="noopener">Политику конфиденциальности</a>
+          </span>
+        </label>
         <div class="error" id="login-error"></div>
-        <button type="button" class="btn-primary full" id="login-submit">Войти</button>
-        <p class="muted auth-hint">Вход — для уже созданного аккаунта в этом боте</p>
+        <button type="button" class="btn-primary full auth-cta" id="login-submit">Войти</button>
       </div>
     </div>
 
@@ -63,20 +82,19 @@
       <h2>Аккаунт создан</h2>
       <p class="muted">Ваш уникальный идентификатор</p>
       <div class="auth-uid mono" id="auth-uid-value">—</div>
-      <button type="button" class="btn-primary full" id="auth-enter-app">Перейти в приложение</button>
+      <button type="button" class="btn-primary full auth-cta" id="auth-enter-app">Перейти в приложение</button>
     </div>
 
-    <div class="auth-footer-links">
-      <a href="https://www.bybit.com/ru-RU/legal/policies-and-rules/privacy-policy" target="_blank" rel="noopener">Политика конфиденциальности</a>
-      <span class="auth-footer-sep">·</span>
-      <a href="https://www.bybit.com/ru-RU/legal/terms-of-service/terms-of-service" target="_blank" rel="noopener">Условия пользования</a>
+    <div id="auth-loading" class="auth-loading screen-hidden">
+      <div class="auth-spinner"></div>
+      <p>Загрузка…</p>
     </div>
   </div>
 </div>
 
 <div id="app-shell" class="screen-hidden">
 <header class="topbar">
-  <div class="brand">Bybit <span>Wallet</span></div>
+  <div class="bybit-logo bybit-logo-sm" aria-label="BYBIT"><span>BYB</span><span class="bybit-i"></span><span>T</span></div>
   <div class="topbar-balance">
     <span class="topbar-label">Баланс</span>
     <span class="mono" id="header-balance">0.00</span>
@@ -96,7 +114,7 @@
     </div>
 
     <div class="home-banner">
-      <div class="home-banner-kicker">Bybit Wallet</div>
+      <div class="home-banner-kicker"><span class="bybit-logo bybit-logo-xs" aria-label="BYBIT"><span>BYB</span><span class="bybit-i"></span><span>T</span></span></div>
       <div class="home-banner-title">Торгуйте и храните USDT в одном месте</div>
       <div class="home-banner-actions">
         <button type="button" class="btn-primary home-banner-btn" id="home-go-deposit">Депозит</button>

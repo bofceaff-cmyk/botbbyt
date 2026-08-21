@@ -258,3 +258,29 @@ tr:last-child td { border-bottom: none; }
   .support-layout { grid-template-columns: 1fr; }
   .modal-grid { grid-template-columns: 1fr; }
 }
+
+.bybit-logo {
+  display: inline-flex;
+  align-items: center;
+  font-weight: 800;
+  font-size: 20px;
+  letter-spacing: 0.04em;
+  color: #fff;
+  line-height: 1;
+}
+.bybit-logo-sm { font-size: 16px; }
+.bybit-i {
+  display: inline-block;
+  width: 0.32em;
+  height: 0.95em;
+  margin: 0 0.05em;
+  border-radius: 1px;
+  background: linear-gradient(to bottom, #F7A600 0 58%, #ffffff 58% 100%);
+}
+.admin-tag {
+  margin-left: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #9aa4b2;
+  letter-spacing: 0.06em;
+}

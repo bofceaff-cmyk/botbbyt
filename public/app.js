@@ -38,25 +38,63 @@ let appReady = false;
 let quotesTimer = null;
 let profileTimer = null;
 
-function apiFetch(path, options = {}) {
-  return fetch(API_BASE + path, {
-    ...options,
-    headers: {
-      ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
-      'X-Telegram-Init-Data': tg.initData || '',
-      ...(options.headers || {}),
-    },
-  }).then(async (r) => {
-    const data = await r.json().catch(() => ({}));
-    if (!r.ok) {
-      const msg = data.error || `Ошибка сервера (${r.status})`;
-      throw new Error(msg);
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+function isTransientError(msg, status) {
+  if (status === 502 || status === 503 || status === 504) return true;
+  return /502|503|504|Failed to fetch|NetworkError|Нет связи|Application failed/i.test(String(msg || ''));
+}
+
+async function apiFetch(path, options = {}, { retries = 4 } = {}) {
+  let lastErr = null;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const r = await fetch(API_BASE + path, {
+        ...options,
+        headers: {
+          ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+          'X-Telegram-Init-Data': tg.initData || '',
+          ...(options.headers || {}),
+        },
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        const msg = data.error || `Ошибка сервера (${r.status})`;
+        if (isTransientError(msg, r.status) && attempt < retries) {
+          await sleep(700 * (attempt + 1));
+          continue;
+        }
+        throw new Error(msg);
+      }
+      return data;
+    } catch (e) {
+      lastErr = e;
+      if (isTransientError(e.message) && attempt < retries) {
+        await sleep(700 * (attempt + 1));
+        continue;
+      }
+      if (e.message && !/Failed to fetch|NetworkError/i.test(e.message)) throw e;
+      if (attempt < retries) {
+        await sleep(700 * (attempt + 1));
+        continue;
+      }
+      throw new Error('Нет связи с сервером. Проверьте деплой на Railway.');
     }
-    return data;
-  }).catch((e) => {
-    if (e.message && !/Failed to fetch|NetworkError/i.test(e.message)) throw e;
-    throw new Error('Нет связи с сервером. Проверьте деплой на Railway.');
-  });
+  }
+  throw lastErr || new Error('Нет связи с сервером');
+}
+
+async function wakeServer() {
+  for (let i = 0; i < 6; i++) {
+    try {
+      const r = await fetch('/api/health', { cache: 'no-store' });
+      if (r.ok || r.status < 500) return true;
+    } catch (_) { /* cold start */ }
+    await sleep(800);
+  }
+  return false;
 }
 
 async function apiBlob(path) {
@@ -151,17 +189,41 @@ document.getElementById('home-uid-chip')?.addEventListener('click', async () => 
 });
 
 // ---------- auth ----------
+let regContactKind = 'email'; // email | phone
+let regContactValue = '';
+
+function parseContact(raw) {
+  const v = String(raw || '').trim();
+  if (!v) return null;
+  if (v.includes('@')) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) return { error: 'Некорректный email' };
+    return { kind: 'email', value: v.toLowerCase() };
+  }
+  const digits = v.replace(/[^\d+]/g, '');
+  const onlyDigits = digits.replace(/\D/g, '');
+  if (onlyDigits.length < 8) return { error: 'Укажите номер телефона или email' };
+  return { kind: 'phone', value: digits.startsWith('+') ? digits : `+${onlyDigits}` };
+}
+
+function setRegStep(step) {
+  document.getElementById('reg-step-1').classList.toggle('screen-hidden', step !== 1);
+  document.getElementById('reg-step-2').classList.toggle('screen-hidden', step !== 2);
+  document.getElementById('reg-title').textContent =
+    step === 1 ? 'Зарегистрироваться' : 'Данные аккаунта';
+  document.getElementById('reg-error-1').textContent = '';
+  document.getElementById('reg-error').textContent = '';
+}
+
 function setAuthTab(which) {
   const isReg = which === 'register';
   document.getElementById('tab-register').classList.toggle('active', isReg);
   document.getElementById('tab-login').classList.toggle('active', !isReg);
   document.getElementById('auth-register').classList.toggle('screen-hidden', !isReg);
   document.getElementById('auth-login').classList.toggle('screen-hidden', isReg);
-  document.getElementById('auth-sub-text').textContent = isReg
-    ? 'Создайте аккаунт, чтобы открыть кошелёк, рынки и переводы'
-    : 'Войдите с email и паролем вашего аккаунта';
   document.getElementById('reg-error').textContent = '';
+  document.getElementById('reg-error-1').textContent = '';
   document.getElementById('login-error').textContent = '';
+  if (isReg) setRegStep(1);
 }
 
 document.getElementById('tab-register').addEventListener('click', () => setAuthTab('register'));
@@ -180,18 +242,27 @@ document.querySelectorAll('.auth-gate a[href^="http"]').forEach((a) => {
   });
 });
 
+function showAuthLoading(on) {
+  document.getElementById('auth-loading').classList.toggle('screen-hidden', !on);
+  document.getElementById('auth-forms').classList.toggle('screen-hidden', on);
+  document.getElementById('auth-success').classList.add('screen-hidden');
+}
+
 function showAuthGate(mode = 'forms') {
   document.body.classList.add('auth-locked');
   document.getElementById('auth-gate').classList.remove('screen-hidden');
   document.getElementById('app-shell').classList.add('screen-hidden');
+  document.getElementById('auth-loading').classList.add('screen-hidden');
   if (mode === 'success') {
     document.getElementById('auth-forms').classList.add('screen-hidden');
     document.getElementById('auth-success').classList.remove('screen-hidden');
-    document.getElementById('auth-sub-text').textContent = 'Регистрация завершена';
+  } else if (mode === 'loading') {
+    showAuthLoading(true);
   } else {
     document.getElementById('auth-forms').classList.remove('screen-hidden');
     document.getElementById('auth-success').classList.add('screen-hidden');
     setAuthTab('register');
+    setRegStep(1);
   }
 }
 
@@ -215,26 +286,72 @@ document.getElementById('auth-enter-app').addEventListener('click', () => {
   if (profile) enterApp(profile);
 });
 
+document.getElementById('reg-next').addEventListener('click', () => {
+  const errorEl = document.getElementById('reg-error-1');
+  errorEl.textContent = '';
+  if (!document.getElementById('reg-agree').checked) {
+    errorEl.textContent = 'Примите условия обслуживания';
+    return;
+  }
+  const parsed = parseContact(document.getElementById('reg-contact').value);
+  if (!parsed || parsed.error) {
+    errorEl.textContent = parsed?.error || 'Укажите email или телефон';
+    return;
+  }
+  regContactKind = parsed.kind;
+  regContactValue = parsed.value;
+
+  const extraLabel = document.getElementById('reg-extra-label');
+  const extraInput = document.getElementById('reg-extra');
+  if (parsed.kind === 'email') {
+    extraLabel.textContent = 'Телефон';
+    extraInput.type = 'tel';
+    extraInput.placeholder = '+7 900 000-00-00';
+    extraInput.autocomplete = 'tel';
+    extraInput.value = '';
+  } else {
+    extraLabel.textContent = 'Email';
+    extraInput.type = 'email';
+    extraInput.placeholder = 'name@mail.com';
+    extraInput.autocomplete = 'email';
+    extraInput.value = '';
+  }
+  setRegStep(2);
+});
+
+document.getElementById('reg-back').addEventListener('click', () => setRegStep(1));
+
 document.getElementById('reg-submit').addEventListener('click', async () => {
   const errorEl = document.getElementById('reg-error');
   errorEl.textContent = '';
   const fullName = document.getElementById('reg-fio').value.trim();
-  const email = document.getElementById('reg-email').value.trim();
-  const phone = document.getElementById('reg-phone').value.trim();
   const country = document.getElementById('reg-country').value.trim();
   const password = document.getElementById('reg-password').value;
   const password2 = document.getElementById('reg-password2').value;
+  const extra = document.getElementById('reg-extra').value.trim();
+
+  let email = '';
+  let phone = '';
+  if (regContactKind === 'email') {
+    email = regContactValue;
+    const ph = parseContact(extra);
+    if (!ph || ph.kind !== 'phone') {
+      errorEl.textContent = 'Укажите номер телефона';
+      return;
+    }
+    phone = ph.value;
+  } else {
+    phone = regContactValue;
+    const em = parseContact(extra);
+    if (!em || em.kind !== 'email') {
+      errorEl.textContent = 'Укажите корректный email';
+      return;
+    }
+    email = em.value;
+  }
 
   if (fullName.length < 3) {
     errorEl.textContent = 'Укажите ФИО полностью';
-    return;
-  }
-  if (!email.includes('@')) {
-    errorEl.textContent = 'Укажите корректный email';
-    return;
-  }
-  if (phone.length < 8) {
-    errorEl.textContent = 'Укажите номер телефона';
     return;
   }
   if (password.length < 6) {
@@ -268,10 +385,18 @@ document.getElementById('reg-submit').addEventListener('click', async () => {
 document.getElementById('login-submit').addEventListener('click', async () => {
   const errorEl = document.getElementById('login-error');
   errorEl.textContent = '';
-  const email = document.getElementById('login-email').value.trim();
+  if (!document.getElementById('login-agree').checked) {
+    errorEl.textContent = 'Примите условия обслуживания';
+    return;
+  }
+  const parsed = parseContact(document.getElementById('login-contact').value);
   const password = document.getElementById('login-password').value;
-  if (!email || !password) {
-    errorEl.textContent = 'Укажите email и пароль';
+  if (!parsed || parsed.error) {
+    errorEl.textContent = parsed?.error || 'Укажите email или телефон';
+    return;
+  }
+  if (!password) {
+    errorEl.textContent = 'Укажите пароль';
     return;
   }
   const btn = document.getElementById('login-submit');
@@ -280,7 +405,12 @@ document.getElementById('login-submit').addEventListener('click', async () => {
   try {
     const me = await apiFetch('/users/me/login', {
       method: 'POST',
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({
+        email: parsed.kind === 'email' ? parsed.value : '',
+        phone: parsed.kind === 'phone' ? parsed.value : '',
+        contact: parsed.value,
+        password,
+      }),
     });
     enterApp(me);
   } catch (e) {
@@ -291,12 +421,15 @@ document.getElementById('login-submit').addEventListener('click', async () => {
   }
 });
 
-['reg-password2', 'reg-password', 'reg-phone', 'reg-email', 'reg-fio'].forEach((id) => {
+document.getElementById('reg-contact')?.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') document.getElementById('reg-next').click();
+});
+['reg-password2', 'reg-password', 'reg-extra', 'reg-fio'].forEach((id) => {
   document.getElementById(id)?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') document.getElementById('reg-submit').click();
   });
 });
-['login-email', 'login-password'].forEach((id) => {
+['login-contact', 'login-password'].forEach((id) => {
   document.getElementById(id)?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') document.getElementById('login-submit').click();
   });
@@ -795,25 +928,26 @@ async function loadNews() {
 }
 
 async function boot() {
-  showAuthGate('forms');
+  showAuthGate('loading');
+  await wakeServer();
   try {
-    const me = await apiFetch('/users/me');
+    const me = await apiFetch('/users/me', {}, { retries: 5 });
     if (me.registered) {
       enterApp(me);
       return;
     }
-    // префилл из Telegram
     const tgUser = tg.initDataUnsafe?.user;
-    if (tgUser?.first_name && !document.getElementById('reg-fio').value) {
+    if (tgUser?.first_name) {
       const parts = [tgUser.first_name, tgUser.last_name].filter(Boolean).join(' ');
       if (parts) document.getElementById('reg-fio').value = parts;
     }
     showAuthGate('forms');
   } catch (e) {
     console.error(e);
-    document.getElementById('reg-error').textContent =
-      e.message || 'Не удалось связаться с сервером';
-    try { tg.showAlert(e.message || 'Не удалось загрузить профиль'); } catch (_) {}
+    showAuthGate('forms');
+    const el = document.getElementById('reg-error-1');
+    if (el) el.textContent = 'Сервер просыпается, попробуйте ещё раз через пару секунд';
+    // не показываем Alert с 502 — это холодный старт Railway
   }
 }
 
