@@ -4,6 +4,7 @@ let secret = localStorage.getItem(STORAGE_KEY) || '';
 let currentThreadId = null;
 let currentKycUserId = null;
 let editingUserId = null;
+let editBalMode = 'credit';
 
 const NETWORK_BY_ASSET = {
   USDT: ['TRC20', 'ERC20'],
@@ -316,13 +317,10 @@ async function openEdit(id) {
     ` USDT`;
   $('edit-credit-amount').value = '';
   $('edit-credit-comment').value = '';
-  editBalMode = 'credit';
-  document.querySelectorAll('#edit-bal-mode .seg-btn').forEach((b) => {
-    b.classList.toggle('active', b.dataset.balMode === 'credit');
-  });
-  $('edit-credit-amount-label').textContent = 'Внести (USDT)';
+  setEditBalMode('credit');
   $('edit-verified').checked = user.kycStatus === 'approved' || user.verified;
   $('edit-error').textContent = '';
+  $('edit-error').style.color = '';
   $('addr-value').value = '';
   syncNetworkOptions();
   renderAddrList(user.depositAddresses || []);
@@ -369,38 +367,65 @@ async function loadEditHistory(id) {
   }
 }
 
-let editBalMode = 'credit';
+function getEditBalMode() {
+  const active = document.querySelector('#edit-bal-mode .seg-btn.active');
+  return (active && active.getAttribute('data-bal-mode')) || editBalMode || 'credit';
+}
+
+function setEditBalMode(mode) {
+  editBalMode = mode || 'credit';
+  document.querySelectorAll('#edit-bal-mode .seg-btn').forEach((b) => {
+    b.classList.toggle('active', b.getAttribute('data-bal-mode') === editBalMode);
+  });
+  const label = $('edit-credit-amount-label');
+  const hint = $('edit-bal-hint');
+  const input = $('edit-credit-amount');
+  if (!label || !input) return;
+  if (editBalMode === 'adjust') {
+    label.textContent = 'Новый баланс (USDT)';
+    input.placeholder = 'итоговый баланс, напр. 1800';
+    if (hint) hint.textContent = 'Сейчас: установить точный баланс';
+  } else if (editBalMode === 'debit') {
+    label.textContent = 'Списать (USDT)';
+    input.placeholder = 'сумма списания, напр. 50';
+    if (hint) hint.textContent = 'Сейчас: списать с доступного баланса';
+  } else {
+    label.textContent = 'Внести (USDT)';
+    input.placeholder = 'сумма пополнения, напр. 200';
+    if (hint) hint.textContent = 'Сейчас: внести на баланс';
+  }
+}
 
 document.querySelectorAll('#edit-bal-mode [data-bal-mode]').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('#edit-bal-mode .seg-btn').forEach((b) => b.classList.remove('active'));
-    btn.classList.add('active');
-    editBalMode = btn.dataset.balMode;
-    const label = $('edit-credit-amount-label');
-    if (editBalMode === 'adjust') {
-      label.textContent = 'Новый баланс (USDT)';
-      $('edit-credit-amount').placeholder = 'например 2124.72';
-    } else if (editBalMode === 'debit') {
-      label.textContent = 'Списать (USDT)';
-      $('edit-credit-amount').placeholder = 'например 50';
-    } else {
-      label.textContent = 'Внести (USDT)';
-      $('edit-credit-amount').placeholder = 'например 200';
-    }
+  btn.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setEditBalMode(btn.getAttribute('data-bal-mode') || 'credit');
   });
 });
 
 $('edit-credit-btn')?.addEventListener('click', async () => {
   const id = $('edit-id').value;
+  const mode = getEditBalMode();
   $('edit-error').textContent = '';
+  const amount = Number($('edit-credit-amount').value);
+  const comment = $('edit-credit-comment').value.trim();
+  if (!Number.isFinite(amount) || amount < 0) {
+    $('edit-error').textContent = 'Укажите сумму';
+    return;
+  }
+  if (mode !== 'adjust' && amount <= 0) {
+    $('edit-error').textContent = 'Укажите сумму больше 0';
+    return;
+  }
+  if (!comment) {
+    $('edit-error').textContent = 'Укажите комментарий';
+    return;
+  }
   try {
     const updated = await adminFetch(`/users/${id}/credit`, {
       method: 'POST',
-      body: JSON.stringify({
-        mode: editBalMode,
-        amount: Number($('edit-credit-amount').value),
-        comment: $('edit-credit-comment').value.trim(),
-      }),
+      body: JSON.stringify({ mode, amount, comment }),
     });
     $('edit-balance-now').textContent =
       `${Number(updated.usdtBalance).toFixed(2)} доступно` +
@@ -408,9 +433,20 @@ $('edit-credit-btn')?.addEventListener('click', async () => {
       ` USDT`;
     $('edit-credit-amount').value = '';
     $('edit-credit-comment').value = '';
+    const done =
+      mode === 'debit' ? `Списано ${amount} USDT`
+        : mode === 'adjust' ? `Баланс установлен: ${amount} USDT`
+          : `Внесено +${amount} USDT`;
+    $('edit-error').style.color = 'var(--green)';
+    $('edit-error').textContent = done;
+    setTimeout(() => {
+      $('edit-error').style.color = '';
+      if ($('edit-error').textContent === done) $('edit-error').textContent = '';
+    }, 2500);
     await loadEditHistory(id);
     await loadUsers();
   } catch (e) {
+    $('edit-error').style.color = '';
     $('edit-error').textContent = e.message;
   }
 });

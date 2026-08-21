@@ -334,3 +334,29 @@ tr:last-child td { border-bottom: none; }
 .bal-row { padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
 .bal-row:last-child { border-bottom: none; }
 .bal-row-top { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; margin-bottom: 2px; }
+
+.seg {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+.seg-btn {
+  flex: 1;
+  min-width: 90px;
+  font: inherit;
+  font-weight: 600;
+  font-size: 13px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #0b0e11;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.seg-btn.active {
+  background: rgba(247,166,0,0.16);
+  border-color: rgba(247,166,0,0.5);
+  color: var(--accent);
+}
+.seg-btn:hover { border-color: rgba(247,166,0,0.35); }
