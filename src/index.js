@@ -3,6 +3,7 @@ const path = require('path');
 const express = require('express');
 const cors = require('cors');
 const createBot = require('./bot');
+const httpsUrl = createBot.httpsUrl;
 const { requireTelegramUser } = require('./auth');
 const prisma = require('./db');
 
@@ -64,7 +65,7 @@ const PORT = process.env.PORT || 3000;
 
 if (process.env.NODE_ENV === 'production' && process.env.WEBHOOK_URL) {
   app.use(bot.webhookCallback('/bot-webhook'));
-  bot.telegram.setWebhook(`${process.env.WEBHOOK_URL}/bot-webhook`).catch((e) => {
+  bot.telegram.setWebhook(`${httpsUrl(process.env.WEBHOOK_URL)}/bot-webhook`).catch((e) => {
     console.error('[bot] webhook error', e.message);
   });
 } else {

@@ -52,6 +52,10 @@ function createBot() {
     await prisma.supportMessage.create({
       data: { threadId, sender: 'admin', text },
     });
+    await prisma.supportThread.update({
+      where: { id: threadId },
+      data: { adminReadAt: new Date() },
+    }).catch(() => {});
 
     // Только уведомление — текст ответа смотрят в мини-аппе, без дубля
     await bot.telegram.sendMessage(

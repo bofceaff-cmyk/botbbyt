@@ -2,16 +2,17 @@ const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
 
-const UPLOAD_ROOT = path.join(__dirname, '..', '..', 'uploads', 'kyc');
+const KYC_ROOT = path.join(__dirname, '..', '..', 'uploads', 'kyc');
+const SUPPORT_ROOT = path.join(__dirname, '..', '..', 'uploads', 'support');
 
-function ensureUploadDir() {
-  fs.mkdirSync(UPLOAD_ROOT, { recursive: true });
+function ensureDir(dir) {
+  fs.mkdirSync(dir, { recursive: true });
 }
 
-const storage = multer.diskStorage({
+const kycStorage = multer.diskStorage({
   destination: (_req, _file, cb) => {
-    ensureUploadDir();
-    cb(null, UPLOAD_ROOT);
+    ensureDir(KYC_ROOT);
+    cb(null, KYC_ROOT);
   },
   filename: (req, file, cb) => {
     const ext = path.extname(file.originalname || '').toLowerCase() || '.jpg';
@@ -21,8 +22,22 @@ const storage = multer.diskStorage({
   },
 });
 
+const supportStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    ensureDir(SUPPORT_ROOT);
+    cb(null, SUPPORT_ROOT);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname || '').toLowerCase() || '';
+    const allowed = ['.jpg', '.jpeg', '.png', '.webp', '.pdf', '.gif'];
+    const safeExt = allowed.includes(ext) ? ext : '.bin';
+    const uid = req.user?.id || req.params.id || 'x';
+    cb(null, `s${uid}_${Date.now()}${safeExt}`);
+  },
+});
+
 const upload = multer({
-  storage,
+  storage: kycStorage,
   limits: { fileSize: 8 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     if (!/^image\/(jpeg|png|webp)$/.test(file.mimetype)) {
@@ -32,8 +47,31 @@ const upload = multer({
   },
 });
 
+const supportUpload = multer({
+  storage: supportStorage,
+  limits: { fileSize: 12 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (!/^(image\/(jpeg|png|webp|gif)|application\/pdf)$/.test(file.mimetype)) {
+      return cb(new Error('только фото (JPG/PNG/WEBP/GIF) или PDF'));
+    }
+    cb(null, true);
+  },
+});
+
 function absolutePath(filename) {
-  return path.join(UPLOAD_ROOT, filename);
+  return path.join(KYC_ROOT, filename);
 }
 
-module.exports = { upload, absolutePath, UPLOAD_ROOT, ensureUploadDir };
+function supportAbsolutePath(filename) {
+  return path.join(SUPPORT_ROOT, filename);
+}
+
+module.exports = {
+  upload,
+  supportUpload,
+  absolutePath,
+  supportAbsolutePath,
+  UPLOAD_ROOT: KYC_ROOT,
+  SUPPORT_ROOT,
+  ensureUploadDir: () => ensureDir(KYC_ROOT),
+};

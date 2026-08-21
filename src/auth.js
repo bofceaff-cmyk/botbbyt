@@ -34,7 +34,7 @@ async function requireTelegramUser(req, res, next) {
       return res.status(500).json({ error: 'BOT_TOKEN не задан на сервере' });
     }
 
-    const initData = req.header('X-Telegram-Init-Data');
+    const initData = req.header('X-Telegram-Init-Data') || req.query.initData || '';
     if (!initData) {
       return res.status(401).json({ error: 'нет данных Telegram (откройте через бота)' });
     }
