@@ -28,7 +28,7 @@ body {
     var(--bg);
   color: var(--text);
   font-family: "IBM Plex Sans", system-ui, sans-serif;
-  padding: 0 0 calc(var(--tabbar-h) + 12px);
+  padding: 0 0 calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + 36px);
   -webkit-font-smoothing: antialiased;
 }
 body.auth-locked { padding-bottom: 0; overflow-x: hidden; }
@@ -51,6 +51,33 @@ body.auth-locked { padding-bottom: 0; overflow-x: hidden; }
 }
 
 /* BYBIT logo (готовая картинка) */
+
+.bybit-mark {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+  user-select: none;
+}
+.bybit-mark-text {
+  color: #fff;
+  font-family: Arial Black, Arial, Helvetica, sans-serif;
+  font-weight: 800;
+  font-size: 22px;
+  letter-spacing: 0.06em;
+}
+.bybit-mark-i {
+  width: 6px;
+  height: 22px;
+  margin: 0 5px;
+  background: #F7A600;
+  flex-shrink: 0;
+  border-radius: 0.5px;
+}
+.bybit-mark-sm .bybit-mark-text { font-size: 17px; }
+.bybit-mark-sm .bybit-mark-i { width: 5px; height: 17px; margin: 0 4px; }
+.bybit-mark-xs .bybit-mark-text { font-size: 13px; }
+.bybit-mark-xs .bybit-mark-i { width: 3.5px; height: 13px; margin: 0 3px; }
+
 .bybit-logo-img {
   display: block;
   width: 110px;
@@ -76,7 +103,11 @@ body.auth-locked { padding-bottom: 0; overflow-x: hidden; }
   letter-spacing: 0.04em;
 }
 
-main { padding: 12px 14px 8px; }
+main { padding: 12px 14px 32px; }
+#screen-profile { padding-bottom: 28px; }
+#screen-support { padding-bottom: 12px; }
+#app-shell { min-height: 100%; }
+
 .screen-hidden { display: none !important; }
 .section-head {
   display: flex;

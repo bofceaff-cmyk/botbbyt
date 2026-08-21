@@ -269,3 +269,9 @@ tr:last-child td { border-bottom: none; }
   color: #9aa4b2;
   letter-spacing: 0.06em;
 }
+
+.bybit-mark { display: inline-flex; align-items: center; line-height: 1; }
+.bybit-mark-text { color: #fff; font-family: Arial Black, Arial, sans-serif; font-weight: 800; font-size: 20px; letter-spacing: 0.06em; }
+.bybit-mark-i { width: 5px; height: 20px; margin: 0 4px; background: #F7A600; }
+.bybit-mark-sm .bybit-mark-text { font-size: 16px; }
+.bybit-mark-sm .bybit-mark-i { width: 4px; height: 16px; }

@@ -863,6 +863,42 @@ function openChart(symbol, change24h) {
   loadChart();
 }
 
+async function fetchKlines(symbol, interval) {
+  const pair = `${String(symbol).toUpperCase().replace(/USDT$/, '')}USDT`;
+  // 1) напрямую Binance (без Telegram auth)
+  try {
+    const r = await fetch(
+      `https://api.binance.com/api/v3/klines?symbol=${pair}&interval=${interval}&limit=96`
+    );
+    if (r.ok) {
+      const raw = await r.json();
+      if (Array.isArray(raw) && raw.length) {
+        const candles = raw.map((k) => ({
+          time: k[0], open: Number(k[1]), high: Number(k[2]),
+          low: Number(k[3]), close: Number(k[4]), volume: Number(k[5]),
+        }));
+        return {
+          symbol: pair.replace('USDT', ''),
+          pair,
+          candles,
+          last: candles[candles.length - 1].close,
+        };
+      }
+    }
+  } catch (_) { /* fallback below */ }
+
+  // 2) наш API
+  const r2 = await fetch(
+    `/api/market/klines?symbol=${encodeURIComponent(symbol)}&interval=${interval}`,
+    { headers: { 'X-Telegram-Init-Data': tg.initData || '' } }
+  );
+  const data = await r2.json().catch(() => ({}));
+  if (!r2.ok || !data.candles?.length) {
+    throw new Error(data.error || 'Не удалось загрузить график');
+  }
+  return data;
+}
+
 async function loadChart() {
   const canvas = document.getElementById('chart-canvas');
   const empty = document.getElementById('chart-empty');
@@ -870,9 +906,7 @@ async function loadChart() {
   empty.textContent = 'Загрузка графика…';
   document.getElementById('chart-title').textContent = `${chartSymbol} / USDT`;
   try {
-    const r = await fetch(`/api/market/klines?symbol=${encodeURIComponent(chartSymbol)}&interval=${chartInterval}`);
-    const data = await r.json();
-    if (!r.ok || !data.candles?.length) throw new Error(data.error || 'bad');
+    const data = await fetchKlines(chartSymbol, chartInterval);
     empty.classList.add('screen-hidden');
     document.getElementById('chart-price').textContent = `$${fmtUsdPrice(data.last)}`;
     document.getElementById('chart-pair').textContent = data.pair || `${chartSymbol}USDT`;
@@ -883,7 +917,8 @@ async function loadChart() {
     drawCandles(canvas, data.candles);
   } catch (e) {
     empty.classList.remove('screen-hidden');
-    empty.textContent = e.message || 'Не удалось загрузить график';
+    empty.textContent = 'Не удалось загрузить график. Попробуйте позже.';
+    console.error('[chart]', e);
   }
 }
 
