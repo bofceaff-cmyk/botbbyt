@@ -1,0 +1,108 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                   Int       @id @default(autoincrement())
+  telegramId           BigInt    @unique
+  usernameTg           String?
+  firstNameTg          String?
+  displayName          String?
+  fullName             String?
+  email                String?
+  phone                String?
+  country              String?
+  usdtBalance          Decimal   @default(0) @db.Decimal(18, 6)
+  accountNumber        String?   @unique
+  accountRequestStatus String    @default("none") // none / pending / assigned
+  kycStatus            String    @default("none") // none / pending / approved / rejected
+  kycRejectReason      String?
+  verified             Boolean   @default(false)
+  verifiedAt           DateTime?
+  isAdmin              Boolean   @default(false)
+  createdAt            DateTime  @default(now())
+
+  transfersSent     Transfer[]       @relation("TransfersSent")
+  transfersReceived Transfer[]       @relation("TransfersReceived")
+  balanceHistory    BalanceHistory[]
+  supportThreads    SupportThread[]
+  depositAddresses  DepositAddress[]
+  kycDocuments      KycDocument[]
+}
+
+model DepositAddress {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  asset     String   // USDT / BTC
+  network   String   // TRC20 / ERC20 / BTC
+  address   String
+  label     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, asset, network])
+}
+
+model KycDocument {
+  id           Int      @id @default(autoincrement())
+  userId       Int
+  type         String   // id_front / id_back / selfie
+  filename     String
+  originalName String?
+  mimeType     String?
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, type])
+}
+
+model Transfer {
+  id         Int      @id @default(autoincrement())
+  fromUserId Int
+  toUserId   Int
+  amount     Decimal  @db.Decimal(18, 6)
+  createdAt  DateTime @default(now())
+
+  fromUser User @relation("TransfersSent", fields: [fromUserId], references: [id])
+  toUser   User @relation("TransfersReceived", fields: [toUserId], references: [id])
+}
+
+model BalanceHistory {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  type      String
+  amount    Decimal  @db.Decimal(18, 6)
+  balance   Decimal  @db.Decimal(18, 6)
+  meta      String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model SupportThread {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  status    String   @default("open")
+  createdAt DateTime @default(now())
+
+  user     User             @relation(fields: [userId], references: [id])
+  messages SupportMessage[]
+}
+
+model SupportMessage {
+  id        Int      @id @default(autoincrement())
+  threadId  Int
+  sender    String
+  text      String
+  createdAt DateTime @default(now())
+
+  thread SupportThread @relation(fields: [threadId], references: [id])
+}
