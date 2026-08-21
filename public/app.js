@@ -105,10 +105,10 @@ async function apiBlob(path) {
   return r.blob();
 }
 
-function fmtUsdt(n) {
+function fmtUsdt(n, maxDigits = 6) {
   return (Number(n) || 0).toLocaleString('en-US', {
     minimumFractionDigits: 2,
-    maximumFractionDigits: 6,
+    maximumFractionDigits: maxDigits,
   });
 }
 
@@ -170,6 +170,79 @@ document.querySelectorAll('.tab').forEach((tab) => {
 document.getElementById('open-deposit').addEventListener('click', () => showScreen('deposit'));
 document.getElementById('open-transfer').addEventListener('click', () => showScreen('transfer'));
 document.getElementById('open-history').addEventListener('click', () => showScreen('history'));
+document.getElementById('wallet-go-profile')?.addEventListener('click', () => showScreen('profile'));
+document.getElementById('open-withdraw')?.addEventListener('click', () => {
+  tg.showAlert('Вывод средств — через поддержку. Откройте Профиль → Поддержка.');
+});
+document.getElementById('open-convert')?.addEventListener('click', () => {
+  tg.showAlert('Конвертация скоро будет доступна.');
+});
+document.getElementById('open-earn')?.addEventListener('click', () => {
+  tg.showAlert('Earn скоро будет доступен.');
+});
+document.getElementById('wallet-card-banner')?.addEventListener('click', () => {
+  document.querySelectorAll('.assets-tab').forEach((t) => {
+    t.classList.toggle('active', t.dataset.assetsTab === 'account');
+  });
+  document.getElementById('assets-tab-asset')?.classList.add('screen-hidden');
+  document.getElementById('assets-tab-account')?.classList.remove('screen-hidden');
+});
+
+document.querySelectorAll('.assets-tab').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.assets-tab').forEach((t) => t.classList.remove('active'));
+    btn.classList.add('active');
+    const tab = btn.dataset.assetsTab;
+    document.getElementById('assets-tab-asset')?.classList.toggle('screen-hidden', tab !== 'asset');
+    document.getElementById('assets-tab-account')?.classList.toggle('screen-hidden', tab !== 'account');
+  });
+});
+
+let balanceHidden = localStorage.getItem('byx_hide_bal') === '1';
+let lastWalletBalance = 0;
+let lastBtcPrice = 77420;
+
+function maskBal(text) {
+  return balanceHidden ? '******' : text;
+}
+
+function applyBalanceVisibility() {
+  const open = document.getElementById('eye-open');
+  const closed = document.getElementById('eye-closed');
+  open?.classList.toggle('screen-hidden', balanceHidden);
+  closed?.classList.toggle('screen-hidden', !balanceHidden);
+  renderWalletAmounts(lastWalletBalance);
+}
+
+function renderWalletAmounts(bal) {
+  lastWalletBalance = Number(bal) || 0;
+  const usd = fmtUsdt(lastWalletBalance);
+  const btc = lastBtcPrice > 0 ? (lastWalletBalance / lastBtcPrice) : 0;
+  const btcStr = btc.toFixed(8);
+
+  const set = (id, val) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = val;
+  };
+
+  set('wallet-balance', maskBal(usd));
+  set('wallet-available', maskBal(`${usd} USD`));
+  set('wallet-in-use', maskBal('0.00 USD'));
+  set('wallet-btc', balanceHidden ? '≈ **** BTC' : `≈ ${btcStr} BTC`);
+  set('wallet-usdt-amt', maskBal(fmtUsdt(lastWalletBalance, 4)));
+  set('wallet-fiat', maskBal(`${usd} USD`));
+  set('wallet-usdt-chg', '0.00 (0.00%)');
+
+  const pnl = document.querySelector('#wallet-pnl .pnl-val');
+  if (pnl) pnl.textContent = '+0.00 USD (+0.00%)';
+}
+
+document.getElementById('toggle-balance-eye')?.addEventListener('click', () => {
+  balanceHidden = !balanceHidden;
+  localStorage.setItem('byx_hide_bal', balanceHidden ? '1' : '0');
+  applyBalanceVisibility();
+});
+
 document.getElementById('open-support').addEventListener('click', () => showScreen('support'));
 document.getElementById('open-edit-profile').addEventListener('click', () => showScreen('edit-profile'));
 document.getElementById('open-kyc').addEventListener('click', () => showScreen('kyc'));
@@ -475,10 +548,22 @@ function renderProfile(me) {
   document.getElementById('avatar').textContent = initials;
   document.getElementById('display-name').textContent = name;
   document.getElementById('profile-uid').textContent = `UID ${me.uid || me.id}`;
-  document.getElementById('wallet-balance').textContent = fmtUsdt(me.usdtBalance);
   document.getElementById('header-balance').textContent = fmtUsdt(me.usdtBalance);
-  document.getElementById('wallet-fiat').textContent = `≈ $${fmtUsdt(me.usdtBalance)}`;
+  const wAvatar = document.getElementById('wallet-avatar');
+  if (wAvatar) wAvatar.textContent = initials;
 
+  lastWalletBalance = Number(me.usdtBalance) || 0;
+  applyBalanceVisibility();
+
+  const cardMask = document.getElementById('wallet-card-mask');
+  if (cardMask) {
+    if (me.accountNumber) {
+      const tail = String(me.accountNumber).slice(-4);
+      cardMask.textContent = `**** **** **** ${tail}`;
+    } else {
+      cardMask.textContent = '**** **** **** ----';
+    }
+  }
   const hello = document.getElementById('home-hello-name');
   if (hello) hello.textContent = name;
   const uidChip = document.getElementById('home-uid-chip');
@@ -1088,6 +1173,11 @@ async function loadQuotes() {
     const r = await fetch('/api/market/quotes');
     const quotes = await r.json().catch(() => null);
     if (!r.ok || !Array.isArray(quotes)) throw new Error(quotes?.error || 'bad');
+    const btcQ = quotes.find((q) => String(q.symbol).toUpperCase() === 'BTC');
+    if (btcQ?.price) {
+      lastBtcPrice = Number(btcQ.price) || lastBtcPrice;
+      if (profile) applyBalanceVisibility();
+    }
     document.getElementById('ticker-strip').innerHTML = quotes.slice(0, 6).map((q, i) => {
       const chg = fmtChange(q.change24h);
       return `

@@ -176,46 +176,148 @@
 
   <!-- WALLET -->
   <section id="screen-wallet" class="screen screen-hidden">
-    <div class="section-head"><h1>Активы</h1></div>
-
-    <div class="balance-hero">
-      <div class="balance-label">Общий баланс</div>
-      <div class="balance-amount">
-        <span class="mono" id="wallet-balance">0.00</span>
-        <span class="usdt-tag">USDT</span>
-      </div>
-      <div class="balance-sub" id="wallet-fiat">≈ $0.00</div>
+    <div class="assets-topbar">
+      <button type="button" class="assets-avatar" id="wallet-go-profile" aria-label="Профиль">
+        <span id="wallet-avatar">—</span>
+      </button>
+      <button type="button" class="assets-icon-btn" id="open-history" aria-label="История" title="История">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+      </button>
     </div>
 
-    <div class="actions-row three">
-      <button class="action-tile" id="open-deposit">
-        <span class="action-ico">↓</span>
+    <div class="assets-overview">
+      <div class="assets-label-row">
+        <span>Общие активы</span>
+        <button type="button" class="assets-eye" id="toggle-balance-eye" aria-label="Скрыть баланс">
+          <svg id="eye-open" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>
+          <svg id="eye-closed" class="screen-hidden" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 5c7 0 11 7 11 7a18.5 18.5 0 0 1-2.16 3.19M1 1l22 22"/><path d="M14.12 14.12A3 3 0 0 1 9.88 9.88"/></svg>
+        </button>
+      </div>
+
+      <div class="assets-total-wrap">
+        <div class="assets-total-left">
+          <div class="assets-total-line">
+            <span class="mono assets-total-num" id="wallet-balance">0.00</span>
+            <span class="assets-ccy">USD <span class="assets-ccy-caret">▾</span></span>
+          </div>
+          <div class="assets-btc" id="wallet-btc">≈ 0.00000000 BTC</div>
+          <button type="button" class="assets-pnl" id="wallet-pnl">
+            P&amp;L за сегодня <span class="pnl-val">+0.00 USD (+0.00%)</span> <span class="pnl-chevron">›</span>
+          </button>
+        </div>
+        <svg class="assets-spark" viewBox="0 0 88 40" preserveAspectRatio="none" aria-hidden="true">
+          <defs>
+            <linearGradient id="sparkGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#f7a600" stop-opacity="0.35"/>
+              <stop offset="100%" stop-color="#f7a600" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+          <path class="spark-fill" d="M0 32 L12 28 L24 30 L36 22 L48 24 L60 14 L72 18 L88 8 L88 40 L0 40 Z" fill="url(#sparkGrad)"/>
+          <path class="spark-line" d="M0 32 L12 28 L24 30 L36 22 L48 24 L60 14 L72 18 L88 8" fill="none" stroke="#f7a600" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+
+      <div class="assets-split">
+        <div>
+          <div class="assets-split-label">Доступный баланс</div>
+          <div class="assets-split-val mono" id="wallet-available">0.00 USD</div>
+        </div>
+        <div>
+          <div class="assets-split-label">Используется</div>
+          <div class="assets-split-val mono" id="wallet-in-use">0.00 USD</div>
+        </div>
+      </div>
+    </div>
+
+    <button type="button" class="assets-card-banner" id="wallet-card-banner">
+      <span class="assets-card-left">Моя карта <span>›</span></span>
+      <span class="assets-card-right">
+        <span class="assets-card-mask" id="wallet-card-mask">**** **** **** ----</span>
+        <span class="assets-mc" aria-hidden="true"></span>
+      </span>
+    </button>
+
+    <div class="assets-actions">
+      <button type="button" class="assets-action" id="open-deposit">
+        <span class="assets-action-ico primary">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2.4"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+        </span>
         <span>Депозит</span>
       </button>
-      <button class="action-tile" id="open-transfer">
-        <span class="action-ico">⇄</span>
+      <button type="button" class="assets-action" id="open-withdraw">
+        <span class="assets-action-ico">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+        </span>
+        <span>Вывод средств</span>
+      </button>
+      <button type="button" class="assets-action" id="open-transfer">
+        <span class="assets-action-ico">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 10h14l-4-4M17 14H3l4 4"/></svg>
+        </span>
         <span>Перевод</span>
       </button>
-      <button class="action-tile" id="open-history">
-        <span class="action-ico">☰</span>
-        <span>История</span>
+      <button type="button" class="assets-action" id="open-convert">
+        <span class="assets-action-ico">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 1l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+        </span>
+        <span>Конвертация</span>
+      </button>
+      <button type="button" class="assets-action" id="open-earn">
+        <span class="assets-action-ico">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        </span>
+        <span>Earn</span>
       </button>
     </div>
 
-    <div class="panel">
-      <div class="panel-title">Номер счёта</div>
-      <div id="account-block">
-        <div class="account-empty" id="account-empty">
-          <p class="muted">Создайте счёт для переводов между пользователями Bybit Wallet.</p>
-          <button class="btn-primary" id="request-account-btn">Создать счёт</button>
+    <div class="assets-promo">
+      <div class="assets-promo-ico" aria-hidden="true">◎</div>
+      <div class="assets-promo-text">100% ваших активов не работают. Начните зарабатывать.</div>
+    </div>
+
+    <div class="assets-section-head">
+      <div class="assets-tabs">
+        <button type="button" class="assets-tab active" data-assets-tab="asset">Актив</button>
+        <button type="button" class="assets-tab" data-assets-tab="account">Аккаунт</button>
+      </div>
+      <div class="assets-section-tools">
+        <span class="assets-tool-ico" aria-hidden="true">◔</span>
+        <span class="assets-tool-ico has-dot" aria-hidden="true">⬡</span>
+      </div>
+    </div>
+
+    <div id="assets-tab-asset">
+      <div class="assets-coin-row">
+        <div class="assets-coin-left">
+          <div class="assets-coin-ico usdt" aria-hidden="true">₮</div>
+          <div>
+            <div class="assets-coin-sym">USDT</div>
+            <div class="assets-coin-chg muted" id="wallet-usdt-chg">0.00 (0.00%)</div>
+          </div>
         </div>
-        <div class="account-pending screen-hidden" id="account-pending">
-          <div class="status-chip pending">Заявка на рассмотрении</div>
-          <p class="muted">Счёт создаётся. Пожалуйста, ожидайте…</p>
+        <div class="assets-coin-right">
+          <div class="mono assets-coin-amt" id="wallet-usdt-amt">0.00</div>
+          <div class="muted assets-coin-fiat" id="wallet-fiat">0.00 USD</div>
         </div>
-        <div class="account-ready screen-hidden" id="account-ready">
-          <div class="account-number mono" id="account-number">—</div>
-          <button class="btn-ghost" id="copy-account-btn">Скопировать</button>
+      </div>
+    </div>
+
+    <div id="assets-tab-account" class="screen-hidden">
+      <div class="panel assets-account-panel">
+        <div class="panel-title">Номер счёта</div>
+        <div id="account-block">
+          <div class="account-empty" id="account-empty">
+            <p class="muted">Создайте счёт для переводов между пользователями Bybit Wallet.</p>
+            <button class="btn-primary" id="request-account-btn">Создать счёт</button>
+          </div>
+          <div class="account-pending screen-hidden" id="account-pending">
+            <div class="status-chip pending">Заявка на рассмотрении</div>
+            <p class="muted">Счёт создаётся. Пожалуйста, ожидайте…</p>
+          </div>
+          <div class="account-ready screen-hidden" id="account-ready">
+            <div class="account-number mono" id="account-number">—</div>
+            <button class="btn-ghost" id="copy-account-btn">Скопировать</button>
+          </div>
         </div>
       </div>
     </div>
