@@ -252,16 +252,27 @@ router.patch('/users/:id', async (req, res) => {
   res.json(serializeUser(updated));
 });
 
-// Начислить на баланс (+сумма + комментарий)
+// Изменить баланс: credit (внести) / debit (списать) / adjust (установить итог)
 router.post('/users/:id/credit', async (req, res) => {
   const id = Number(req.params.id);
-  const amount = Number(req.body.amount);
+  const mode = String(req.body.mode || req.body.action || 'credit')
+    .toLowerCase()
+    .trim(); // credit | debit | adjust
+  const amountRaw = Number(req.body.amount);
+  const amount = Math.abs(amountRaw);
   const comment = String(req.body.comment || '').trim();
-  if (!Number.isFinite(amount) || amount <= 0) {
+
+  if (!['credit', 'debit', 'adjust'].includes(mode)) {
+    return res.status(400).json({ error: 'mode: credit, debit или adjust' });
+  }
+  if (!Number.isFinite(amountRaw) || amountRaw < 0) {
+    return res.status(400).json({ error: 'укажите корректную сумму' });
+  }
+  if (mode !== 'adjust' && amount <= 0) {
     return res.status(400).json({ error: 'укажите сумму больше 0' });
   }
   if (!comment || comment.length < 2) {
-    return res.status(400).json({ error: 'укажите комментарий (за что начисление)' });
+    return res.status(400).json({ error: 'укажите комментарий' });
   }
   if (comment.length > 200) {
     return res.status(400).json({ error: 'комментарий слишком длинный' });
@@ -270,9 +281,35 @@ router.post('/users/:id/credit', async (req, res) => {
   const user = await prisma.user.findUnique({ where: { id } });
   if (!user) return res.status(404).json({ error: 'пользователь не найден' });
 
-  const add = Math.round(amount * 1e6) / 1e6;
+  const current = Number(user.usdtBalance);
+  let next;
+  let delta;
+  let type;
+  let notifyText;
+
+  if (mode === 'credit') {
+    delta = Math.round(amount * 1e6) / 1e6;
+    next = Math.round((current + delta) * 1e6) / 1e6;
+    type = 'deposit';
+    notifyText = `На ваш баланс зачислено +${delta} USDT.\n${comment}`;
+  } else if (mode === 'debit') {
+    delta = -Math.round(amount * 1e6) / 1e6;
+    next = Math.round((current + delta) * 1e6) / 1e6;
+    if (next < -1e-9) {
+      return res.status(400).json({ error: 'недостаточно средств для списания' });
+    }
+    if (next < 0) next = 0;
+    type = 'withdraw_admin';
+    notifyText = `С баланса списано ${Math.abs(delta)} USDT.\n${comment}`;
+  } else {
+    next = Math.round(amount * 1e6) / 1e6;
+    delta = Math.round((next - current) * 1e6) / 1e6;
+    if (delta === 0) return res.status(400).json({ error: 'баланс уже такой' });
+    type = 'admin_adjust';
+    notifyText = `Баланс обновлён: ${next} USDT (${delta > 0 ? '+' : ''}${delta}).\n${comment}`;
+  }
+
   const updated = await prisma.$transaction(async (tx) => {
-    const next = Math.round((Number(user.usdtBalance) + add) * 1e6) / 1e6;
     const u = await tx.user.update({
       where: { id },
       data: { usdtBalance: next },
@@ -280,8 +317,8 @@ router.post('/users/:id/credit', async (req, res) => {
     await tx.balanceHistory.create({
       data: {
         userId: id,
-        type: 'bonus',
-        amount: add,
+        type,
+        amount: delta,
         balance: u.usdtBalance,
         meta: comment,
       },
@@ -291,13 +328,10 @@ router.post('/users/:id/credit', async (req, res) => {
 
   const bot = req.app.get('bot');
   if (bot) {
-    bot.telegram.sendMessage(
-      updated.telegramId.toString(),
-      `На ваш баланс зачислено +${add} USDT.\n${comment}`
-    ).catch(() => {});
+    bot.telegram.sendMessage(updated.telegramId.toString(), notifyText).catch(() => {});
   }
 
-  res.json(serializeUser(updated));
+  res.json({ ...serializeUser(updated), appliedMode: mode, appliedDelta: delta });
 });
 
 router.get('/users/:id/history', async (req, res) => {
