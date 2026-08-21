@@ -10,6 +10,7 @@ datasource db {
 model User {
   id                   Int       @id @default(autoincrement())
   telegramId           BigInt    @unique
+  uid                  String?   @unique
   usernameTg           String?
   firstNameTg          String?
   displayName          String?
@@ -17,6 +18,9 @@ model User {
   email                String?
   phone                String?
   country              String?
+  passwordHash         String?
+  registered           Boolean   @default(false)
+  registeredAt         DateTime?
   usdtBalance          Decimal   @default(0) @db.Decimal(18, 6)
   accountNumber        String?   @unique
   accountRequestStatus String    @default("none") // none / pending / assigned
