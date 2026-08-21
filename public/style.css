@@ -54,23 +54,26 @@ body.auth-locked { padding-bottom: 0; overflow-x: hidden; }
 .bybit-logo {
   display: inline-flex;
   align-items: center;
-  font-weight: 800;
+  font-weight: 700;
   font-size: 22px;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.12em;
   color: #fff;
   line-height: 1;
-  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  font-family: "IBM Plex Sans", Arial, Helvetica, sans-serif;
+  text-transform: uppercase;
 }
-.bybit-logo-sm { font-size: 17px; }
-.bybit-logo-xs { font-size: 12px; letter-spacing: 0.06em; }
+.bybit-logo-sm { font-size: 17px; letter-spacing: 0.1em; }
+.bybit-logo-xs { font-size: 12px; letter-spacing: 0.1em; }
+/* Буква I в официальном логотипе Bybit — сплошная оранжевая вертикальная полоса */
 .bybit-i {
   display: inline-block;
-  width: 0.32em;
-  height: 0.95em;
-  margin: 0 0.05em;
-  border-radius: 1px;
-  background: linear-gradient(to bottom, #F7A600 0 58%, #ffffff 58% 100%);
+  width: 0.2em;
+  height: 1.12em;
+  margin: 0 0.1em;
+  border-radius: 0;
+  background: #F7A600;
   flex-shrink: 0;
+  align-self: center;
 }
 .admin-tag {
   margin-left: 8px;
@@ -620,19 +623,41 @@ input:focus { border-color: rgba(247, 166, 0, 0.55); }
 .auth-check {
   display: flex !important;
   align-items: flex-start;
-  gap: 10px;
+  gap: 8px;
   margin-top: 16px !important;
   font-size: 12px !important;
   line-height: 1.45;
   color: var(--text-3) !important;
   font-weight: 400 !important;
+  cursor: pointer;
 }
 .auth-check input[type="checkbox"] {
-  margin-top: 2px;
-  width: 16px;
-  height: 16px;
-  accent-color: #F7A600;
+  appearance: none;
+  -webkit-appearance: none;
+  margin: 3px 0 0;
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid #F7A600;
+  border-radius: 2px;
+  background: transparent;
   flex-shrink: 0;
+  cursor: pointer;
+  position: relative;
+}
+.auth-check input[type="checkbox"]:checked {
+  background: #F7A600;
+  border-color: #F7A600;
+}
+.auth-check input[type="checkbox"]:checked::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 0.5px;
+  width: 3px;
+  height: 6px;
+  border: solid #111;
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(45deg);
 }
 .auth-check a {
   color: #F7A600;
