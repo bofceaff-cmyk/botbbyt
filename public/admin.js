@@ -316,6 +316,11 @@ async function openEdit(id) {
     ` USDT`;
   $('edit-credit-amount').value = '';
   $('edit-credit-comment').value = '';
+  editBalMode = 'credit';
+  document.querySelectorAll('#edit-bal-mode .seg-btn').forEach((b) => {
+    b.classList.toggle('active', b.dataset.balMode === 'credit');
+  });
+  $('edit-credit-amount-label').textContent = 'Внести (USDT)';
   $('edit-verified').checked = user.kycStatus === 'approved' || user.verified;
   $('edit-error').textContent = '';
   $('addr-value').value = '';
@@ -336,19 +341,54 @@ async function loadEditHistory(id) {
     box.innerHTML = rows.map((h) => {
       const sign = h.amount >= 0 ? '+' : '';
       const when = new Date(h.createdAt).toLocaleString('ru-RU');
+      const titleMap = {
+        deposit: 'Внести USDT',
+        bonus: 'Внести USDT',
+        withdraw_admin: 'Вывод средств USDT',
+        withdraw_onchain: 'Вывод средств USDT',
+        withdraw_card: 'Вывод средств USDT',
+        admin_adjust: 'Корректировка USDT',
+        earn: 'Earn USDT',
+        convert: 'Конвертация USDT',
+        transfer_in: 'Перевод USDT',
+        transfer_out: 'Перевод USDT',
+      };
+      const title = titleMap[h.type] || h.type;
       return `<div class="bal-row">
         <div class="bal-row-top">
+          <span>${escapeHtml(title)}</span>
           <span class="mono">${sign}${Number(h.amount).toFixed(2)}</span>
-          <span class="muted">${escapeHtml(when)}</span>
         </div>
-        <div class="muted">${escapeHtml(h.meta || h.type)}</div>
-        <div class="muted">итог: ${Number(h.balance).toFixed(2)} USDT</div>
+        <div class="muted">${escapeHtml(when)}</div>
+        <div class="muted">${escapeHtml(h.meta || '')}</div>
+        <div class="muted">доступный баланс: ${Number(h.balance).toFixed(2)} USDT</div>
       </div>`;
     }).join('');
   } catch (e) {
     box.innerHTML = `<div class="muted">${escapeHtml(e.message)}</div>`;
   }
 }
+
+let editBalMode = 'credit';
+
+document.querySelectorAll('#edit-bal-mode [data-bal-mode]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#edit-bal-mode .seg-btn').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+    editBalMode = btn.dataset.balMode;
+    const label = $('edit-credit-amount-label');
+    if (editBalMode === 'adjust') {
+      label.textContent = 'Новый баланс (USDT)';
+      $('edit-credit-amount').placeholder = 'например 2124.72';
+    } else if (editBalMode === 'debit') {
+      label.textContent = 'Списать (USDT)';
+      $('edit-credit-amount').placeholder = 'например 50';
+    } else {
+      label.textContent = 'Внести (USDT)';
+      $('edit-credit-amount').placeholder = 'например 200';
+    }
+  });
+});
 
 $('edit-credit-btn')?.addEventListener('click', async () => {
   const id = $('edit-id').value;
@@ -357,6 +397,7 @@ $('edit-credit-btn')?.addEventListener('click', async () => {
     const updated = await adminFetch(`/users/${id}/credit`, {
       method: 'POST',
       body: JSON.stringify({
+        mode: editBalMode,
         amount: Number($('edit-credit-amount').value),
         comment: $('edit-credit-comment').value.trim(),
       }),

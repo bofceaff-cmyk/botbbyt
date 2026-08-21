@@ -16,15 +16,51 @@ const NETWORK_OPTIONS = {
 };
 
 const TYPE_LABELS = {
-  transfer_in: 'Входящий перевод',
-  transfer_out: 'Исходящий перевод',
+  transfer_in: 'Перевод USDT',
+  transfer_out: 'Перевод USDT',
+  admin_adjust: 'Корректировка USDT',
+  bonus: 'Внести USDT',
+  deposit: 'Внести USDT',
+  withdraw_admin: 'Вывод средств USDT',
+  withdraw_onchain: 'Вывод средств USDT',
+  withdraw_card: 'Вывод средств USDT',
+  convert: 'Конвертация USDT',
+  earn: 'Earn USDT',
+};
+
+const TYPE_KIND = {
+  transfer_in: 'Перевод',
+  transfer_out: 'Перевод',
   admin_adjust: 'Корректировка',
-  bonus: 'Бонус',
-  withdraw_onchain: 'Вывод on-chain',
-  withdraw_card: 'Вывод на карту',
+  bonus: 'Внести',
+  deposit: 'Внести',
+  withdraw_admin: 'Вывести',
+  withdraw_onchain: 'Вывести',
+  withdraw_card: 'Вывести',
   convert: 'Конвертация',
   earn: 'Earn',
 };
+
+function historyTitle(item) {
+  if (item.type === 'admin_adjust') {
+    return item.amount >= 0 ? 'Внести USDT' : 'Вывод средств USDT';
+  }
+  return TYPE_LABELS[item.type] || item.type;
+}
+
+function historyKind(item) {
+  if (item.type === 'admin_adjust') {
+    return item.amount >= 0 ? 'Внести' : 'Вывести';
+  }
+  return TYPE_KIND[item.type] || item.type;
+}
+
+function fmtHistoryDate(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
 
 const KYC_LABELS = {
   none: { text: 'Не верифицирован', cls: '' },
@@ -1259,17 +1295,26 @@ async function loadHistory() {
     list.innerHTML = items.map((item) => {
       const isPositive = item.amount > 0;
       const sign = isPositive ? '+' : '';
-      const date = new Date(item.createdAt).toLocaleString('ru-RU');
-      const label = TYPE_LABELS[item.type] || item.type;
+      const title = historyTitle(item);
+      const kind = historyKind(item);
+      const date = fmtHistoryDate(item.createdAt);
+      const bal = item.balance != null ? fmtUsdt(item.balance) : '—';
       return `
         <div class="history-item">
-          <div>
-            <div>${escapeHtml(label)}</div>
-            <div class="history-meta">${date}${item.meta ? ' · ' + escapeHtml(item.meta) : ''}</div>
+          <div class="history-main">
+            <div>
+              <div class="history-title">${escapeHtml(title)}</div>
+              <div class="history-meta">${escapeHtml(date)}</div>
+            </div>
+            <div class="mono ${isPositive ? 'history-amount-pos' : 'history-amount-neg'}">
+              ${sign}${fmtUsdt(item.amount)}
+            </div>
           </div>
-          <div class="mono ${isPositive ? 'history-amount-pos' : 'history-amount-neg'}">
-            ${sign}${fmtUsdt(item.amount)}
+          <div class="history-foot">
+            <div class="history-type">Тип ${escapeHtml(kind)}</div>
+            <div class="history-bal">Доступный баланс <span class="mono">${escapeHtml(bal)}</span></div>
           </div>
+          ${item.meta ? `<div class="history-comment">${escapeHtml(item.meta)}</div>` : ''}
         </div>`;
     }).join('');
   } catch (e) {
