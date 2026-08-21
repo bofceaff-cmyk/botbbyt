@@ -71,7 +71,7 @@ router.post('/me/register', async (req, res) => {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return res.status(400).json({ error: 'некорректный email' });
   }
-  if (phone.length < 8 || phone.length > 24) {
+  if (!phone || phone.length < 8 || phone.length > 24) {
     return res.status(400).json({ error: 'укажите номер телефона' });
   }
   if (password.length < 6 || password.length > 64) {
@@ -268,7 +268,8 @@ router.get('/me/deposit/address', async (req, res) => {
       network,
       address: null,
       assigned: false,
-      message: 'Адрес ещё не выдан. Обратитесь в поддержку или дождитесь назначения администратором.',
+      message: 'Кошелёк генерируется. Обычно это занимает немного времени — ожидайте.',
+      generating: true,
     });
   }
 
