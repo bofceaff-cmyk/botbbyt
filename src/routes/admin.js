@@ -340,7 +340,7 @@ router.post('/support/threads/:id/reply', async (req, res) => {
   if (bot) {
     bot.telegram.sendMessage(
       thread.user.telegramId.toString(),
-      `Ответ поддержки по тикету #${id}:\n\n${text}`
+      'Вы получили ответ от поддержки.\nОткройте приложение → Профиль → Поддержка.'
     ).catch(() => {});
   }
 
