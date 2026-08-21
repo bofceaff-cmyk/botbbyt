@@ -288,19 +288,7 @@
     </div>
 
     <div id="assets-tab-asset">
-      <div class="assets-coin-row">
-        <div class="assets-coin-left">
-          <img class="assets-coin-logo" src="/img/usdt.svg?v=2" alt="USDT" width="36" height="36">
-          <div>
-            <div class="assets-coin-sym">USDT</div>
-            <div class="assets-coin-chg muted" id="wallet-usdt-chg">0.00 (0.00%)</div>
-          </div>
-        </div>
-        <div class="assets-coin-right">
-          <div class="mono assets-coin-amt" id="wallet-usdt-amt">0.00</div>
-          <div class="muted assets-coin-fiat" id="wallet-fiat">0.00 USD</div>
-        </div>
-      </div>
+      <div id="assets-coin-list"></div>
       <div class="assets-coin-row screen-hidden" id="assets-earn-row">
         <div class="assets-coin-left">
           <img class="assets-promo-logo" src="/img/earn-promo.svg?v=2" alt="" width="36" height="36">
@@ -597,28 +585,27 @@
       <div class="convert-side">
         <div class="convert-side-top">
           <span>От</span>
-          <button type="button" class="link-btn" id="convert-bal-link">Доступный баланс: <span id="convert-hint">0</span> ›</button>
+          <button type="button" class="link-btn" id="convert-bal-link">Доступно: <span id="convert-hint">0</span> ›</button>
         </div>
         <div class="convert-side-row">
-          <button type="button" class="coin-pick" id="convert-from-pick" disabled>
-            <img src="/img/usdt.svg?v=2" alt="" width="22" height="22">
-            <span>USDT</span>
+          <button type="button" class="coin-pick" id="convert-from-pick">
+            <img class="coin-logo" id="convert-from-icon" src="/img/usdt.svg?v=2" alt="USDT" width="22" height="22">
+            <span id="convert-from-label">USDT</span>
+            <span class="coin-caret">▾</span>
           </button>
           <div class="convert-amt-wrap">
-            <input type="number" id="convert-amount" class="convert-amt" placeholder="0.01–10000" step="0.01" min="0" inputmode="decimal">
+            <input type="number" id="convert-amount" class="convert-amt" placeholder="0.00" step="any" min="0" inputmode="decimal">
             <button type="button" class="convert-max" id="convert-max">Макс.</button>
           </div>
         </div>
       </div>
 
-      <div class="convert-swap-row" aria-hidden="true">
-        <span class="convert-swap-ico">⇅</span>
+      <div class="convert-swap-row">
+        <button type="button" class="convert-swap-ico" id="convert-swap" aria-label="Поменять">⇅</button>
       </div>
 
       <div class="convert-side">
-        <div class="convert-side-top">
-          <span>Кому</span>
-        </div>
+        <div class="convert-side-top"><span>Кому</span></div>
         <div class="convert-side-row">
           <button type="button" class="coin-pick" id="convert-to-pick">
             <img class="coin-logo" id="convert-to-icon" src="/img/btc.svg?v=1" alt="BTC" width="22" height="22">
@@ -631,22 +618,18 @@
     </div>
 
     <div class="panel convert-extra">
-      <label>Сеть получения</label>
-      <div class="net-chips" id="convert-net-chips"></div>
+      <input type="hidden" id="convert-from-asset" value="USDT">
       <input type="hidden" id="convert-asset" value="BTC">
-      <input type="hidden" id="convert-network" value="BTC">
-      <label>Адрес получения</label>
-      <input type="text" id="convert-address" class="mono" placeholder="Ваш адрес в выбранной сети" autocomplete="off">
       <div class="hint" id="convert-estimate">Ориентировочный курс появится после ввода суммы</div>
       <div class="error" id="convert-error"></div>
-      <button class="btn-primary full" id="convert-submit">Запрос</button>
-      <p class="muted" style="margin-top:10px;font-size:12px">Операция проходит проверку. В случае успешной конвертации средства будут зачислены на указанный адрес.</p>
+      <button class="btn-primary full" id="convert-submit">Конвертировать</button>
+      <p class="muted" style="margin-top:10px;font-size:12px">Средства зачисляются на баланс в приложении. Можно конвертировать обратно в любой момент.</p>
     </div>
 
     <div id="convert-asset-sheet" class="sheet screen-hidden">
       <div class="sheet-backdrop" id="convert-sheet-close"></div>
       <div class="sheet-card">
-        <div class="sheet-title">Выберите актив</div>
+        <div class="sheet-title" id="convert-sheet-title">Выберите актив</div>
         <div id="convert-asset-list" class="sheet-list"></div>
       </div>
     </div>

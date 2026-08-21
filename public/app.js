@@ -257,14 +257,27 @@ function applyBalanceVisibility() {
 function renderWalletAmounts(available, earn) {
   lastWalletBalance = Number(available) || 0;
   lastEarnBalance = Number(earn) || 0;
-  const total = lastWalletBalance + lastEarnBalance;
+  const bals = typeof getBalancesMap === 'function' ? getBalancesMap() : { USDT: lastWalletBalance };
+  bals.USDT = lastWalletBalance;
+
+  let cryptoUsd = 0;
+  const assets = typeof CONVERT_ASSETS !== 'undefined' ? CONVERT_ASSETS : [{ id: 'USDT' }];
+  const prices = typeof assetPrices !== 'undefined' ? assetPrices : { USDT: 1 };
+  for (const a of assets) {
+    if (a.id === 'USDT') continue;
+    const amt = Number(bals[a.id]) || 0;
+    const px = Number(prices[a.id]) || 0;
+    cryptoUsd += amt * px;
+  }
+  const total = lastWalletBalance + lastEarnBalance + cryptoUsd;
   const usdTotal = fmtUsdt(total);
-  const usdAvail = fmtUsdt(lastWalletBalance);
+  const usdAvail = fmtUsdt(lastWalletBalance + cryptoUsd);
   const usdEarn = fmtUsdt(lastEarnBalance);
   const btc = lastBtcPrice > 0 ? (total / lastBtcPrice) : 0;
   const btcStr = btc.toFixed(8);
-  const idlePct = total > 0
-    ? Math.max(0, Math.min(100, Math.round((lastWalletBalance / total) * 100)))
+  const idleBase = lastWalletBalance + lastEarnBalance + cryptoUsd;
+  const idlePct = idleBase > 0
+    ? Math.max(0, Math.min(100, Math.round(((lastWalletBalance + cryptoUsd) / idleBase) * 100)))
     : 100;
 
   const set = (id, val) => {
@@ -276,9 +289,32 @@ function renderWalletAmounts(available, earn) {
   set('wallet-available', maskBal(`${usdAvail} USD`));
   set('wallet-in-use', maskBal(`${usdEarn} USD`));
   set('wallet-btc', balanceHidden ? '≈ **** BTC' : `≈ ${btcStr} BTC`);
-  set('wallet-usdt-amt', maskBal(fmtUsdt(lastWalletBalance, 4)));
-  set('wallet-fiat', maskBal(`${usdAvail} USD`));
-  set('wallet-usdt-chg', '0.00 (0.00%)');
+
+  const list = document.getElementById('assets-coin-list');
+  if (list && typeof CONVERT_ASSETS !== 'undefined') {
+    const rows = CONVERT_ASSETS.map((a) => {
+      const amt = Number(bals[a.id]) || 0;
+      if (a.id !== 'USDT' && amt <= 0) return '';
+      const px = a.id === 'USDT' ? 1 : (Number(prices[a.id]) || 0);
+      const fiat = amt * px;
+      const amtStr = typeof fmtAssetAmt === 'function' ? fmtAssetAmt(a.id, amt) : fmtUsdt(amt, 4);
+      return `
+          <div class="assets-coin-row">
+            <div class="assets-coin-left">
+              <img class="assets-coin-logo" src="${a.icon}" alt="${a.id}" width="36" height="36">
+              <div>
+                <div class="assets-coin-sym">${a.id}</div>
+                <div class="assets-coin-chg muted">0.00 (0.00%)</div>
+              </div>
+            </div>
+            <div class="assets-coin-right">
+              <div class="mono assets-coin-amt">${maskBal(amtStr)}</div>
+              <div class="muted assets-coin-fiat">${maskBal(`${fmtUsdt(fiat)} USD`)}</div>
+            </div>
+          </div>`;
+    }).join('');
+    list.innerHTML = rows || '';
+  }
 
   const earnAmt = document.getElementById('wallet-earn-amt');
   const earnFiat = document.getElementById('wallet-earn-fiat');
@@ -289,7 +325,7 @@ function renderWalletAmounts(available, earn) {
 
   const promo = document.querySelector('#open-earn-promo .assets-promo-text');
   if (promo) {
-    if (total <= 0) {
+    if (idleBase <= 0) {
       promo.textContent = '100% ваших активов не работают. Начните зарабатывать.';
     } else if (idlePct <= 0) {
       promo.textContent = 'Ваши активы работают. Отлично!';
@@ -434,14 +470,17 @@ document.getElementById('withdraw-submit-onchain')?.addEventListener('click', ()
 document.getElementById('withdraw-submit-card')?.addEventListener('click', () => submitWithdraw('card'));
 
 const CONVERT_ASSETS = [
-  { id: 'BTC', name: 'Bitcoin', icon: '/img/btc.svg?v=1', nets: ['BTC'] },
-  { id: 'ETH', name: 'Ethereum', icon: '/img/eth.svg?v=1', nets: ['ERC20'] },
-  { id: 'USDT', name: 'Tether', icon: '/img/usdt.svg?v=2', nets: ['TRC20', 'ERC20'] },
-  { id: 'TRX', name: 'TRON', icon: '/img/trx.svg?v=1', nets: ['TRC20'] },
-  { id: 'SOL', name: 'Solana', icon: '/img/sol.svg?v=1', nets: ['SOL'] },
+  { id: 'USDT', name: 'Tether', icon: '/img/usdt.svg?v=2' },
+  { id: 'BTC', name: 'Bitcoin', icon: '/img/btc.svg?v=1' },
+  { id: 'ETH', name: 'Ethereum', icon: '/img/eth.svg?v=1' },
+  { id: 'TRX', name: 'TRON', icon: '/img/trx.svg?v=1' },
+  { id: 'SOL', name: 'Solana', icon: '/img/sol.svg?v=1' },
 ];
 
+let convertFromAsset = 'USDT';
 let convertToAsset = 'BTC';
+let convertPickSide = 'to';
+let assetPrices = { USDT: 1 };
 
 function convertAssetMeta(id) {
   return CONVERT_ASSETS.find((a) => a.id === id) || CONVERT_ASSETS[0];
@@ -451,60 +490,110 @@ function coinIconHtml(a, size = 22) {
   return `<img class="coin-logo" src="${a.icon}" alt="" width="${size}" height="${size}">`;
 }
 
-function renderConvertNetChips() {
-  const meta = convertAssetMeta(convertToAsset);
-  const box = document.getElementById('convert-net-chips');
-  const cur = document.getElementById('convert-network').value;
-  const next = meta.nets.includes(cur) ? cur : meta.nets[0];
-  document.getElementById('convert-network').value = next;
-  box.innerHTML = meta.nets.map((n) => `
-    <button type="button" class="net-chip ${n === next ? 'active' : ''}" data-net="${n}">${n}</button>
-  `).join('');
-  box.querySelectorAll('[data-net]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      document.getElementById('convert-network').value = btn.dataset.net;
-      box.querySelectorAll('.net-chip').forEach((c) => c.classList.toggle('active', c === btn));
-    });
-  });
+function getBalancesMap() {
+  const b = { ...(profile?.balances || {}) };
+  if (b.USDT == null) b.USDT = Number(profile?.usdtBalance) || 0;
+  for (const a of CONVERT_ASSETS) {
+    if (b[a.id] == null) b[a.id] = 0;
+  }
+  return b;
 }
 
-function setConvertToAsset(id) {
+function fmtAssetAmt(asset, n) {
+  const x = Number(n) || 0;
+  if (asset === 'USDT') return fmtUsdt(x, 4);
+  if (asset === 'BTC') return x.toFixed(8).replace(/\.?0+$/, '') || '0';
+  return x.toFixed(6).replace(/\.?0+$/, '') || '0';
+}
+
+function setConvertFromAsset(id) {
+  if (id === convertToAsset) convertToAsset = convertFromAsset;
+  convertFromAsset = id;
+  const meta = convertAssetMeta(id);
+  document.getElementById('convert-from-asset').value = id;
+  document.getElementById('convert-from-label').textContent = id;
+  const ico = document.getElementById('convert-from-icon');
+  if (ico) { ico.src = meta.icon; ico.alt = id; }
+  const bal = getBalancesMap()[id] || 0;
+  document.getElementById('convert-hint').textContent = fmtAssetAmt(id, bal);
+  setConvertToAsset(convertToAsset, false);
+  updateConvertEstimate();
+}
+
+function setConvertToAsset(id, closeSheet = true) {
+  if (id === convertFromAsset) {
+    const alt = CONVERT_ASSETS.find((a) => a.id !== id);
+    id = alt ? alt.id : id;
+  }
   convertToAsset = id;
   const meta = convertAssetMeta(id);
   document.getElementById('convert-asset').value = id;
   document.getElementById('convert-to-label').textContent = id;
   const ico = document.getElementById('convert-to-icon');
-  if (ico) {
-    ico.src = meta.icon;
-    ico.alt = meta.id;
-  }
-  renderConvertNetChips();
+  if (ico) { ico.src = meta.icon; ico.alt = id; }
+  if (closeSheet) document.getElementById('convert-asset-sheet')?.classList.add('screen-hidden');
   updateConvertEstimate();
-  document.getElementById('convert-asset-sheet')?.classList.add('screen-hidden');
 }
 
-function openConvertAssetSheet() {
+function openConvertAssetSheet(side) {
+  convertPickSide = side;
+  const current = side === 'from' ? convertFromAsset : convertToAsset;
+  document.getElementById('convert-sheet-title').textContent =
+    side === 'from' ? 'Списать с' : 'Получить';
   const list = document.getElementById('convert-asset-list');
+  const bals = getBalancesMap();
   list.innerHTML = CONVERT_ASSETS.map((a) => `
-    <button type="button" class="sheet-item ${a.id === convertToAsset ? 'active' : ''}" data-pick="${a.id}">
+    <button type="button" class="sheet-item ${a.id === current ? 'active' : ''}" data-pick="${a.id}">
       ${coinIconHtml(a, 28)}
-      <span>
+      <span style="flex:1">
         <div class="sheet-item-title">${a.id}</div>
         <div class="muted" style="font-size:12px">${escapeHtml(a.name)}</div>
       </span>
+      <span class="mono muted" style="font-size:12px">${fmtAssetAmt(a.id, bals[a.id] || 0)}</span>
     </button>
   `).join('');
   list.querySelectorAll('[data-pick]').forEach((btn) => {
-    btn.addEventListener('click', () => setConvertToAsset(btn.dataset.pick));
+    btn.addEventListener('click', () => {
+      if (convertPickSide === 'from') setConvertFromAsset(btn.dataset.pick);
+      else setConvertToAsset(btn.dataset.pick);
+      document.getElementById('convert-asset-sheet')?.classList.add('screen-hidden');
+    });
   });
   document.getElementById('convert-asset-sheet').classList.remove('screen-hidden');
 }
 
 function prepareConvertScreen() {
-  const bal = profile ? fmtUsdt(profile.usdtBalance) : '0.00';
-  document.getElementById('convert-hint').textContent = bal;
-  setConvertToAsset(convertToAsset || 'BTC');
+  setConvertFromAsset(convertFromAsset || 'USDT');
+  setConvertToAsset(convertToAsset || 'BTC', false);
   updateConvertEstimate();
+}
+
+async function loadAssetPrices() {
+  try {
+    const r = await fetch('/api/market/quotes');
+    const quotes = await r.json().catch(() => []);
+    assetPrices = { USDT: 1 };
+    if (Array.isArray(quotes)) {
+      for (const q of quotes) {
+        const sym = String(q.symbol || '').toUpperCase();
+        const px = Number(q.price);
+        if (Number.isFinite(px) && px > 0 && ['BTC', 'ETH', 'TRX', 'SOL'].includes(sym)) {
+          assetPrices[sym] = px;
+        }
+      }
+    }
+  } catch { /* keep previous */ }
+  if (!assetPrices.BTC) assetPrices.BTC = lastBtcPrice || 95000;
+  if (!assetPrices.ETH) assetPrices.ETH = 3500;
+  if (!assetPrices.TRX) assetPrices.TRX = 0.25;
+  if (!assetPrices.SOL) assetPrices.SOL = 180;
+}
+
+function estimateConvertOut(amount, from, to) {
+  const fromPx = assetPrices[from] || 0;
+  const toPx = assetPrices[to] || 0;
+  if (!fromPx || !toPx) return null;
+  return (amount * fromPx) / toPx;
 }
 
 async function updateConvertEstimate() {
@@ -512,68 +601,66 @@ async function updateConvertEstimate() {
   const out = document.getElementById('convert-out');
   if (!el) return;
   const amount = Number(document.getElementById('convert-amount')?.value);
-  const asset = convertToAsset || 'BTC';
+  const from = convertFromAsset || 'USDT';
+  const to = convertToAsset || 'BTC';
   if (!Number.isFinite(amount) || amount <= 0) {
     el.textContent = 'Ориентировочный курс появится после ввода суммы';
     if (out) out.textContent = '—';
     return;
   }
-  try {
-    const r = await fetch('/api/market/quotes');
-    const quotes = await r.json().catch(() => []);
-    const q = Array.isArray(quotes)
-      ? quotes.find((x) => String(x.symbol).toUpperCase() === asset)
-      : null;
-    if (asset === 'USDT') {
-      el.textContent = `Ориентировочно ≈ ${fmtUsdt(amount)} USDT`;
-      if (out) out.textContent = fmtUsdt(amount);
-      return;
-    }
-    if (q?.price) {
-      const got = amount / Number(q.price);
-      const text = got.toFixed(asset === 'BTC' ? 8 : 6);
-      el.textContent = `Ориентировочно ≈ ${text} ${asset}`;
-      if (out) out.textContent = text;
-    } else {
-      el.textContent = 'Курс будет уточнён при проверке операции';
-      if (out) out.textContent = '—';
-    }
-  } catch {
-    el.textContent = 'Курс будет уточнён при проверке операции';
+  await loadAssetPrices();
+  const got = estimateConvertOut(amount, from, to);
+  if (got == null) {
+    el.textContent = 'Курс временно недоступен';
     if (out) out.textContent = '—';
+    return;
   }
+  const text = fmtAssetAmt(to, got);
+  el.textContent = `≈ ${fmtAssetAmt(from, amount)} ${from} → ${text} ${to}`;
+  if (out) out.textContent = text;
 }
 
-document.getElementById('convert-to-pick')?.addEventListener('click', openConvertAssetSheet);
+document.getElementById('convert-from-pick')?.addEventListener('click', () => openConvertAssetSheet('from'));
+document.getElementById('convert-to-pick')?.addEventListener('click', () => openConvertAssetSheet('to'));
 document.getElementById('convert-sheet-close')?.addEventListener('click', () => {
   document.getElementById('convert-asset-sheet')?.classList.add('screen-hidden');
 });
 document.getElementById('convert-amount')?.addEventListener('input', updateConvertEstimate);
 document.getElementById('convert-max')?.addEventListener('click', () => {
-  if (!profile) return;
-  document.getElementById('convert-amount').value = String(Number(profile.usdtBalance) || 0);
+  const bals = getBalancesMap();
+  const from = convertFromAsset || 'USDT';
+  document.getElementById('convert-amount').value = String(Number(bals[from]) || 0);
   updateConvertEstimate();
 });
 document.getElementById('convert-bal-link')?.addEventListener('click', () => {
   document.getElementById('convert-max')?.click();
+});
+document.getElementById('convert-swap')?.addEventListener('click', () => {
+  const a = convertFromAsset;
+  const b = convertToAsset;
+  convertFromAsset = b;
+  convertToAsset = a;
+  setConvertFromAsset(convertFromAsset);
 });
 
 document.getElementById('convert-submit')?.addEventListener('click', async () => {
   const err = document.getElementById('convert-error');
   err.textContent = '';
   try {
-    await apiFetch('/finance/convert', {
+    const res = await apiFetch('/finance/convert', {
       method: 'POST',
       body: JSON.stringify({
         amount: document.getElementById('convert-amount').value,
+        fromAsset: document.getElementById('convert-from-asset').value,
         toAsset: document.getElementById('convert-asset').value,
-        network: document.getElementById('convert-network').value,
-        address: document.getElementById('convert-address').value.trim(),
       }),
     });
+    if (res.balances) profile.balances = res.balances;
+    if (res.usdtBalance != null) profile.usdtBalance = res.usdtBalance;
+    lastWalletBalance = Number(res.usdtBalance ?? profile.usdtBalance) || 0;
+    applyBalanceVisibility();
     document.getElementById('convert-amount').value = '';
-    document.getElementById('convert-address').value = '';
-    tg.showAlert('Заявка принята. Операция проходит проверку — при успехе средства будут зачислены.');
+    tg.showAlert('Готово. Средства зачислены на баланс — можете конвертировать обратно.');
     showScreen('wallet');
   } catch (e) {
     err.textContent = e.message;
@@ -955,9 +1042,11 @@ function renderProfile(me) {
   const wAvatar = document.getElementById('wallet-avatar');
   if (wAvatar) wAvatar.textContent = initials;
 
+  if (me.balances) profile.balances = me.balances;
   lastWalletBalance = Number(me.usdtBalance) || 0;
   lastEarnBalance = Number(me.earnBalance) || 0;
-  applyBalanceVisibility();
+  if (typeof loadAssetPrices === 'function') loadAssetPrices().then(() => applyBalanceVisibility()).catch(() => applyBalanceVisibility());
+  else applyBalanceVisibility();
   renderCardBanner(me);
 
   const hello = document.getElementById('home-hello-name');

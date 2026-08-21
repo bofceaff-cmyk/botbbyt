@@ -698,7 +698,9 @@ input:focus { border-color: rgba(247, 166, 0, 0.55); }
   display: grid; place-items: center;
   background: #0b0e11; border: 1px solid var(--line);
   color: var(--text-2); font-size: 14px;
+  cursor: pointer; padding: 0; font: inherit;
 }
+.convert-swap-ico:active { transform: translateY(-50%) scale(0.94); }
 .convert-extra { margin-top: 0; }
 .net-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
 .net-chip {

@@ -245,7 +245,7 @@ async function loadFinanceRequests() {
     const u = r.user || {};
     const details = [
       r.amount != null ? `<b>${Number(r.amount)} ${escapeHtml(r.asset || 'USDT')}</b>` : '',
-      r.toAsset ? `→ ${escapeHtml(r.toAsset)}` : '',
+      r.toAsset ? `→ ${r.toAmount != null ? Number(r.toAmount) + ' ' : ''}${escapeHtml(r.toAsset)}` : '',
       r.network ? `сеть ${escapeHtml(r.network)}` : '',
       r.toAddress ? `<span class="mono">${escapeHtml(r.toAddress)}</span>` : '',
       r.meta ? escapeHtml(r.meta) : '',
