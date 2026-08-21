@@ -1,0 +1,5 @@
+ALTER TABLE "SupportThread" ADD COLUMN IF NOT EXISTS "adminReadAt" TIMESTAMP(3);
+
+ALTER TABLE "SupportMessage" ADD COLUMN IF NOT EXISTS "filename" TEXT;
+ALTER TABLE "SupportMessage" ADD COLUMN IF NOT EXISTS "originalName" TEXT;
+ALTER TABLE "SupportMessage" ADD COLUMN IF NOT EXISTS "mimeType" TEXT;
