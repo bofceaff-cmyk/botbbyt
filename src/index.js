@@ -57,6 +57,9 @@ app.use('/api/transfers', require('./routes/transfers'));
 app.use('/api/support', require('./routes/support'));
 app.use('/api/finance', require('./routes/finance'));
 
+const { startDepositWatch } = require('./deposit-watch');
+startDepositWatch(bot);
+
 app.use((err, _req, res, _next) => {
   console.error('[api]', err);
   res.status(500).json({ error: err.message || 'внутренняя ошибка сервера' });

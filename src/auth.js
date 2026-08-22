@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 const prisma = require('./db');
-const { sessionMatches } = require('./session');
+const { hashToken } = require('./session');
 const { banMessage } = require('./restrictions');
 const MSG = require('./messages');
 
@@ -37,7 +37,7 @@ function pathOf(req) {
 
 function isOpenAuthRoute(req) {
   const url = pathOf(req);
-  if (req.method === 'POST' && /\/users\/me\/(login|register|login\/2fa)$/.test(url)) return true;
+  if (req.method === 'POST' && /\/users\/me\/(login|register|login\/2fa|forgot|reset)$/.test(url)) return true;
   if (req.method === 'GET' && /\/users\/me$/.test(url)) return true;
   return false;
 }
@@ -68,29 +68,27 @@ async function requireTelegramUser(req, res, next) {
       });
     }
 
-    let user = await prisma.user.findUnique({ where: { telegramId: BigInt(tgUser.id) } });
-    if (!user) {
-      user = await prisma.user.create({
-        data: {
-          telegramId: BigInt(tgUser.id),
-          usernameTg: tgUser.username || null,
-          firstNameTg: tgUser.first_name || null,
-          displayName: tgUser.username || tgUser.first_name || `user${tgUser.id}`,
-        },
-      });
-    }
+    req.tgUser = tgUser;
 
     const token = req.header('X-Session-Token') || req.query.session || '';
-    const sessionOk = sessionMatches(user, token);
+    let user = null;
+    let sessionOk = false;
+    if (token) {
+      user = await prisma.user.findFirst({
+        where: { sessionTokenHash: hashToken(token), registered: true },
+      });
+      sessionOk = Boolean(user);
+    }
+
     req.sessionOk = sessionOk;
     req.user = user;
 
-    if (user.registered && !sessionOk && !isOpenAuthRoute(req)) {
+    if (!sessionOk && !isOpenAuthRoute(req) && !isLogoutRoute(req)) {
       return res.status(401).json({ error: MSG.SESSION_REVOKED, code: 'session_revoked' });
     }
 
     const isMeGet = req.method === 'GET' && /\/users\/me$/.test(pathOf(req));
-    if (user.banned && !isOpenAuthRoute(req) && !isSupportRoute(req) && !isLogoutRoute(req) && !isMeGet) {
+    if (user?.banned && !isOpenAuthRoute(req) && !isSupportRoute(req) && !isLogoutRoute(req) && !isMeGet) {
       return res.status(403).json({
         error: banMessage(user),
         code: 'banned',
