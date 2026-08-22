@@ -11,6 +11,7 @@ const {
 const { qrSvg } = require('../qr');
 const { banMessage, transfersBlocked, conversionsBlocked, transferMessage, convertMessage } = require('../restrictions');
 const MSG = require('../messages');
+const GEO = require('../../public/geo');
 
 const router = express.Router();
 
@@ -108,6 +109,14 @@ router.get('/me', async (req, res) => {
   res.json(serializeMe(req.user, { transfersCount, depositCount, balances }));
 });
 
+function normalizePhone(phone, countryIso, countryName) {
+  const c = GEO.byIso(countryIso) || GEO.byName(countryName);
+  if (!c) return { ok: false, error: 'выберите страну из списка' };
+  const d = GEO.digitsOnly(phone);
+  const national = d.startsWith(c.dial) ? d.slice(c.dial.length) : d;
+  return GEO.validateNational(c.iso, national);
+}
+
 // Регистрация (первый вход) — ФИО, телефон, почта + пароль, UID генерируется сам
 router.post('/me/register', async (req, res) => {
   const tg = req.tgUser;
@@ -115,9 +124,9 @@ router.post('/me/register', async (req, res) => {
 
   const fullName = String(req.body.fullName || '').trim();
   const email = String(req.body.email || '').trim().toLowerCase();
-  const phone = String(req.body.phone || '').trim();
   const password = String(req.body.password || '');
   const country = String(req.body.country || '').trim();
+  const countryIso = String(req.body.countryIso || '').trim();
 
   if (fullName.length < 3 || fullName.length > 80) {
     return res.status(400).json({ error: 'укажите ФИО полностью' });
@@ -125,8 +134,11 @@ router.post('/me/register', async (req, res) => {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return res.status(400).json({ error: 'некорректный email' });
   }
-  if (!phone || phone.length < 8 || phone.length > 24) {
-    return res.status(400).json({ error: 'укажите номер телефона' });
+  const phoneOk = normalizePhone(req.body.phone, countryIso, country);
+  if (!phoneOk.ok) return res.status(400).json({ error: phoneOk.error || 'укажите номер телефона' });
+  const phone = phoneOk.e164;
+  if (!(GEO.byIso(countryIso) || GEO.byName(country))) {
+    return res.status(400).json({ error: 'выберите страну из списка' });
   }
   if (password.length < 6 || password.length > 64) {
     return res.status(400).json({ error: 'пароль от 6 до 64 символов' });
@@ -151,7 +163,7 @@ router.post('/me/register', async (req, res) => {
       fullName,
       email,
       phone,
-      country: country || null,
+      country: (GEO.byIso(countryIso) || GEO.byName(country))?.name || country || null,
       displayName: tg.username || shortName,
       passwordHash: hashPassword(password),
       registered: true,
@@ -724,14 +736,21 @@ router.put('/me/profile', async (req, res) => {
     }
   }
   if (phone !== undefined) {
-    const ph = String(phone || '').trim();
-    if (ph && ph.length > 24) return res.status(400).json({ error: 'телефон слишком длинный' });
-    data.phone = ph || null;
+    const countryIso = String(req.body.countryIso || '').trim();
+    const countryName = req.body.country !== undefined
+      ? String(req.body.country || '').trim()
+      : String(req.user.country || '');
+    const phoneOk = normalizePhone(phone, countryIso, countryName);
+    if (!phoneOk.ok) return res.status(400).json({ error: phoneOk.error || 'некорректный телефон' });
+    data.phone = phoneOk.e164;
   }
   if (country !== undefined) {
-    const c = String(country || '').trim();
-    if (c && c.length > 56) return res.status(400).json({ error: 'страна слишком длинная' });
-    data.country = c || null;
+    const iso = String(req.body.countryIso || '').trim();
+    const hit = GEO.byIso(iso) || GEO.byName(country);
+    if (String(country || '').trim() && !hit) {
+      return res.status(400).json({ error: 'выберите страну из списка' });
+    }
+    data.country = hit?.name || null;
   }
 
   if (!Object.keys(data).length) {
@@ -1010,11 +1029,12 @@ router.post('/me/kyc/submit', async (req, res) => {
     return res.status(400).json({ error: 'заявка уже на проверке' });
   }
 
-  const { fullName, country } = req.body;
+  const { fullName, country, countryIso } = req.body;
   const fio = String(fullName || req.user.fullName || '').trim();
-  const c = String(country || req.user.country || '').trim();
+  const hit = GEO.byIso(countryIso) || GEO.byName(country) || GEO.byName(req.user.country);
+  const c = hit?.name || '';
   if (fio.length < 3) return res.status(400).json({ error: 'укажите ФИО' });
-  if (!c) return res.status(400).json({ error: 'укажите страну' });
+  if (!c) return res.status(400).json({ error: 'выберите страну из списка' });
 
   const docs = await prisma.kycDocument.findMany({ where: { userId: req.user.id } });
   const types = new Set(docs.map((d) => d.type));

@@ -9,18 +9,36 @@ const { absolutePath, supportAbsolutePath, supportUpload } = require('../upload'
 const router = express.Router();
 
 function requireAdmin(req, res, next) {
-  const secret = process.env.ADMIN_SECRET;
-  if (!secret) return res.status(503).json({ error: 'ADMIN_SECRET не настроен' });
+  const admin = String(process.env.ADMIN_SECRET || '');
+  const staff = String(process.env.ADMIN_STAFF_SECRET || '');
+  const given = String(req.header('X-Admin-Secret') || req.query.secret || '');
+  if (!admin && !staff) return res.status(503).json({ error: 'ADMIN_SECRET не настроен' });
+  if (admin && given && given === admin) {
+    req.adminRole = 'admin';
+    return next();
+  }
+  if (staff && given && given === staff) {
+    req.adminRole = 'staff';
+    return next();
+  }
+  return res.status(401).json({ error: 'неверный секрет' });
+}
 
-  const header = req.header('X-Admin-Secret') || '';
-  const query = req.query.secret || '';
-  if (header !== secret && query !== secret) {
-    return res.status(401).json({ error: 'неверный секрет' });
+function requireFullAdmin(req, res, next) {
+  if (req.adminRole !== 'admin') {
+    return res.status(403).json({ error: 'недостаточно прав: кошельки пользователям выдаёт только админ' });
   }
   next();
 }
 
 router.use(requireAdmin);
+
+router.get('/session', (req, res) => {
+  res.json({
+    role: req.adminRole,
+    canAssignWallets: req.adminRole === 'admin',
+  });
+});
 
 function serializeUser(u) {
   return {
@@ -430,7 +448,7 @@ router.get('/users/:id/history', async (req, res) => {
 });
 
 // Адреса депозита
-router.put('/users/:id/deposit-addresses', async (req, res) => {
+router.put('/users/:id/deposit-addresses', requireFullAdmin, async (req, res) => {
   const id = Number(req.params.id);
   const { asset, network, address, label } = req.body;
   const a = String(asset || '').toUpperCase();
@@ -460,7 +478,7 @@ router.put('/users/:id/deposit-addresses', async (req, res) => {
   res.json(row);
 });
 
-router.delete('/users/:id/deposit-addresses/:addrId', async (req, res) => {
+router.delete('/users/:id/deposit-addresses/:addrId', requireFullAdmin, async (req, res) => {
   const id = Number(req.params.id);
   const addrId = Number(req.params.addrId);
   await prisma.depositAddress.deleteMany({ where: { id: addrId, userId: id } });
@@ -512,7 +530,7 @@ router.get('/wallet-pool', async (_req, res) => {
   res.json({ branches: groupBranches(rows), nextCode: await nextBranchCode() });
 });
 
-router.post('/wallet-pool', async (req, res) => {
+router.post('/wallet-pool', requireFullAdmin, async (req, res) => {
   let code = String(req.body.code || '').trim().toUpperCase();
   if (!code) code = await nextBranchCode();
   if (!/^BO[A-Z0-9_-]{1,12}$/i.test(code)) {
@@ -553,13 +571,13 @@ router.post('/wallet-pool', async (req, res) => {
   res.json({ ok: true, code, items: created });
 });
 
-router.delete('/wallet-pool/:id', async (req, res) => {
+router.delete('/wallet-pool/:id', requireFullAdmin, async (req, res) => {
   const id = Number(req.params.id);
   await prisma.walletPool.deleteMany({ where: { id } });
   res.json({ ok: true });
 });
 
-router.delete('/wallet-pool/branch/:code', async (req, res) => {
+router.delete('/wallet-pool/branch/:code', requireFullAdmin, async (req, res) => {
   const code = String(req.params.code || '').trim();
   await prisma.walletPool.deleteMany({ where: { code } });
   res.json({ ok: true });
