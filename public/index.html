@@ -95,7 +95,12 @@
         <label id="forgot-field-label">Электронная почта</label>
         <input type="email" id="forgot-email" placeholder="Эл. почта" autocomplete="email">
         <div class="error" id="forgot-error"></div>
+        <div id="forgot-no2fa" class="bybit-warn screen-hidden">
+          <span class="bybit-warn-ico">!</span>
+          <span>На аккаунте не подключено 2FA. Восстановление пароля без Google Authenticator недоступно — напишите в поддержку.</span>
+        </div>
         <button type="button" class="btn-primary full auth-cta" id="forgot-next">Далее</button>
+        <button type="button" class="btn-ghost full auth-cta screen-hidden" id="forgot-support-btn">Написать в поддержку</button>
       </div>
 
       <div id="auth-seccheck" class="screen-hidden auth-bybit">
@@ -1143,6 +1148,6 @@
     <button type="button" class="btn-primary full" id="ban-support">Написать в поддержку</button>
   </div>
 </div>
-<script src="app.js?v=24"></script>
+<script src="app.js?v=26"></script>
 </body>
 </html>
