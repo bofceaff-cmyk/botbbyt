@@ -445,6 +445,13 @@ router.post('/me/password', async (req, res) => {
   if (!verifyPassword(current, u.passwordHash)) {
     return res.status(400).json({ error: 'текущий пароль неверный' });
   }
+  if (u.totpEnabled) {
+    const totpCode = String(req.body.totpCode || '').trim();
+    const secret = decryptSecret(u.totpSecret);
+    if (!secret || !verifyTotp(secret, totpCode)) {
+      return res.status(400).json({ error: 'введите код из Google Authenticator' });
+    }
+  }
   await prisma.user.update({
     where: { id: u.id },
     data: {

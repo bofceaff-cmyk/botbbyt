@@ -559,6 +559,22 @@ router.get('/alpha', async (_req, res) => {
   }
 });
 
+let fxCache = { at: 0, data: { USD: 1, EUR: 0.92, RUB: 92 } };
+router.get('/fx', async (_req, res) => {
+  try {
+    if (Date.now() - fxCache.at < 30 * 60 * 1000 && fxCache.data) return res.json(fxCache.data);
+    const raw = await fetchJson('https://open.er-api.com/v6/latest/USD', 8000);
+    const r = raw.rates || {};
+    fxCache = {
+      at: Date.now(),
+      data: { USD: 1, EUR: Number(r.EUR) || 0.92, RUB: Number(r.RUB) || 92 },
+    };
+    res.json(fxCache.data);
+  } catch {
+    res.json(fxCache.data);
+  }
+});
+
 router.use((_req, res) => {
   res.status(404).json({ error: 'unknown market endpoint' });
 });
