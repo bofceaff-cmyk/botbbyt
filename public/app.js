@@ -15,7 +15,7 @@ if (typeof tg.onEvent === 'function') tg.onEvent('viewportChanged', syncAppViewp
 window.addEventListener('resize', syncAppViewport);
 
 const API_BASE = '/api';
-const MAIN_TABS = new Set(['markets', 'wallet', 'profile']);
+const MAIN_TABS = new Set(['markets', 'tickers', 'trade', 'tradfi', 'wallet']);
 
 const NETWORK_OPTIONS = {
   USDT: [
@@ -91,6 +91,7 @@ let profileTimer = null;
 let quotesEs = null;
 let quotesWs = null;
 let pendingTotpToken = '';
+let pendingReset = { email: '', totpEnabled: false, contact: '' };
 let screenStack = ['markets'];
 
 const SESSION_KEY = 'byx_session';
@@ -313,12 +314,15 @@ function showScreen(name, opts = {}) {
       'deposit', 'transfer', 'history', 'withdraw', 'convert', 'earn', 'card',
     ]);
     const tab = MAIN_TABS.has(name) ? name : (
-      name === 'chart' ? 'markets' : (
-        walletScreens.has(name) ? 'wallet' : 'profile'
+      name === 'chart' ? 'trade' : (
+        walletScreens.has(name) ? 'wallet' : (
+          name === 'profile' || name === 'support' || name === 'kyc' || name === 'edit-profile' ? 'wallet' : 'markets'
+        )
       )
     );
     t.classList.toggle('active', t.dataset.tab === tab);
   });
+  document.querySelector('.topbar')?.classList.toggle('screen-hidden', name === 'trade' || name === 'tradfi');
 
   if (name === 'history') loadHistory();
   if (name === 'support') {
@@ -331,7 +335,11 @@ function showScreen(name, opts = {}) {
   if (name === 'deposit') renderDepositNetworks();
   if (name === 'markets') loadNews();
   if (name === 'chart') startChartLive();
-  else stopChartLive();
+  else if (name === 'trade') {
+    startChartLive();
+    loadTradeChart();
+  } else stopChartLive();
+  if (name === 'tickers') renderTickersList(lastQuotes);
   if (name === 'transfer' && profile) {
     document.getElementById('transfer-hint').textContent =
       `Доступно: ${fmtUsdt(profile.usdtBalance)} USDT`;
@@ -957,9 +965,7 @@ document.getElementById('home-go-deposit')?.addEventListener('click', () => show
 document.getElementById('home-go-wallet')?.addEventListener('click', () => showScreen('wallet'));
 document.getElementById('home-q-deposit')?.addEventListener('click', () => showScreen('deposit'));
 document.getElementById('home-q-transfer')?.addEventListener('click', () => showScreen('transfer'));
-document.getElementById('home-q-markets')?.addEventListener('click', () => {
-  document.getElementById('quotes-list')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-});
+document.getElementById('home-q-markets')?.addEventListener('click', () => showScreen('tickers'));
 document.getElementById('home-q-profile')?.addEventListener('click', () => showScreen('profile'));
 document.getElementById('home-uid-chip')?.addEventListener('click', async () => {
   const uid = profile?.uid;
@@ -998,13 +1004,25 @@ function setRegStep(step) {
   document.getElementById('reg-error').textContent = '';
 }
 
+function hideAuthSubScreens() {
+  document.getElementById('auth-2fa')?.classList.add('screen-hidden');
+  document.getElementById('auth-forgot')?.classList.add('screen-hidden');
+  document.getElementById('auth-seccheck')?.classList.add('screen-hidden');
+  document.getElementById('auth-reset')?.classList.add('screen-hidden');
+}
+
+function setAuthLight(on) {
+  document.getElementById('auth-sheet')?.classList.toggle('light', Boolean(on));
+  document.getElementById('auth-main-tabs')?.classList.toggle('screen-hidden', Boolean(on));
+}
+
 function setAuthTab(which) {
   const isReg = which === 'register';
   document.getElementById('tab-register').classList.toggle('active', isReg);
   document.getElementById('tab-login').classList.toggle('active', !isReg);
   document.getElementById('auth-register').classList.toggle('screen-hidden', !isReg);
   document.getElementById('auth-login').classList.toggle('screen-hidden', isReg);
-  document.getElementById('auth-2fa')?.classList.add('screen-hidden');
+  hideAuthSubScreens();
   document.getElementById('reg-error').textContent = '';
   document.getElementById('reg-error-1').textContent = '';
   document.getElementById('login-error').textContent = '';
@@ -1038,7 +1056,9 @@ function showAuthGate(mode = 'forms') {
   document.getElementById('auth-gate').classList.remove('screen-hidden');
   document.getElementById('app-shell').classList.add('screen-hidden');
   document.getElementById('auth-loading').classList.add('screen-hidden');
-  document.getElementById('auth-2fa')?.classList.add('screen-hidden');
+  hideAuthSubScreens();
+  const light = mode === 'forgot' || mode === 'seccheck' || mode === 'reset';
+  setAuthLight(light);
   if (mode === 'success') {
     document.getElementById('auth-forms').classList.add('screen-hidden');
     document.getElementById('auth-success').classList.remove('screen-hidden');
@@ -1050,10 +1070,28 @@ function showAuthGate(mode = 'forms') {
     document.getElementById('auth-register').classList.add('screen-hidden');
     document.getElementById('auth-login').classList.add('screen-hidden');
     document.getElementById('auth-2fa')?.classList.remove('screen-hidden');
+  } else if (mode === 'forgot') {
+    document.getElementById('auth-forms').classList.remove('screen-hidden');
+    document.getElementById('auth-success').classList.add('screen-hidden');
+    document.getElementById('auth-register').classList.add('screen-hidden');
+    document.getElementById('auth-login').classList.add('screen-hidden');
+    document.getElementById('auth-forgot')?.classList.remove('screen-hidden');
+  } else if (mode === 'seccheck') {
+    document.getElementById('auth-forms').classList.remove('screen-hidden');
+    document.getElementById('auth-success').classList.add('screen-hidden');
+    document.getElementById('auth-register').classList.add('screen-hidden');
+    document.getElementById('auth-login').classList.add('screen-hidden');
+    document.getElementById('auth-seccheck')?.classList.remove('screen-hidden');
+  } else if (mode === 'reset') {
+    document.getElementById('auth-forms').classList.remove('screen-hidden');
+    document.getElementById('auth-success').classList.add('screen-hidden');
+    document.getElementById('auth-register').classList.add('screen-hidden');
+    document.getElementById('auth-login').classList.add('screen-hidden');
+    document.getElementById('auth-reset')?.classList.remove('screen-hidden');
   } else {
     document.getElementById('auth-forms').classList.remove('screen-hidden');
     document.getElementById('auth-success').classList.add('screen-hidden');
-    setAuthTab('register');
+    setAuthTab('login');
     setRegStep(1);
   }
 }
@@ -1244,6 +1282,187 @@ document.getElementById('reg-contact')?.addEventListener('keydown', (e) => {
 ['login-contact', 'login-password'].forEach((id) => {
   document.getElementById(id)?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') document.getElementById('login-submit').click();
+  });
+});
+
+document.getElementById('login-forgot')?.addEventListener('click', () => {
+  const parsed = parseContact(document.getElementById('login-contact').value);
+  setForgotKind(parsed?.kind === 'phone' ? 'phone' : 'email');
+  document.getElementById('forgot-email').value = parsed?.value || '';
+  document.getElementById('forgot-error').textContent = '';
+  showAuthGate('forgot');
+});
+document.getElementById('forgot-back')?.addEventListener('click', () => {
+  showAuthGate('forms');
+  setAuthTab('login');
+});
+document.getElementById('seccheck-back')?.addEventListener('click', () => showAuthGate('forgot'));
+document.getElementById('reset-back')?.addEventListener('click', () => showAuthGate('seccheck'));
+
+function setForgotKind(kind) {
+  const isEmail = kind !== 'phone';
+  document.getElementById('forgot-tab-email')?.classList.toggle('active', isEmail);
+  document.getElementById('forgot-tab-phone')?.classList.toggle('active', !isEmail);
+  const input = document.getElementById('forgot-email');
+  const label = document.getElementById('forgot-field-label');
+  if (isEmail) {
+    label.textContent = 'Электронная почта';
+    input.type = 'email';
+    input.placeholder = 'Эл. почта';
+    input.autocomplete = 'email';
+  } else {
+    label.textContent = 'Номер телефона';
+    input.type = 'tel';
+    input.placeholder = 'Номер телефона';
+    input.autocomplete = 'tel';
+  }
+}
+document.getElementById('forgot-tab-email')?.addEventListener('click', () => setForgotKind('email'));
+document.getElementById('forgot-tab-phone')?.addEventListener('click', () => setForgotKind('phone'));
+
+function refreshSecNext() {
+  const code = document.getElementById('seccheck-code')?.value.trim() || '';
+  const totpWrap = document.getElementById('seccheck-totp-wrap');
+  const needTotp = totpWrap && !totpWrap.classList.contains('screen-hidden');
+  const totp = document.getElementById('seccheck-totp')?.value.trim() || '';
+  const btn = document.getElementById('seccheck-next');
+  if (btn) btn.disabled = !(code.length >= 4 && (!needTotp || totp.length >= 4));
+}
+document.getElementById('seccheck-code')?.addEventListener('input', refreshSecNext);
+document.getElementById('seccheck-totp')?.addEventListener('input', refreshSecNext);
+
+document.getElementById('forgot-next')?.addEventListener('click', async () => {
+  const errorEl = document.getElementById('forgot-error');
+  errorEl.textContent = '';
+  const parsed = parseContact(document.getElementById('forgot-email').value);
+  if (!parsed || parsed.error) {
+    errorEl.textContent = parsed?.error || 'Укажите email или телефон';
+    return;
+  }
+  const btn = document.getElementById('forgot-next');
+  btn.disabled = true;
+  btn.textContent = 'Далее…';
+  try {
+    const res = await apiFetch('/users/me/forgot/start', {
+      method: 'POST',
+      body: JSON.stringify({ contact: parsed.value, email: parsed.value }),
+    });
+    pendingReset = {
+      email: res.email || (parsed.kind === 'email' ? parsed.value : ''),
+      totpEnabled: Boolean(res.totpEnabled),
+      contact: parsed.value,
+    };
+    document.getElementById('seccheck-masked').textContent = res.maskedEmail || '****@****';
+    document.getElementById('seccheck-code').value = '';
+    document.getElementById('seccheck-totp').value = '';
+    document.getElementById('seccheck-error').textContent = '';
+    document.getElementById('seccheck-totp-wrap').classList.toggle('screen-hidden', !pendingReset.totpEnabled);
+    refreshSecNext();
+    showAuthGate('seccheck');
+  } catch (e) {
+    errorEl.textContent = e.message || 'Не удалось продолжить';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Далее';
+  }
+});
+
+let forgotSendUntil = 0;
+document.getElementById('seccheck-send')?.addEventListener('click', async () => {
+  const errorEl = document.getElementById('seccheck-error');
+  errorEl.textContent = '';
+  if (Date.now() < forgotSendUntil) {
+    errorEl.textContent = 'Код уже отправлен, подождите немного';
+    return;
+  }
+  const btn = document.getElementById('seccheck-send');
+  const prev = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Отправка…';
+  try {
+    await apiFetch('/users/me/forgot', {
+      method: 'POST',
+      body: JSON.stringify({ email: pendingReset.email || pendingReset.contact, contact: pendingReset.contact, mode: 'code' }),
+    });
+    forgotSendUntil = Date.now() + 60_000;
+    btn.textContent = 'Код отправлен';
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.textContent = prev;
+    }, 60_000);
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = prev;
+    errorEl.textContent = e.message || 'Не удалось отправить письмо';
+  }
+});
+
+document.getElementById('seccheck-next')?.addEventListener('click', () => {
+  const errorEl = document.getElementById('seccheck-error');
+  errorEl.textContent = '';
+  const code = document.getElementById('seccheck-code').value.trim();
+  if (code.length < 4) {
+    errorEl.textContent = 'Введите код из письма';
+    return;
+  }
+  if (pendingReset.totpEnabled && !document.getElementById('seccheck-totp').value.trim()) {
+    errorEl.textContent = 'Введите код Google Authenticator';
+    return;
+  }
+  document.getElementById('reset-password').value = '';
+  document.getElementById('reset-password2').value = '';
+  document.getElementById('reset-error').textContent = '';
+  showAuthGate('reset');
+});
+
+document.getElementById('seccheck-help')?.addEventListener('click', () => {
+  tg.showAlert('Откройте чат поддержки в приложении после входа или напишите в бота.');
+});
+
+document.getElementById('reset-submit')?.addEventListener('click', async () => {
+  const errorEl = document.getElementById('reset-error');
+  errorEl.textContent = '';
+  const password = document.getElementById('reset-password').value;
+  const password2 = document.getElementById('reset-password2').value;
+  const code = document.getElementById('seccheck-code').value.trim();
+  const totpCode = document.getElementById('seccheck-totp')?.value.trim() || '';
+  if (password.length < 6) {
+    errorEl.textContent = 'Пароль от 6 символов';
+    return;
+  }
+  if (password !== password2) {
+    errorEl.textContent = 'Пароли не совпадают';
+    return;
+  }
+  const btn = document.getElementById('reset-submit');
+  btn.disabled = true;
+  btn.textContent = 'Сохранение…';
+  try {
+    const me = await apiFetch('/users/me/reset', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: pendingReset.email,
+        code,
+        totpCode,
+        password,
+      }),
+    });
+    enterApp(me);
+  } catch (e) {
+    errorEl.textContent = e.message || 'Не удалось сбросить пароль';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Подтвердить';
+  }
+});
+['forgot-email'].forEach((id) => {
+  document.getElementById(id)?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('forgot-next').click();
+  });
+});
+['reset-password2'].forEach((id) => {
+  document.getElementById(id)?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('reset-submit').click();
   });
 });
 
@@ -1799,24 +2018,312 @@ document.getElementById('chat-input').addEventListener('keydown', (e) => {
 
 // ---------- chart ----------
 let chartSymbol = 'BTC';
-let chartInterval = '1h';
+let chartInterval = '15m';
 let chartChange24h = null;
 let chartCandles = [];
 let chartLiveTimer = null;
 let quotesBuilt = false;
 
 function openChart(symbol, change24h) {
-  chartSymbol = symbol || 'BTC';
-  chartChange24h = change24h;
-  chartInterval = chartInterval || '1h';
-  document.querySelectorAll('#chart-intervals .seg-btn').forEach((b) => {
-    b.classList.toggle('active', b.dataset.interval === chartInterval);
-  });
-  const buy = document.getElementById('chart-buy');
-  if (buy) buy.textContent = `Купить ${chartSymbol}`;
-  showScreen('chart');
-  loadChart();
+  openTrade(symbol, change24h);
 }
+
+let tradeSymbol = 'LINK';
+
+function fmtCompact(n) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return '—';
+  if (x >= 1e9) return `${(x / 1e9).toFixed(2)}B`;
+  if (x >= 1e6) return `${(x / 1e6).toFixed(2)}M`;
+  if (x >= 1e3) return `${(x / 1e3).toFixed(2)}K`;
+  return x.toFixed(2);
+}
+
+function smaAt(candles, period, i) {
+  if (i + 1 < period) return null;
+  let s = 0;
+  for (let k = i - period + 1; k <= i; k++) s += candles[k].close;
+  return s / period;
+}
+
+function openTrade(symbol, change24h) {
+  tradeSymbol = String(symbol || tradeSymbol || 'LINK').toUpperCase().replace(/USDT$/, '');
+  chartSymbol = tradeSymbol;
+  if (change24h != null) chartChange24h = change24h;
+  document.getElementById('trade-pair-btn').innerHTML = `${tradeSymbol}/USDT <span>▾</span>`;
+  document.getElementById('trade-qty-lbl').textContent = tradeSymbol;
+  document.querySelectorAll('.trade-tf').forEach((b) => {
+    if (b.dataset.interval) b.classList.toggle('active', b.dataset.interval === chartInterval);
+  });
+  showScreen('trade');
+  loadTradeChart();
+}
+
+function tradeQuote() {
+  return lastQuotes.find((q) => String(q.symbol).toUpperCase() === tradeSymbol) || null;
+}
+
+function paintTradeQuote(q) {
+  if (!q) return;
+  const chg = fmtChange(q.change24h);
+  const lastEl = document.getElementById('trade-last');
+  const chgEl = document.getElementById('trade-chg');
+  lastEl.textContent = fmtUsdPrice(q.price);
+  lastEl.className = `trade-last ${chg.up ? 'up' : 'down'}`;
+  chgEl.textContent = chg.text;
+  chgEl.className = `trade-chg ${chg.up ? 'up' : 'down'}`;
+  document.getElementById('trade-usd').textContent = `≈${fmtUsdPrice(q.price)} USD`;
+  if (q.high24h != null) document.getElementById('trade-high').textContent = fmtUsdPrice(q.high24h);
+  if (q.low24h != null) document.getElementById('trade-low').textContent = fmtUsdPrice(q.low24h);
+  if (q.volume24h != null) document.getElementById('trade-vol').textContent = fmtCompact(q.volume24h);
+  const ask = q.ask || q.price;
+  const bid = q.bid || q.price;
+  document.getElementById('trade-buy-px').textContent = fmtUsdPrice(ask);
+  document.getElementById('trade-sell-px').textContent = fmtUsdPrice(bid);
+}
+
+function applyLivePriceToTrade(q) {
+  const onTrade = !document.getElementById('screen-trade')?.classList.contains('screen-hidden');
+  if (!onTrade || String(q.symbol).toUpperCase() !== tradeSymbol) return;
+  paintTradeQuote(q);
+  if (chartCandles.length && Number(q.price) > 0) {
+    const last = chartCandles[chartCandles.length - 1];
+    last.close = Number(q.price);
+    last.high = Math.max(last.high, last.close);
+    last.low = Math.min(last.low, last.close);
+    drawTradeChart(document.getElementById('trade-canvas'), chartCandles);
+  }
+}
+
+async function loadTradeChart({ silent = false } = {}) {
+  const canvas = document.getElementById('trade-canvas');
+  if (!canvas) return;
+  paintTradeQuote(tradeQuote());
+  try {
+    const data = await fetchKlines(tradeSymbol, chartInterval);
+    chartCandles = data.candles || [];
+    if (data.last != null) {
+      const q = tradeQuote() || { symbol: tradeSymbol, price: data.last, change24h: chartChange24h };
+      paintTradeQuote({ ...q, price: data.last });
+    }
+    drawTradeChart(canvas, chartCandles);
+  } catch (e) {
+    if (!silent) console.error('[trade]', e);
+  }
+}
+
+function drawTradeChart(canvas, candles) {
+  if (!canvas || !candles?.length) return;
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = canvas.clientWidth || 360;
+  const cssH = 340;
+  canvas.width = Math.floor(cssW * dpr);
+  canvas.height = Math.floor(cssH * dpr);
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssW, cssH);
+
+  const volH = 72;
+  const pad = { t: 8, r: 48, b: 18, l: 4 };
+  const priceH = cssH - volH - pad.t - pad.b - 8;
+  const w = cssW - pad.l - pad.r;
+  let min = Infinity;
+  let max = -Infinity;
+  let maxVol = 0;
+  candles.forEach((c) => {
+    min = Math.min(min, c.low);
+    max = Math.max(max, c.high);
+    maxVol = Math.max(maxVol, c.volume || 0);
+  });
+  const span = max - min || 1;
+  const slot = w / candles.length;
+  const yPrice = (v) => pad.t + ((max - v) / span) * priceH;
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 5; i++) {
+    const y = pad.t + (priceH * i) / 4;
+    ctx.beginPath();
+    ctx.moveTo(pad.l, y);
+    ctx.lineTo(pad.l + w, y);
+    ctx.stroke();
+  }
+
+  candles.forEach((c, i) => {
+    const x = pad.l + i * slot + slot / 2;
+    const up = c.close >= c.open;
+    ctx.strokeStyle = up ? '#2ebd85' : '#f6465d';
+    ctx.fillStyle = up ? '#2ebd85' : '#f6465d';
+    ctx.beginPath();
+    ctx.moveTo(x, yPrice(c.high));
+    ctx.lineTo(x, yPrice(c.low));
+    ctx.stroke();
+    const bodyTop = Math.min(yPrice(c.open), yPrice(c.close));
+    const bodyH = Math.max(1, Math.abs(yPrice(c.close) - yPrice(c.open)));
+    ctx.fillRect(x - Math.max(1, slot * 0.28), bodyTop, Math.max(2, slot * 0.56), bodyH);
+  });
+
+  const drawMa = (period, color) => {
+    ctx.beginPath();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.2;
+    let started = false;
+    candles.forEach((_, i) => {
+      const v = smaAt(candles, period, i);
+      if (v == null) return;
+      const x = pad.l + i * slot + slot / 2;
+      const y = yPrice(v);
+      if (!started) { ctx.moveTo(x, y); started = true; }
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  };
+  drawMa(7, '#f7a600');
+  drawMa(14, '#5b9cf6');
+  drawMa(28, '#e56b9a');
+
+  const last = candles[candles.length - 1];
+  const yLast = yPrice(last.close);
+  ctx.setLineDash([4, 3]);
+  ctx.strokeStyle = last.close >= last.open ? '#2ebd85' : '#f6465d';
+  ctx.beginPath();
+  ctx.moveTo(pad.l, yLast);
+  ctx.lineTo(pad.l + w, yLast);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = last.close >= last.open ? '#2ebd85' : '#f6465d';
+  const label = fmtUsdPrice(last.close);
+  ctx.font = '11px IBM Plex Sans, sans-serif';
+  const tw = ctx.measureText(label).width + 8;
+  ctx.fillRect(cssW - pad.r, yLast - 8, pad.r - 2, 16);
+  ctx.fillStyle = '#fff';
+  ctx.fillText(label, cssW - pad.r + 3, yLast + 4);
+
+  const volTop = pad.t + priceH + 10;
+  candles.forEach((c, i) => {
+    const x = pad.l + i * slot;
+    const h = maxVol ? ((c.volume || 0) / maxVol) * volH : 0;
+    ctx.fillStyle = c.close >= c.open ? 'rgba(46,189,133,0.55)' : 'rgba(246,70,93,0.55)';
+    ctx.fillRect(x + 1, volTop + volH - h, Math.max(1, slot - 1.5), h);
+  });
+
+  ctx.fillStyle = '#5a5a5a';
+  ctx.font = '10px IBM Plex Sans, sans-serif';
+  ctx.fillText(fmtUsdPrice(max), cssW - pad.r + 2, pad.t + 10);
+  ctx.fillText(fmtUsdPrice(min), cssW - pad.r + 2, pad.t + priceH);
+}
+
+function renderTickersList(quotes) {
+  const list = document.getElementById('tickers-list');
+  if (!list || !quotes?.length) return;
+  list.innerHTML = quotes.map((q, i) => {
+    const chg = fmtChange(q.change24h);
+    const img = q.image
+      ? `<img src="${escapeHtml(q.image)}" alt="" loading="lazy">`
+      : `<div class="quote-ico">${escapeHtml(q.symbol.slice(0, 2))}</div>`;
+    return `
+      <button type="button" class="quote-row" data-symbol="${escapeHtml(q.symbol)}" data-change="${q.change24h ?? ''}" style="animation-delay:${i * 25}ms">
+        ${img}
+        <div>
+          <div class="quote-name">${escapeHtml(q.symbol)}<span style="color:var(--text-3);font-weight:500"> / USDT</span></div>
+          <div class="quote-full">${escapeHtml(q.name)}</div>
+        </div>
+        <div class="quote-right">
+          <div class="quote-price mono">$${fmtUsdPrice(q.price)}</div>
+          <span class="chg-pill ${chg.up ? 'up' : 'down'}">${chg.text}</span>
+        </div>
+      </button>`;
+  }).join('');
+  list.querySelectorAll('[data-symbol]').forEach((row) => {
+    row.onclick = () => openTrade(row.dataset.symbol, row.dataset.change);
+  });
+}
+
+function fillTradePairList() {
+  const box = document.getElementById('trade-pair-list');
+  if (!box) return;
+  const quotes = lastQuotes.length ? lastQuotes : [{ symbol: 'BTC', name: 'Bitcoin', price: null, change24h: null }];
+  box.innerHTML = quotes.map((q) => {
+    const chg = fmtChange(q.change24h);
+    return `<button type="button" class="quote-row" data-symbol="${escapeHtml(q.symbol)}">
+      <div class="quote-ico">${escapeHtml(q.symbol.slice(0, 2))}</div>
+      <div><div class="quote-name">${escapeHtml(q.symbol)}/USDT</div></div>
+      <div class="quote-right"><div class="quote-price mono">${fmtUsdPrice(q.price)}</div>
+      <span class="chg-pill ${chg.up ? 'up' : 'down'}">${chg.text}</span></div>
+    </button>`;
+  }).join('');
+  box.querySelectorAll('[data-symbol]').forEach((row) => {
+    row.onclick = () => {
+      document.getElementById('trade-pair-sheet').classList.add('screen-hidden');
+      openTrade(row.dataset.symbol);
+    };
+  });
+}
+
+document.getElementById('trade-pair-btn')?.addEventListener('click', () => {
+  fillTradePairList();
+  document.getElementById('trade-pair-sheet').classList.remove('screen-hidden');
+});
+document.getElementById('trade-pair-close')?.addEventListener('click', () => {
+  document.getElementById('trade-pair-sheet').classList.add('screen-hidden');
+});
+document.getElementById('trade-pair-sheet')?.addEventListener('click', (e) => {
+  if (e.target.id === 'trade-pair-sheet') e.currentTarget.classList.add('screen-hidden');
+});
+
+document.querySelectorAll('#trade-products .trade-prod').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#trade-products .trade-prod').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+    const prod = btn.dataset.prod;
+    if (prod === 'convert') showScreen('convert');
+    else if (prod !== 'spot') tg.showAlert('Раздел скоро будет доступен. Сейчас открыт спот.');
+  });
+});
+
+document.querySelectorAll('#trade-subtabs .trade-sub').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#trade-subtabs .trade-sub').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+    const sub = btn.dataset.sub;
+    document.getElementById('trade-pane-chart').classList.toggle('screen-hidden', sub !== 'chart');
+    document.getElementById('trade-pane-overview').classList.toggle('screen-hidden', sub !== 'overview');
+    document.getElementById('trade-pane-data').classList.toggle('screen-hidden', sub !== 'data');
+    document.getElementById('trade-pane-news').classList.toggle('screen-hidden', sub !== 'news');
+  });
+});
+
+document.querySelectorAll('.trade-tf[data-interval]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    chartInterval = btn.dataset.interval;
+    document.querySelectorAll('.trade-tf[data-interval]').forEach((b) => b.classList.toggle('active', b === btn));
+    loadTradeChart();
+  });
+});
+
+document.getElementById('trade-buy')?.addEventListener('click', () => {
+  convertFromAsset = 'USDT';
+  convertToAsset = tradeSymbol;
+  showScreen('convert');
+});
+document.getElementById('trade-sell')?.addEventListener('click', () => {
+  convertFromAsset = tradeSymbol;
+  convertToAsset = 'USDT';
+  showScreen('convert');
+});
+document.getElementById('trade-qty')?.addEventListener('click', () => {
+  convertFromAsset = 'USDT';
+  convertToAsset = tradeSymbol;
+  showScreen('convert');
+});
+document.getElementById('tradfi-go-trade')?.addEventListener('click', () => openTrade(tradeSymbol));
+document.getElementById('trade-depth')?.addEventListener('click', () => tg.showAlert('Стакан глубины — в следующей версии.'));
+
+document.querySelectorAll('.tab').forEach((tab) => {
+  if (tab.dataset.tab === 'trade') {
+    tab.addEventListener('click', () => openTrade(tradeSymbol));
+  }
+});
 
 document.getElementById('chart-buy')?.addEventListener('click', () => {
   const id = String(chartSymbol || 'BTC').toUpperCase();
@@ -1830,7 +2337,7 @@ async function fetchKlines(symbol, interval) {
   // 1) напрямую Binance (без Telegram auth)
   try {
     const r = await fetch(
-      `https://api.binance.com/api/v3/klines?symbol=${pair}&interval=${interval}&limit=96`
+      `https://api.binance.com/api/v3/klines?symbol=${pair}&interval=${interval}&limit=120`
     );
     if (r.ok) {
       const raw = await r.json();
@@ -1891,7 +2398,12 @@ async function loadChart({ silent = false } = {}) {
 
 function startChartLive() {
   stopChartLive();
-  chartLiveTimer = setInterval(() => loadChart({ silent: true }), 12_000);
+  chartLiveTimer = setInterval(() => {
+    const onTrade = !document.getElementById('screen-trade')?.classList.contains('screen-hidden');
+    const onChart = !document.getElementById('screen-chart')?.classList.contains('screen-hidden');
+    if (onTrade) loadTradeChart({ silent: true });
+    else if (onChart) loadChart({ silent: true });
+  }, 12_000);
 }
 function stopChartLive() {
   if (chartLiveTimer) {
@@ -2015,7 +2527,9 @@ function ingestQuotes(quotes) {
   const btcQ = quotes.find((q) => String(q.symbol).toUpperCase() === 'BTC');
   if (btcQ?.price) lastBtcPrice = Number(btcQ.price) || lastBtcPrice;
   renderQuotesUi(quotes);
+  renderTickersList(quotes);
   quotes.forEach((q) => applyLivePriceToChart(q.symbol, q.price, q.change24h));
+  quotes.forEach((q) => applyLivePriceToTrade(q));
   const onConvert = !document.getElementById('screen-convert')?.classList.contains('screen-hidden');
   if (onConvert) updateConvertEstimate();
 }
@@ -2222,6 +2736,10 @@ async function loadNews() {
           </div>
         </a>`;
     }).join('');
+    const tick = document.getElementById('trade-ticker-text');
+    if (tick && news[0]?.title) tick.textContent = news[0].title;
+    const mini = document.getElementById('trade-news-mini');
+    if (mini) mini.innerHTML = list.innerHTML;
   } catch {
     if (!hadItems) {
       list.innerHTML = '<div class="empty">Не удалось загрузить новости</div>';

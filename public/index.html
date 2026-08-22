@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=7">
+<link rel="stylesheet" href="style.css?v=10">
 </head>
 <body>
 <div id="auth-gate" class="auth-gate">
@@ -16,9 +16,9 @@
     <img class="bybit-logo-img" src="/img/bybit-logo.png?v=3" alt="BYBIT" height="26">
   </div>
 
-  <div class="auth-sheet">
+  <div class="auth-sheet" id="auth-sheet">
     <div id="auth-forms">
-      <div class="seg auth-tabs">
+      <div class="seg auth-tabs" id="auth-main-tabs">
         <button type="button" class="seg-btn active" id="tab-register">Регистрация</button>
         <button type="button" class="seg-btn" id="tab-login">Вход</button>
       </div>
@@ -78,6 +78,58 @@
         </label>
         <div class="error" id="login-error"></div>
         <button type="button" class="btn-primary full auth-cta" id="login-submit">Войти</button>
+        <button type="button" class="auth-forgot-link" id="login-forgot">Забыли пароль?</button>
+      </div>
+
+      <div id="auth-forgot" class="screen-hidden auth-bybit">
+        <button type="button" class="auth-back" id="forgot-back">← Назад</button>
+        <h1 class="auth-title auth-title-light">Сбросить пароль</h1>
+        <div class="bybit-tabs">
+          <button type="button" class="bybit-tab active" id="forgot-tab-email" data-kind="email">Электронная почта</button>
+          <button type="button" class="bybit-tab" id="forgot-tab-phone" data-kind="phone">Номер телефона</button>
+        </div>
+        <div class="bybit-warn">
+          <span class="bybit-warn-ico">!</span>
+          <span>Важно: После смены пароля ончейн-выводы, внутренние переводы, выводы в фиатной валюте, P2P-сделки, объявления и транзакции по карте Bybit будут приостановлены на 24 часа. Это необходимая мера для защиты вашего аккаунта.</span>
+        </div>
+        <label id="forgot-field-label">Электронная почта</label>
+        <input type="email" id="forgot-email" placeholder="Эл. почта" autocomplete="email">
+        <div class="error" id="forgot-error"></div>
+        <button type="button" class="btn-primary full auth-cta" id="forgot-next">Далее</button>
+      </div>
+
+      <div id="auth-seccheck" class="screen-hidden auth-bybit">
+        <button type="button" class="auth-back" id="seccheck-back">← Назад</button>
+        <h1 class="auth-title auth-title-light">Проверка безопасности</h1>
+        <div class="sec-row">
+          <div class="sec-ico">✉</div>
+          <div class="sec-copy">Код подтверждения будет отправлен на <b id="seccheck-masked">****@****</b></div>
+        </div>
+        <div class="sec-input-wrap">
+          <input type="text" id="seccheck-code" inputmode="numeric" maxlength="6" placeholder="Введите код" autocomplete="one-time-code">
+          <button type="button" class="sec-send" id="seccheck-send">Отправить код подтверждения</button>
+        </div>
+        <div id="seccheck-totp-wrap" class="screen-hidden">
+          <div class="sec-row">
+            <div class="sec-ico">G</div>
+            <div class="sec-copy">Код подтверждения Google</div>
+          </div>
+          <input type="text" id="seccheck-totp" inputmode="numeric" maxlength="16" placeholder="Введите код Google Authenticator" autocomplete="one-time-code">
+        </div>
+        <div class="error" id="seccheck-error"></div>
+        <button type="button" class="btn-primary full auth-cta" id="seccheck-next" disabled>Следующий шаг</button>
+        <button type="button" class="auth-forgot-link" id="seccheck-help">Возникли проблемы с верификацией?</button>
+      </div>
+
+      <div id="auth-reset" class="screen-hidden auth-bybit">
+        <button type="button" class="auth-back" id="reset-back">← Назад</button>
+        <h1 class="auth-title auth-title-light">Новый пароль</h1>
+        <label>Новый пароль</label>
+        <input type="password" id="reset-password" placeholder="Пароль" autocomplete="new-password">
+        <label>Повтор пароля</label>
+        <input type="password" id="reset-password2" placeholder="Пароль" autocomplete="new-password">
+        <div class="error" id="reset-error"></div>
+        <button type="button" class="btn-primary full auth-cta" id="reset-submit">Подтвердить</button>
       </div>
 
       <div id="auth-2fa" class="screen-hidden">
@@ -154,6 +206,116 @@
     </div>
   </section>
 
+
+  <!-- TICKERS / РЫНКИ -->
+  <section id="screen-tickers" class="screen screen-hidden">
+    <div class="section-head">
+      <h1>Рынки</h1>
+      <span class="pill">USDT</span>
+    </div>
+    <div class="panel">
+      <div class="panel-title">Спот</div>
+      <div id="tickers-list" class="quotes-list"><div class="empty">Загрузка…</div></div>
+    </div>
+  </section>
+
+  <!-- TRADE -->
+  <section id="screen-trade" class="screen screen-trade screen-hidden">
+    <div class="trade-products" id="trade-products">
+      <button type="button" class="trade-prod" data-prod="convert">Конвертация</button>
+      <button type="button" class="trade-prod active" data-prod="spot">Спот</button>
+      <button type="button" class="trade-prod" data-prod="futures">Фьючерсы</button>
+      <button type="button" class="trade-prod" data-prod="options">Опционы</button>
+      <button type="button" class="trade-prod" data-prod="alpha">Alpha</button>
+    </div>
+
+    <div class="trade-pair-row">
+      <button type="button" class="trade-pair-btn" id="trade-pair-btn">LINK/USDT <span>▾</span></button>
+      <span class="trade-chg" id="trade-chg">—</span>
+      <span class="trade-mm">MM</span>
+      <div class="trade-pair-icons">
+        <span title="Избранное">☆</span>
+        <span title="Оповещения">🔔</span>
+        <span title="Поделиться">↗</span>
+      </div>
+    </div>
+
+    <div class="trade-subtabs" id="trade-subtabs">
+      <button type="button" class="trade-sub active" data-sub="chart">График</button>
+      <button type="button" class="trade-sub" data-sub="overview">Обзор</button>
+      <button type="button" class="trade-sub" data-sub="data">Данные</button>
+      <button type="button" class="trade-sub" data-sub="news">Лента новостей</button>
+    </div>
+
+    <div id="trade-pane-chart">
+      <div class="trade-stats">
+        <div>
+          <div class="trade-last" id="trade-last">—</div>
+          <div class="trade-usd muted" id="trade-usd">≈ — USD</div>
+        </div>
+        <div class="trade-ohlc">
+          <div><span>24ч макс.</span><b id="trade-high">—</b></div>
+          <div><span>24ч мин.</span><b id="trade-low">—</b></div>
+          <div><span>24ч оборот</span><b id="trade-vol">—</b></div>
+        </div>
+      </div>
+
+      <div class="trade-ticker" id="trade-ticker">
+        <span>📢</span>
+        <span id="trade-ticker-text">Загрузка объявлений…</span>
+      </div>
+
+      <div class="trade-tf-row">
+        <span class="trade-tf-label">Срок</span>
+        <button type="button" class="trade-tf" data-interval="15m">15мин.</button>
+        <button type="button" class="trade-tf active" data-interval="1h">1ч</button>
+        <button type="button" class="trade-tf" data-interval="4h">4ч</button>
+        <button type="button" class="trade-tf" data-interval="1d">1Д</button>
+        <button type="button" class="trade-tf" data-interval="1w">Ещё</button>
+        <button type="button" class="trade-tf" id="trade-depth">Глубина</button>
+      </div>
+      <div class="trade-ma-legend">
+        <span class="ma7">MA(7)</span>
+        <span class="ma14">MA(25)</span>
+        <span class="ma28">MA(99)</span>
+      </div>
+      <canvas id="trade-canvas" width="360" height="340"></canvas>
+    </div>
+
+    <div id="trade-pane-overview" class="screen-hidden trade-extra">
+      <div class="panel"><div class="muted">Обзор пары и статистика 24ч. График — во вкладке «График».</div></div>
+    </div>
+    <div id="trade-pane-data" class="screen-hidden trade-extra">
+      <div class="panel"><div class="muted">Стакан и сделки появятся здесь. Сейчас доступен живой график спота.</div></div>
+    </div>
+    <div id="trade-pane-news" class="screen-hidden trade-extra">
+      <div id="trade-news-mini" class="news-list"></div>
+    </div>
+
+    <div class="trade-actions">
+      <button type="button" class="trade-buy" id="trade-buy">Купить<br><small id="trade-buy-px">—</small></button>
+      <button type="button" class="trade-qty" id="trade-qty">Кол-во<br><small id="trade-qty-lbl">USDT</small></button>
+      <button type="button" class="trade-sell" id="trade-sell">Продать<br><small id="trade-sell-px">—</small></button>
+    </div>
+    <div class="error" id="trade-error"></div>
+  </section>
+
+  <div id="trade-pair-sheet" class="trade-pair-sheet screen-hidden">
+    <div class="trade-pair-sheet-inner">
+      <div class="section-head"><h1>Выбор пары</h1><button type="button" class="auth-back" id="trade-pair-close">Закрыть</button></div>
+      <div id="trade-pair-list" class="quotes-list"></div>
+    </div>
+  </div>
+
+  <!-- TRADFI -->
+  <section id="screen-tradfi" class="screen screen-hidden">
+    <div class="section-head"><h1>TradFi</h1></div>
+    <div class="panel">
+      <div class="panel-title">Традиционные рынки</div>
+      <p class="muted">Акции, индексы и форекс — в разработке. Спот криптовалют доступен во вкладке «Торговать».</p>
+      <button type="button" class="btn-primary full" id="tradfi-go-trade">Открыть спот</button>
+    </div>
+  </section>
 
   <!-- CHART -->
   <section id="screen-chart" class="screen screen-hidden">
@@ -733,9 +895,36 @@
 </main>
 
 <nav class="tabbar">
-  <button class="tab active" data-tab="markets"><span class="tab-ico">◈</span><span>Главная</span></button>
-  <button class="tab" data-tab="wallet"><span class="tab-ico">◇</span><span>Активы</span></button>
-  <button class="tab" data-tab="profile"><span class="tab-ico">◎</span><span>Профиль</span></button>
+  <button class="tab active" data-tab="markets">
+    <span class="tab-ico" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 3.2 3 11h2.2v8.2h5.1v-5.2h3.4v5.2h5.1V11H21L12 3.2z"/></svg>
+    </span>
+    <span>Главная</span>
+  </button>
+  <button class="tab" data-tab="tickers">
+    <span class="tab-ico" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="5" width="16" height="14" rx="3"/><path d="M7 15.5 10.2 11l2.6 3 4.2-5.5"/></svg>
+    </span>
+    <span>Рынки</span>
+  </button>
+  <button class="tab" data-tab="trade">
+    <span class="tab-ico" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="5" width="16" height="14" rx="3"/><path d="M7 9h7M7 12h10M7 15h5"/></svg>
+    </span>
+    <span>Торговать</span>
+  </button>
+  <button class="tab" data-tab="tradfi">
+    <span class="tab-ico" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 16.5 9 11l3.2 3.2L20 7.5"/><path d="M14.5 7.5H20V13"/></svg>
+    </span>
+    <span>TradFi</span>
+  </button>
+  <button class="tab" data-tab="wallet">
+    <span class="tab-ico" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3.5" y="6" width="17" height="12.5" rx="2.5"/><path d="M16.2 12.2h3.3v2.6H16.2a1.3 1.3 0 1 1 0-2.6z"/></svg>
+    </span>
+    <span>Активы</span>
+  </button>
 </nav>
 </div>
 
@@ -746,6 +935,6 @@
     <button type="button" class="btn-primary full" id="ban-support">Написать в поддержку</button>
   </div>
 </div>
-<script src="app.js?v=7"></script>
+<script src="app.js?v=10"></script>
 </body>
 </html>
