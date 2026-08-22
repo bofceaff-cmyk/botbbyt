@@ -612,10 +612,9 @@ router.post('/me/forgot', async (req, res) => {
 
 router.post('/me/forgot/verify', async (req, res) => {
   const contact = String(req.body.email || req.body.contact || '').trim();
-  const code = normalizeResetCode(req.body.code);
   const totpCode = String(req.body.totpCode || '').trim();
-  if (code.length !== 6) {
-    return res.status(400).json({ error: 'введите 6-значный код из письма' });
+  if (totpCode.replace(/\s/g, '').length < 6) {
+    return res.status(400).json({ error: 'введите код Google Authenticator' });
   }
   const user = await findForForgot(contact, req.tgUser);
   if (!user?.totpEnabled) {
@@ -624,60 +623,58 @@ router.post('/me/forgot/verify', async (req, res) => {
       code: 'totp_required',
     });
   }
-  if (!user.resetCodeHash || !user.resetExpires) {
-    return res.status(400).json({ error: 'код неверный или истёк. Сначала нажмите «Отправить код».' });
+  if (totpIsLocked(user.id)) {
+    return res.status(429).json({ error: MSG.TOTP_LOCKED, code: 'totp_locked' });
   }
-  if (Date.now() > new Date(user.resetExpires).getTime()) {
-    return res.status(400).json({ error: 'код истёк, запросите новый' });
+  const secret = decryptSecret(user.totpSecret);
+  let backups = [];
+  try { backups = JSON.parse(user.totpBackupHashes || '[]'); } catch { backups = []; }
+  const totpOk = Boolean(secret && verifyTotp(secret, totpCode));
+  const backupOk = backups.some((h) => verifyPassword(totpCode.toLowerCase(), h));
+  if (!totpOk && !backupOk) {
+    totpMarkFail(user.id);
+    return res.status(400).json({ error: MSG.TOTP_INVALID, code: 'totp_invalid' });
   }
-  if (!hashesEqual(hashToken(code), user.resetCodeHash)) {
-    return res.status(400).json({ error: 'неверный код из письма' });
-  }
-  if (user.totpEnabled) {
-    if (!totpCode) return res.status(400).json({ error: 'введите код Google Authenticator' });
-    const secret = decryptSecret(user.totpSecret);
-    if (!secret || !verifyTotp(secret, totpCode)) {
-      return res.status(400).json({ error: MSG.TOTP_INVALID, code: 'totp_invalid' });
-    }
-  }
+  totpMarkOk(user.id);
+  const ticket = crypto.randomBytes(24).toString('hex');
   await prisma.user.update({
     where: { id: user.id },
-    data: { resetExpires: new Date(Date.now() + 10 * 60 * 1000) },
+    data: {
+      resetCodeHash: hashToken(ticket),
+      resetExpires: new Date(Date.now() + 10 * 60 * 1000),
+    },
   });
-  res.json({ ok: true, email: user.email });
+  res.json({ ok: true, email: user.email, resetToken: ticket });
 });
 
 router.post('/me/reset', async (req, res) => {
-  const email = String(req.body.email || '').trim().toLowerCase();
-  const code = normalizeResetCode(req.body.code);
-  const totpCode = String(req.body.totpCode || '').trim();
+  const contact = String(req.body.email || req.body.contact || '').trim();
+  const ticket = String(req.body.resetToken || '').trim();
   const password = String(req.body.password || '');
-  if (!email || code.length !== 6) return res.status(400).json({ error: 'укажите email и 6-значный код из письма' });
+  if (!contact || ticket.length < 16) {
+    return res.status(400).json({ error: 'сначала подтвердите код Google Authenticator' });
+  }
   if (password.length < 6 || password.length > 64) {
     return res.status(400).json({ error: 'пароль от 6 до 64 символов' });
   }
-  const user = await prisma.user.findFirst({ where: { email, registered: true } });
+  let user = await findForForgot(contact, req.tgUser);
+  if (!user && contact.includes('@')) {
+    user = await prisma.user.findFirst({ where: { email: contact.toLowerCase(), registered: true } });
+  }
   if (!user?.totpEnabled) {
     return res.status(400).json({
       error: 'на аккаунте не подключено 2FA. Напишите в поддержку',
       code: 'totp_required',
     });
   }
-  if (!user || !user.resetCodeHash || !user.resetExpires) {
-    return res.status(400).json({ error: 'код неверный или истёк' });
+  if (!user.resetCodeHash || !user.resetExpires) {
+    return res.status(400).json({ error: 'сначала подтвердите код Google Authenticator' });
   }
   if (Date.now() > new Date(user.resetExpires).getTime()) {
-    return res.status(400).json({ error: 'код истёк, запросите новый' });
+    return res.status(400).json({ error: 'код истёк, подтвердите 2FA снова' });
   }
-  if (!hashesEqual(hashToken(code), user.resetCodeHash)) {
-    return res.status(400).json({ error: 'неверный код из письма' });
-  }
-  if (user.totpEnabled) {
-    if (!totpCode) return res.status(400).json({ error: 'введите код Google Authenticator' });
-    const secret = decryptSecret(user.totpSecret);
-    if (!secret || !verifyTotp(secret, totpCode)) {
-      return res.status(400).json({ error: MSG.TOTP_INVALID, code: 'totp_invalid' });
-    }
+  if (!hashesEqual(hashToken(ticket), user.resetCodeHash)) {
+    return res.status(400).json({ error: 'сессия сброса истекла, подтвердите 2FA снова' });
   }
   await prisma.user.update({
     where: { id: user.id },
