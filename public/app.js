@@ -2,8 +2,8 @@ const tg = window.Telegram.WebApp;
 tg.ready();
 tg.expand();
 if (typeof tg.disableVerticalSwipes === 'function') tg.disableVerticalSwipes();
-tg.setHeaderColor('#000000');
-tg.setBackgroundColor('#000000');
+tg.setHeaderColor('#0b0e11');
+tg.setBackgroundColor('#0b0e11');
 
 function syncAppViewport() {
   const h = Math.round(tg.viewportStableHeight || tg.viewportHeight || window.innerHeight);
@@ -324,6 +324,7 @@ function showScreen(name, opts = {}) {
   });
   document.querySelector('.topbar')?.classList.toggle('screen-hidden', name === 'trade' || name === 'tradfi');
   document.getElementById('app-shell')?.classList.toggle('trade-on', name === 'trade');
+  document.getElementById('app-shell')?.classList.toggle('profile-on', name === 'profile');
 
   if (name === 'history') loadHistory();
   if (name === 'support') {
@@ -2423,8 +2424,8 @@ function drawTradeChart(canvas, candles) {
   candles.forEach((c, i) => {
     const x = pad.l + i * slot + slot / 2;
     const up = c.close >= c.open;
-    ctx.strokeStyle = up ? '#2ebd85' : '#f6465d';
-    ctx.fillStyle = up ? '#2ebd85' : '#f6465d';
+    ctx.strokeStyle = up ? '#0ecb81' : '#f6465d';
+    ctx.fillStyle = up ? '#0ecb81' : '#f6465d';
     ctx.beginPath();
     ctx.moveTo(x, yPrice(c.high));
     ctx.lineTo(x, yPrice(c.low));
@@ -2465,13 +2466,13 @@ function drawTradeChart(canvas, candles) {
   const last = candles[candles.length - 1];
   const yLast = yPrice(last.close);
   ctx.setLineDash([4, 3]);
-  ctx.strokeStyle = last.close >= last.open ? '#2ebd85' : '#f6465d';
+  ctx.strokeStyle = last.close >= last.open ? '#0ecb81' : '#f6465d';
   ctx.beginPath();
   ctx.moveTo(pad.l, yLast);
   ctx.lineTo(pad.l + w, yLast);
   ctx.stroke();
   ctx.setLineDash([]);
-  ctx.fillStyle = last.close >= last.open ? '#2ebd85' : '#f6465d';
+  ctx.fillStyle = last.close >= last.open ? '#0ecb81' : '#f6465d';
   const label = fmtUsdPrice(last.close);
   ctx.font = '11px IBM Plex Sans, sans-serif';
   const tw = ctx.measureText(label).width + 8;
@@ -2837,8 +2838,8 @@ async function loadFlow() {
     });
     const tot = inn + out || 1;
     box.innerHTML = `
-      <div>Приток <b style="color:#2ebd85">${fmtCompact(inn)} ${tradeSymbol}</b></div>
-      <div class="flow-bar"><i style="width:${(inn / tot) * 100}%;background:#2ebd85"></i></div>
+      <div>Приток <b style="color:#0ecb81">${fmtCompact(inn)} ${tradeSymbol}</b></div>
+      <div class="flow-bar"><i style="width:${(inn / tot) * 100}%;background:#0ecb81"></i></div>
       <div>Отток <b style="color:#f6465d">${fmtCompact(out)} ${tradeSymbol}</b></div>
       <div class="flow-bar"><i style="width:${(out / tot) * 100}%;background:#f6465d"></i></div>
       <div class="muted">Чистый поток ${fmtCompact(inn - out)} · интервал ${dataInterval}</div>`;
@@ -2891,7 +2892,7 @@ async function loadFutures() {
     el.textContent = chg.text;
     el.className = `trade-chg ${chg.up ? 'up' : 'down'}`;
     document.getElementById('fut-mark').textContent = fmtUsdPrice(futMark);
-    document.getElementById('fut-mark').style.color = chg.up ? '#2ebd85' : '#f6465d';
+    document.getElementById('fut-mark').style.color = chg.up ? '#0ecb81' : '#f6465d';
     document.getElementById('fut-index').textContent = `Index ${fmtUsdPrice(d.index)}`;
     const left = d.nextFunding ? Math.max(0, d.nextFunding - Date.now()) : 0;
     const h = Math.floor(left / 3600000);
@@ -2961,7 +2962,7 @@ function renderPaper() {
     const pnl = mark ? (mark - p.entry) * p.qty * dir : 0;
     return `<div class="pos-row">
       <div>${p.side.toUpperCase()} ${p.symbol} ${p.leverage}x<br><span class="muted">${p.qty} @ ${fmtUsdPrice(p.entry)}</span></div>
-      <div style="color:${pnl >= 0 ? '#2ebd85' : '#f6465d'}">${pnl >= 0 ? '+' : ''}${fmtUsdPrice(pnl)}
+      <div style="color:${pnl >= 0 ? '#0ecb81' : '#f6465d'}">${pnl >= 0 ? '+' : ''}${fmtUsdPrice(pnl)}
         <button type="button" class="fut-chip" data-close="${p.id}">Закрыть</button></div>
     </div>`;
   }).join('');
