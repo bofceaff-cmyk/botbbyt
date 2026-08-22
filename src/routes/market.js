@@ -2,6 +2,12 @@ const express = require('express');
 
 const router = express.Router();
 
+function coinPng(symbol) {
+  const s = String(symbol || 'btc').toLowerCase().replace(/usdt$/, '') || 'usdt';
+  const slug = s === 'usd' ? 'usdt' : s;
+  return `https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/${slug}.png`;
+}
+
 const COINS = [
   { id: 'bitcoin', symbol: 'BTC', name: 'Bitcoin', binance: 'BTCUSDT' },
   { id: 'ethereum', symbol: 'ETH', name: 'Ethereum', binance: 'ETHUSDT' },
@@ -212,7 +218,7 @@ async function quotesFromCoinGecko() {
     if (!row) {
       return {
         id: coin.id, symbol: coin.symbol, name: coin.name,
-        price: null, change24h: null, marketCap: null, image: null,
+        price: null, change24h: null, marketCap: null, image: coinPng(coin.symbol),
       };
     }
     return {
@@ -222,7 +228,7 @@ async function quotesFromCoinGecko() {
       price: row.current_price,
       change24h: row.price_change_percentage_24h,
       marketCap: row.market_cap,
-      image: row.image,
+      image: row.image || coinPng(coin.symbol),
     };
   });
 }
@@ -238,7 +244,7 @@ async function quotesFromBinance() {
     if (!row) {
       return {
         id: coin.id, symbol: coin.symbol, name: coin.name,
-        price: null, change24h: null, marketCap: null, image: null,
+        price: null, change24h: null, marketCap: null, image: coinPng(coin.symbol),
       };
     }
     return {

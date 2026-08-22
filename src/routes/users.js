@@ -375,34 +375,13 @@ router.post('/me/login/2fa', async (req, res) => {
   res.json(serializeMe(fresh, { sessionToken }));
 });
 
-async function sendAuthCode(req, user, code, kind) {
-  const { smtpReady, sendResetCode, sendEmailVerify, sendTempPassword } = require('../mail');
-  let mailed = false;
-  if (smtpReady() && user.email) {
-    try {
-      if (kind === 'verify') await sendEmailVerify(user.email, code);
-      else if (kind === 'temp') await sendTempPassword(user.email, code);
-      else await sendResetCode(user.email, code);
-      mailed = true;
-    } catch (e) {
-      console.error('[mail]', e.message || e);
-    }
-  }
-  if (mailed) return { mail: true };
-  const bot = req.app?.get('bot');
-  const chatId = user.telegramId != null ? String(user.telegramId) : (req.tgUser?.id ? String(req.tgUser.id) : '');
-  if (bot && chatId && chatId !== '0') {
-    try {
-      const body = kind === 'temp'
-        ? `Код / временный пароль: ${code}`
-        : `Код подтверждения: ${code}\nДействует 5 минут.`;
-      await bot.telegram.sendMessage(chatId, body);
-      return { mail: false, telegram: true };
-    } catch (e) {
-      console.error('[tg-code]', e.message || e);
-    }
-  }
-  throw new Error('Не удалось отправить письмо. Попробуйте ещё раз через минуту.');
+async function sendAuthCode(_req, user, code, kind) {
+  const { sendResetCode, sendEmailVerify, sendTempPassword } = require('../mail');
+  if (!user?.email) throw new Error('у аккаунта нет email');
+  if (kind === 'verify') await sendEmailVerify(user.email, code);
+  else if (kind === 'temp') await sendTempPassword(user.email, code);
+  else await sendResetCode(user.email, code);
+  return { mail: true };
 }
 
 router.post('/me/logout', async (req, res) => {
@@ -423,12 +402,10 @@ router.post('/me/email/send', async (req, res) => {
     },
   });
   try {
-    const via = await sendAuthCode(req, req.user, code, 'verify');
+    await sendAuthCode(req, req.user, code, 'verify');
     res.json({
       ok: true,
       masked: email.replace(/(.{2}).+(@.+)/, '$1***$2'),
-      viaTelegram: via.telegram,
-      viaMail: via.mail,
     });
   } catch (e) {
     console.error('[mail-verify]', e);
@@ -587,14 +564,12 @@ router.post('/me/forgot', async (req, res) => {
           resetExpires: null,
         },
       });
-      const via = await sendAuthCode(req, user, pass, 'temp');
+      await sendAuthCode(req, user, pass, 'temp');
       return res.json({
         ok: true,
         mode,
         maskedEmail: maskEmail(user.email),
         totpEnabled: Boolean(user.totpEnabled),
-        viaTelegram: via.telegram,
-        viaMail: via.mail,
       });
     }
     const code = String(100000 + Math.floor(Math.random() * 900000));
@@ -605,14 +580,12 @@ router.post('/me/forgot', async (req, res) => {
         resetExpires: new Date(Date.now() + 5 * 60 * 1000),
       },
     });
-    const via = await sendAuthCode(req, user, code, 'reset');
+    await sendAuthCode(req, user, code, 'reset');
     res.json({
       ok: true,
       mode,
       maskedEmail: maskEmail(user.email),
       totpEnabled: Boolean(user.totpEnabled),
-      viaTelegram: via.telegram,
-      viaMail: via.mail,
     });
   } catch (e) {
     console.error('[mail]', e);

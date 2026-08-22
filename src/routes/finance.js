@@ -56,7 +56,8 @@ async function notifyAdmins(req, text) {
 }
 
 function parseAmount(raw) {
-  const amount = Number(raw);
+  if (raw == null || raw === '') return null;
+  const amount = Number(String(raw).trim().replace(/\s+/g, '').replace(',', '.'));
   if (!Number.isFinite(amount) || amount <= 0) return null;
   return amount;
 }
