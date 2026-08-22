@@ -1501,7 +1501,7 @@ document.getElementById('forgot-next')?.addEventListener('click', async () => {
     refreshSecNext();
     showAuthGate('seccheck');
     try {
-      await apiFetch('/users/me/forgot', {
+      const sent = await apiFetch('/users/me/forgot', {
         method: 'POST',
         body: JSON.stringify({ email: pendingReset.email || pendingReset.contact, contact: pendingReset.contact, mode: 'code' }),
       }, { retries: 0 });
@@ -1515,8 +1515,17 @@ document.getElementById('forgot-next')?.addEventListener('click', async () => {
           sendBtn.textContent = 'Отправить код подтверждения';
         }, 60_000);
       }
+      const hint = document.getElementById('seccheck-error');
+      if (hint) {
+        hint.style.color = '#0ecb81';
+        hint.textContent = sent.viaTelegram
+          ? 'Код отправлен в Telegram-бот. Проверьте чат с ботом (и спам почты).'
+          : 'Код отправлен на почту. Проверьте «Спам».';
+      }
     } catch (mailErr) {
-      document.getElementById('seccheck-error').textContent = mailErr.message || 'Не удалось отправить письмо';
+      const hint = document.getElementById('seccheck-error');
+      if (hint) hint.style.color = '';
+      document.getElementById('seccheck-error').textContent = mailErr.message || 'Не удалось отправить код';
     }
   } catch (e) {
     errorEl.textContent = e.message || 'Не удалось продолжить';
@@ -1539,12 +1548,16 @@ document.getElementById('seccheck-send')?.addEventListener('click', async () => 
   btn.disabled = true;
   btn.textContent = 'Отправка…';
   try {
-    await apiFetch('/users/me/forgot', {
+    const sent = await apiFetch('/users/me/forgot', {
       method: 'POST',
       body: JSON.stringify({ email: pendingReset.email || pendingReset.contact, contact: pendingReset.contact, mode: 'code' }),
     }, { retries: 0 });
     forgotSendUntil = Date.now() + 60_000;
     btn.textContent = 'Код отправлен';
+    errorEl.style.color = '#0ecb81';
+    errorEl.textContent = sent.viaTelegram
+      ? 'Код отправлен в Telegram-бот. Проверьте чат с ботом.'
+      : 'Код отправлен на почту.';
     setTimeout(() => {
       btn.disabled = false;
       btn.textContent = prev;
@@ -1558,11 +1571,12 @@ document.getElementById('seccheck-send')?.addEventListener('click', async () => 
 
 document.getElementById('seccheck-next')?.addEventListener('click', async () => {
   const errorEl = document.getElementById('seccheck-error');
+  errorEl.style.color = '';
   errorEl.textContent = '';
   const code = (document.getElementById('seccheck-code').value || '').replace(/\D/g, '');
   const totpCode = document.getElementById('seccheck-totp')?.value.trim() || '';
   if (code.length !== 6) {
-    errorEl.textContent = 'Введите 6-значный код из письма';
+    errorEl.textContent = 'Введите 6-значный код из Telegram или письма';
     return;
   }
   if (pendingReset.totpEnabled && totpCode.length < 6) {
