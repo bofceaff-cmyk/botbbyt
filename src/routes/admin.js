@@ -48,10 +48,12 @@ function serializeUser(u) {
     banReason: u.banReason || null,
     opsLocked: Boolean(u.opsLocked),
     opsLockReason: u.opsLockReason || null,
-    transfersDisabled: transfersBlocked(u),
-    conversionsDisabled: conversionsBlocked(u),
+    transfersDisabled: Boolean(u.transfersDisabled),
+    conversionsDisabled: Boolean(u.conversionsDisabled),
     transferLockReason: u.transferLockReason || null,
     convertLockReason: u.convertLockReason || null,
+    passwordHoldUntil: u.passwordHoldUntil || null,
+    passwordHoldActive: Boolean(u.passwordHoldUntil && new Date(u.passwordHoldUntil).getTime() > Date.now()),
     totpEnabled: Boolean(u.totpEnabled),
     authEpoch: Number(u.authEpoch || 0),
     walletBranch: u.walletBranch || null,
@@ -134,6 +136,7 @@ router.patch('/users/:id', async (req, res) => {
     kycStatus, kycRejectReason, fullName, cardNumber, cardRequestStatus,
     banned, banReason, opsLocked, opsLockReason,
     transfersDisabled, conversionsDisabled, transferLockReason, convertLockReason,
+    passwordHoldUntil, clearRestrictions,
   } = req.body;
 
   const user = await prisma.user.findUnique({ where: { id } });
@@ -247,6 +250,25 @@ router.patch('/users/:id', async (req, res) => {
   }
   if (convertLockReason !== undefined) {
     data.convertLockReason = String(convertLockReason || '').trim() || null;
+  }
+  if (passwordHoldUntil !== undefined) {
+    if (passwordHoldUntil === null || passwordHoldUntil === '' || passwordHoldUntil === false) {
+      data.passwordHoldUntil = null;
+    } else {
+      const d = new Date(passwordHoldUntil);
+      data.passwordHoldUntil = Number.isNaN(d.getTime()) ? null : d;
+    }
+  }
+  if (clearRestrictions) {
+    data.banned = false;
+    data.banReason = null;
+    data.opsLocked = false;
+    data.opsLockReason = null;
+    data.transfersDisabled = false;
+    data.transferLockReason = null;
+    data.conversionsDisabled = false;
+    data.convertLockReason = null;
+    data.passwordHoldUntil = null;
   }
 
   let balanceDelta = null;
