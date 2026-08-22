@@ -54,6 +54,7 @@ function serializeUser(u) {
     convertLockReason: u.convertLockReason || null,
     totpEnabled: Boolean(u.totpEnabled),
     authEpoch: Number(u.authEpoch || 0),
+    walletBranch: u.walletBranch || null,
     createdAt: u.createdAt,
   };
 }
@@ -414,6 +415,143 @@ router.delete('/users/:id/deposit-addresses/:addrId', async (req, res) => {
   const addrId = Number(req.params.addrId);
   await prisma.depositAddress.deleteMany({ where: { id: addrId, userId: id } });
   res.json({ ok: true });
+});
+
+const POOL_SLOTS = [
+  { asset: 'USDT', network: 'TRC20', key: 'usdtTrc20' },
+  { asset: 'USDT', network: 'ERC20', key: 'usdtErc20' },
+  { asset: 'BTC', network: 'BTC', key: 'btc' },
+];
+
+function serializePool(row) {
+  return {
+    id: row.id,
+    code: row.code,
+    asset: row.asset,
+    network: row.network,
+    address: row.address,
+    label: row.label || row.code,
+    active: row.active,
+    createdAt: row.createdAt,
+  };
+}
+
+function groupBranches(rows) {
+  const map = new Map();
+  for (const r of rows) {
+    const code = r.code || r.label || '—';
+    if (!map.has(code)) map.set(code, { code, items: [] });
+    map.get(code).items.push(serializePool(r));
+  }
+  return [...map.values()].sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
+}
+
+async function nextBranchCode() {
+  const rows = await prisma.walletPool.findMany({ select: { code: true } });
+  const nums = rows
+    .map((r) => Number(String(r.code || '').replace(/^BO/i, '')))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  const max = nums.length ? Math.max(...nums) : 0;
+  return `BO${max + 1}`;
+}
+
+router.get('/wallet-pool', async (_req, res) => {
+  const rows = await prisma.walletPool.findMany({
+    orderBy: [{ code: 'asc' }, { asset: 'asc' }, { network: 'asc' }],
+  });
+  res.json({ branches: groupBranches(rows), nextCode: await nextBranchCode() });
+});
+
+router.post('/wallet-pool', async (req, res) => {
+  let code = String(req.body.code || '').trim().toUpperCase();
+  if (!code) code = await nextBranchCode();
+  if (!/^BO[A-Z0-9_-]{1,12}$/i.test(code)) {
+    return res.status(400).json({ error: 'название ветки: BO1, BO2…' });
+  }
+
+  const body = req.body || {};
+  const slots = [
+    { asset: 'USDT', network: 'TRC20', address: body.usdtTrc20 || body.trc20 },
+    { asset: 'USDT', network: 'ERC20', address: body.usdtErc20 || body.erc20 },
+    { asset: 'BTC', network: 'BTC', address: body.btc },
+  ].map((s) => ({ ...s, address: String(s.address || '').trim() }))
+    .filter((s) => s.address);
+
+  if (!slots.length) {
+    return res.status(400).json({ error: 'укажите хотя бы один адрес: USDT TRC-20 или BTC' });
+  }
+
+  const created = [];
+  try {
+    for (const s of slots) {
+      if (s.address.length < 10 || s.address.length > 128) {
+        return res.status(400).json({ error: `некорректный адрес ${s.asset} ${s.network}` });
+      }
+      const row = await prisma.walletPool.upsert({
+        where: { code_asset_network: { code, asset: s.asset, network: s.network } },
+        create: { code, asset: s.asset, network: s.network, address: s.address, label: code, active: true },
+        update: { address: s.address, label: code, active: true },
+      });
+      created.push(serializePool(row));
+    }
+  } catch (e) {
+    if (/unique|P2002/i.test(String(e.message || e))) {
+      return res.status(400).json({ error: 'этот адрес уже есть в другой ветке' });
+    }
+    throw e;
+  }
+  res.json({ ok: true, code, items: created });
+});
+
+router.delete('/wallet-pool/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  await prisma.walletPool.deleteMany({ where: { id } });
+  res.json({ ok: true });
+});
+
+router.delete('/wallet-pool/branch/:code', async (req, res) => {
+  const code = String(req.params.code || '').trim();
+  await prisma.walletPool.deleteMany({ where: { code } });
+  res.json({ ok: true });
+});
+
+function explorerUrl(network, hash) {
+  if (network === 'TRC20') return `https://tronscan.org/#/transaction/${hash}`;
+  if (network === 'ERC20') return `https://etherscan.io/tx/${hash}`;
+  if (network === 'BTC') return `https://blockstream.info/tx/${hash}`;
+  return '';
+}
+
+router.get('/deposits', async (_req, res) => {
+  const rows = await prisma.incomingDeposit.findMany({
+    orderBy: { seenAt: 'desc' },
+    take: 200,
+  });
+  res.json(rows.map((r) => ({
+    id: r.id,
+    branchCode: r.branchCode,
+    asset: r.asset,
+    network: r.network,
+    amount: Number(r.amount),
+    usdAmount: r.usdAmount == null ? null : Number(r.usdAmount),
+    fromAddress: r.fromAddress,
+    toAddress: r.toAddress,
+    txHash: r.txHash,
+    confirmed: r.confirmed,
+    seenAt: r.seenAt,
+    explorer: explorerUrl(r.network, r.txHash),
+    title: `${r.branchCode} Пополнение — ${r.usdAmount != null ? Number(r.usdAmount) : Number(r.amount)}$ валюта ${r.asset} (${r.network})`,
+  })));
+});
+
+router.post('/deposits/scan', async (_req, res) => {
+  try {
+    const { scanOnce } = require('../deposit-watch');
+    const result = await scanOnce();
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'не удалось проверить сеть' });
+  }
 });
 
 router.get('/users/:id/kyc/docs/:type/file', async (req, res) => {

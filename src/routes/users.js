@@ -76,6 +76,7 @@ function serializeMe(user, extra = {}) {
     transferLockReason: tOff ? transferMessage(user) : null,
     convertLockReason: cOff ? convertMessage(user) : null,
     totpEnabled: Boolean(user.totpEnabled),
+    walletBranch: user.walletBranch || null,
     authEpoch: Number(user.authEpoch || 0),
     copy: {
       transfersDisabled: MSG.TRANSFERS_DISABLED,
@@ -365,6 +366,63 @@ router.post('/me/account-request', async (req, res) => {
 });
 
 // ---------- депозит ----------
+async function assignBranchWallets(user, asset, network) {
+  let code = user.walletBranch;
+  if (!code) {
+    const have = await prisma.depositAddress.findMany({ where: { userId: user.id } });
+    const labeled = have.find((e) => e.label);
+    if (labeled?.label) code = labeled.label;
+    if (!code && have.length) {
+      const hit = await prisma.walletPool.findFirst({
+        where: { address: { in: have.map((h) => h.address) } },
+        select: { code: true },
+      });
+      if (hit?.code) code = hit.code;
+    }
+  }
+  if (!code) {
+    const rows = await prisma.walletPool.findMany({
+      where: { active: true, asset, network },
+      select: { code: true },
+    });
+    const codes = [...new Set(rows.map((r) => r.code).filter(Boolean))];
+    if (!codes.length) return null;
+    code = codes[Math.floor(Math.random() * codes.length)];
+  }
+  if (code && code !== user.walletBranch) {
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { walletBranch: code },
+    });
+    user.walletBranch = code;
+  }
+
+  if (!code) return null;
+
+  const branchRows = await prisma.walletPool.findMany({
+    where: { code, active: true },
+  });
+  for (const p of branchRows) {
+    try {
+      await prisma.depositAddress.upsert({
+        where: { userId_asset_network: { userId: user.id, asset: p.asset, network: p.network } },
+        create: {
+          userId: user.id,
+          asset: p.asset,
+          network: p.network,
+          address: p.address,
+          label: code,
+        },
+        update: {},
+      });
+    } catch { /* already assigned */ }
+  }
+
+  return prisma.depositAddress.findUnique({
+    where: { userId_asset_network: { userId: user.id, asset, network } },
+  });
+}
+
 router.get('/me/deposit/options', async (_req, res) => {
   res.json(NETWORKS);
 });
@@ -377,7 +435,7 @@ router.get('/me/deposit/address', async (req, res) => {
     return res.status(400).json({ error: 'неизвестная сеть' });
   }
 
-  const row = await prisma.depositAddress.findUnique({
+  let row = await prisma.depositAddress.findUnique({
     where: {
       userId_asset_network: {
         userId: req.user.id,
@@ -386,6 +444,14 @@ router.get('/me/deposit/address', async (req, res) => {
       },
     },
   });
+
+  if (!row) {
+    try {
+      row = await assignBranchWallets(req.user, asset, network);
+    } catch (e) {
+      if (!/WalletPool|walletBranch|does not exist|P2021|P2022/i.test(String(e.message || e))) throw e;
+    }
+  }
 
   if (!row) {
     return res.json({
