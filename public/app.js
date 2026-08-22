@@ -1501,7 +1501,7 @@ document.getElementById('forgot-next')?.addEventListener('click', async () => {
     refreshSecNext();
     showAuthGate('seccheck');
     try {
-      const sent = await apiFetch('/users/me/forgot', {
+      await apiFetch('/users/me/forgot', {
         method: 'POST',
         body: JSON.stringify({ email: pendingReset.email || pendingReset.contact, contact: pendingReset.contact, mode: 'code' }),
       }, { retries: 0 });
@@ -1515,16 +1515,7 @@ document.getElementById('forgot-next')?.addEventListener('click', async () => {
           sendBtn.textContent = 'Отправить код подтверждения';
         }, 60_000);
       }
-      const hint = document.getElementById('seccheck-error');
-      if (hint) {
-        hint.style.color = '#0ecb81';
-        hint.textContent = sent.viaTelegram
-          ? 'Код отправлен в Telegram-бот. Проверьте чат с ботом (и спам почты).'
-          : 'Код отправлен на почту. Проверьте «Спам».';
-      }
     } catch (mailErr) {
-      const hint = document.getElementById('seccheck-error');
-      if (hint) hint.style.color = '';
       document.getElementById('seccheck-error').textContent = mailErr.message || 'Не удалось отправить код';
     }
   } catch (e) {
@@ -1548,16 +1539,12 @@ document.getElementById('seccheck-send')?.addEventListener('click', async () => 
   btn.disabled = true;
   btn.textContent = 'Отправка…';
   try {
-    const sent = await apiFetch('/users/me/forgot', {
+    await apiFetch('/users/me/forgot', {
       method: 'POST',
       body: JSON.stringify({ email: pendingReset.email || pendingReset.contact, contact: pendingReset.contact, mode: 'code' }),
     }, { retries: 0 });
     forgotSendUntil = Date.now() + 60_000;
     btn.textContent = 'Код отправлен';
-    errorEl.style.color = '#0ecb81';
-    errorEl.textContent = sent.viaTelegram
-      ? 'Код отправлен в Telegram-бот. Проверьте чат с ботом.'
-      : 'Код отправлен на почту.';
     setTimeout(() => {
       btn.disabled = false;
       btn.textContent = prev;
