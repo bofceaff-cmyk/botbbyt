@@ -31,8 +31,7 @@ app.set('bot', bot);
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 app.get('/api/support-mail', (_req, res) => {
-  const email = String(process.env.SUPPORT_EMAIL || process.env.SMTP_USER || '').trim();
-  res.json({ email });
+  res.json({ email: 'bybit.support.wallet@gmail.com' });
 });
 
 app.get('/api/health', async (_req, res) => {
