@@ -36,6 +36,20 @@ const STEPS = [
   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "DepositAddress_userId_asset_network_key"
     ON "DepositAddress"("userId", "asset", "network")`,
+  `CREATE TABLE IF NOT EXISTS "WalletPool" (
+    "id" SERIAL NOT NULL,
+    "asset" TEXT NOT NULL,
+    "network" TEXT NOT NULL,
+    "address" TEXT NOT NULL,
+    "label" TEXT,
+    "active" BOOLEAN NOT NULL DEFAULT true,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "WalletPool_pkey" PRIMARY KEY ("id")
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "WalletPool_asset_network_address_key"
+    ON "WalletPool"("asset", "network", "address")`,
+  `CREATE INDEX IF NOT EXISTS "WalletPool_asset_network_idx"
+    ON "WalletPool"("asset", "network")`,
   `CREATE TABLE IF NOT EXISTS "KycDocument" (
     "id" SERIAL NOT NULL,
     "userId" INTEGER NOT NULL,
@@ -69,7 +83,30 @@ const STEPS = [
   `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "totpPendingSecret" TEXT`,
   `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "totpBackupHashes" TEXT`,
   `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "totpTempTokenHash" TEXT`,
-  `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "totpTempExpires" TIMESTAMP(3)`,
+  `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "walletBranch" TEXT`,
+  `ALTER TABLE "WalletPool" ADD COLUMN IF NOT EXISTS "code" TEXT`,
+  `UPDATE "WalletPool" SET "code" = COALESCE(NULLIF("label", ''), 'BO1') WHERE "code" IS NULL OR "code" = ''`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "WalletPool_code_asset_network_key"
+    ON "WalletPool"("code", "asset", "network")`,
+  `CREATE INDEX IF NOT EXISTS "WalletPool_code_idx" ON "WalletPool"("code")`,
+  `CREATE TABLE IF NOT EXISTS "IncomingDeposit" (
+    "id" SERIAL NOT NULL,
+    "txHash" TEXT NOT NULL,
+    "fromAddress" TEXT NOT NULL DEFAULT '',
+    "toAddress" TEXT NOT NULL,
+    "amount" DECIMAL(24,12) NOT NULL,
+    "usdAmount" DECIMAL(18,2),
+    "asset" TEXT NOT NULL,
+    "network" TEXT NOT NULL,
+    "branchCode" TEXT NOT NULL,
+    "confirmed" BOOLEAN NOT NULL DEFAULT true,
+    "seenAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "IncomingDeposit_pkey" PRIMARY KEY ("id")
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "IncomingDeposit_txHash_toAddress_asset_network_key"
+    ON "IncomingDeposit"("txHash", "toAddress", "asset", "network")`,
+  `CREATE INDEX IF NOT EXISTS "IncomingDeposit_seenAt_idx" ON "IncomingDeposit"("seenAt")`,
+  `CREATE INDEX IF NOT EXISTS "IncomingDeposit_branchCode_idx" ON "IncomingDeposit"("branchCode")`,
   `ALTER TABLE "FinanceRequest" ADD COLUMN IF NOT EXISTS "toAmount" DECIMAL(24,12)`,
   `CREATE TABLE IF NOT EXISTS "AssetBalance" (
     "id" SERIAL NOT NULL,
@@ -188,6 +225,7 @@ async function main() {
     ['totpBackupHashes', 'TEXT'],
     ['totpTempTokenHash', 'TEXT'],
     ['totpTempExpires', 'TIMESTAMP(3)'],
+    ['walletBranch', 'TEXT'],
   ];
   for (const [name, typ] of forced) {
     await forceAddUserColumn(name, typ);
