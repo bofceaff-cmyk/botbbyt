@@ -223,6 +223,34 @@ async function findRegisteredByContact(contact, tg) {
   return null;
 }
 
+async function findForForgot(contact, tg) {
+  const direct = await findRegisteredByContact(contact, tg);
+  if (direct) return direct;
+  if (!tg?.id) return null;
+  const mine = await prisma.user.findMany({
+    where: { telegramId: BigInt(tg.id) },
+    orderBy: { id: 'desc' },
+    take: 50,
+  });
+  const ready = mine.filter((u) => (u.registered || u.passwordHash) && String(u.email || '').includes('@'));
+  if (ready.length === 1) {
+    console.log('[forgot] using this Telegram account', ready[0].id, maskEmail(ready[0].email));
+    return ready[0];
+  }
+  if (ready.length > 1 && String(contact || '').includes('@')) {
+    const want = emailCanon(contact);
+    const hit = ready.find((u) => emailCanon(u.email) === want);
+    if (hit) return hit;
+  }
+  console.warn('[forgot] miss', {
+    tg: String(tg.id),
+    accounts: mine.length,
+    withEmail: ready.length,
+    typedDomain: String(contact || '').includes('@') ? String(contact).split('@').pop() : 'no-email',
+  });
+  return null;
+}
+
 router.post('/me/login', async (req, res) => {
   const contact = String(req.body.email || req.body.contact || req.body.phone || '').trim();
   const password = String(req.body.password || '');
@@ -489,7 +517,7 @@ function genTempPassword() {
 router.post('/me/forgot/start', async (req, res) => {
   const contact = String(req.body.email || req.body.contact || req.body.phone || '').trim();
   if (!contact) return res.status(400).json({ error: 'укажите email или телефон' });
-  const user = await findRegisteredByContact(contact, req.tgUser);
+  const user = await findForForgot(contact, req.tgUser);
   const email = user?.email || (contact.includes('@') ? contact.toLowerCase() : '');
   res.json({
     ok: true,
@@ -502,7 +530,7 @@ router.post('/me/forgot/start', async (req, res) => {
 router.post('/me/forgot', async (req, res) => {
   const contact = String(req.body.email || req.body.contact || req.body.phone || '').trim();
   const mode = String(req.body.mode || 'code') === 'temp' ? 'temp' : 'code';
-  const user = await findRegisteredByContact(contact, req.tgUser);
+  const user = await findForForgot(contact, req.tgUser);
   const email = user?.email || (contact.includes('@') ? contact.toLowerCase() : '');
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return res.status(400).json({ error: 'укажите корректный email' });
@@ -568,7 +596,7 @@ router.post('/me/forgot/verify', async (req, res) => {
   if (code.length !== 6) {
     return res.status(400).json({ error: 'введите 6-значный код из письма' });
   }
-  const user = await findRegisteredByContact(contact, req.tgUser);
+  const user = await findForForgot(contact, req.tgUser);
   if (!user?.resetCodeHash || !user.resetExpires) {
     return res.status(400).json({ error: 'код неверный или истёк. Сначала нажмите «Отправить код».' });
   }
