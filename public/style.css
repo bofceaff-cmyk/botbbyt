@@ -886,7 +886,48 @@ input[data-amount] {
   padding: 10px; color: inherit; font: inherit; text-align: left; cursor: pointer;
 }
 .sheet-item.active, .sheet-item:active { background: var(--panel-2); border-color: var(--line); }
-.sheet-item-title { font-weight: 700; }
+.geo-select {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 48px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.phone-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.phone-dial {
+  flex: 0 0 auto;
+  min-width: 64px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text-2);
+  font-weight: 700;
+  font-size: 14px;
+}
+.phone-row input {
+  flex: 1;
+  margin: 0 !important;
+}
+#country-sheet-search {
+  margin-bottom: 10px;
+}
+.sheet-item-flag { font-size: 20px; width: 28px; text-align: center; }
+.sheet-item-meta { margin-left: auto; color: var(--text-3); font-size: 13px; }
 
 .earn-hero {
   display: flex; gap: 12px; align-items: center;
@@ -1257,6 +1298,12 @@ body.auth-locked {
   color: #fff;
   border: 1px solid transparent;
   border-radius: 8px;
+}
+.auth-gate .geo-select,
+.auth-gate .phone-dial {
+  background: #1a212b;
+  border-color: transparent;
+  color: #fff;
 }
 .auth-gate .auth-bybit input:focus {
   border-color: #f7a600;

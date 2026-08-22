@@ -1,6 +1,7 @@
 const STORAGE_KEY = 'byx_admin_secret';
 
 let secret = localStorage.getItem(STORAGE_KEY) || '';
+let adminRole = 'admin';
 let currentThreadId = null;
 let currentKycUserId = null;
 let editingUserId = null;
@@ -49,12 +50,27 @@ function showApp(ok) {
   $('app-view').classList.toggle('screen-hidden', !ok);
 }
 
+function canAssignWallets() {
+  return adminRole === 'admin';
+}
+
+function applyAdminRole() {
+  const full = canAssignWallets();
+  document.querySelectorAll('.full-admin-only').forEach((el) => {
+    el.classList.toggle('screen-hidden', !full);
+  });
+  const tag = $('role-badge') || document.querySelector('.admin-tag');
+  if (tag) tag.textContent = full ? 'Admin' : 'Staff';
+}
+
 async function tryLogin(value) {
   secret = value.trim();
   $('login-error').textContent = '';
   try {
-    await adminFetch('/users?q=');
+    const sess = await adminFetch('/session');
+    adminRole = sess.role === 'staff' ? 'staff' : 'admin';
     localStorage.setItem(STORAGE_KEY, secret);
+    applyAdminRole();
     showApp(true);
     loadUsers();
     loadAccountRequests();
@@ -481,7 +497,7 @@ function renderAddrList(list) {
     <div class="addr-item">
       <div class="meta">${escapeHtml(a.asset)} · ${escapeHtml(a.network)}</div>
       <div class="mono">${escapeHtml(a.address)}</div>
-      <button class="btn-link" data-del-addr="${a.id}">Удалить</button>
+      ${canAssignWallets() ? `<button class="btn-link" data-del-addr="${a.id}">Удалить</button>` : ''}
     </div>
   `).join('');
   box.querySelectorAll('[data-del-addr]').forEach((btn) => {
@@ -853,7 +869,7 @@ async function loadWalletPool() {
     return `<div class="addr-item">
       <div class="meta" style="font-weight:700">${escapeHtml(b.code)}</div>
       ${lines}
-      <button class="btn-link" data-del-branch="${escapeHtml(ids)}">Удалить ветку</button>
+      ${canAssignWallets() ? '<button class="btn-link" data-del-branch="' + escapeHtml(ids) + '">Удалить ветку</button>' : ''}
     </div>`;
   }).join('');
   box.querySelectorAll('[data-del-branch]').forEach((btn) => {

@@ -1382,6 +1382,94 @@ function parseContact(raw) {
   return { kind: 'phone', value: digits.startsWith('+') ? digits : `+${onlyDigits}` };
 }
 
+function geo() {
+  return window.GEO || null;
+}
+
+function setCountryFields(prefix, country) {
+  if (!country) return;
+  const btn = document.getElementById(`${prefix}-country-btn`);
+  const nameEl = document.getElementById(`${prefix}-country`);
+  const isoEl = document.getElementById(`${prefix}-country-iso`);
+  const dialEl = document.getElementById(`${prefix}-phone-dial`);
+  const natEl = document.getElementById(`${prefix}-phone-national`);
+  if (btn) btn.textContent = geo()?.label(country) || country.name;
+  if (nameEl) nameEl.value = country.name;
+  if (isoEl) isoEl.value = country.iso;
+  if (dialEl) dialEl.textContent = `+${country.dial}`;
+  if (natEl) {
+    natEl.maxLength = country.nsn[1];
+    natEl.placeholder = '0'.repeat(country.nsn[0]);
+  }
+}
+
+function currentCountry(prefix) {
+  const g = geo();
+  if (!g) return null;
+  const iso = document.getElementById(`${prefix}-country-iso`)?.value;
+  return g.byIso(iso) || g.byName(document.getElementById(`${prefix}-country`)?.value) || g.byIso('RU');
+}
+
+function readPhoneE164(prefix) {
+  const g = geo();
+  const c = currentCountry(prefix);
+  const national = document.getElementById(`${prefix}-phone-national`)?.value || '';
+  if (!g || !c) return { error: 'выберите страну' };
+  return g.validateNational(c.iso, national);
+}
+
+function fillPhoneFromE164(prefix, phone, countryName) {
+  const g = geo();
+  if (!g) return;
+  let c = g.byName(countryName) || g.byIso('RU');
+  const parsed = g.parseE164(phone);
+  if (parsed) c = parsed.country;
+  setCountryFields(prefix, c);
+  const nat = document.getElementById(`${prefix}-phone-national`);
+  if (nat) nat.value = parsed ? parsed.national : g.digitsOnly(phone);
+}
+
+function renderCountrySheet(filter) {
+  const g = geo();
+  const list = document.getElementById('country-sheet-list');
+  if (!g || !list) return;
+  const q = String(filter || '').trim().toLowerCase();
+  const rows = g.COUNTRIES.filter((c) =>
+    !q || c.name.toLowerCase().includes(q) || c.iso.toLowerCase().includes(q) || (`+${c.dial}`).includes(q)
+  );
+  list.innerHTML = rows.map((c) => `
+    <button type="button" class="sheet-item" data-iso="${c.iso}">
+      <span class="sheet-item-flag">${g.flag(c.iso)}</span>
+      <span class="sheet-item-title">${escapeHtml(c.name)}</span>
+      <span class="sheet-item-meta">+${c.dial}</span>
+    </button>
+  `).join('');
+  list.querySelectorAll('[data-iso]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const c = g.byIso(btn.dataset.iso);
+      if (c && window.__countryPickPrefix) setCountryFields(window.__countryPickPrefix, c);
+      document.getElementById('country-sheet')?.classList.add('screen-hidden');
+    });
+  });
+}
+
+function openCountrySheet(prefix) {
+  window.__countryPickPrefix = prefix;
+  const search = document.getElementById('country-sheet-search');
+  if (search) search.value = '';
+  renderCountrySheet('');
+  document.getElementById('country-sheet')?.classList.remove('screen-hidden');
+  setTimeout(() => search?.focus(), 50);
+}
+
+function bindPhoneNational(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.addEventListener('input', () => {
+    el.value = String(el.value || '').replace(/\D/g, '');
+  });
+}
+
 function setRegStep(step) {
   document.getElementById('reg-step-1').classList.toggle('screen-hidden', step !== 1);
   document.getElementById('reg-step-2').classList.toggle('screen-hidden', step !== 2);
@@ -1522,24 +1610,26 @@ document.getElementById('reg-next').addEventListener('click', () => {
 
   const wrap = document.getElementById('reg-extra-wrap');
   const extraLabel = document.getElementById('reg-extra-label');
-  const extraInput = document.getElementById('reg-extra');
+  const phoneRow = document.getElementById('reg-phone-row');
+  const extraEmail = document.getElementById('reg-extra-email');
   wrap.classList.remove('screen-hidden');
 
-  // Шаг 1: почта → на шаге 2 нужен телефон. Шаг 1: телефон → на шаге 2 нужен email.
   if (parsed.kind === 'email') {
     extraLabel.textContent = 'Телефон';
-    extraInput.type = 'tel';
-    extraInput.placeholder = '+7 900 000-00-00';
-    extraInput.autocomplete = 'tel';
-    extraInput.inputMode = 'tel';
+    phoneRow?.classList.remove('screen-hidden');
+    extraEmail?.classList.add('screen-hidden');
+    const nat = document.getElementById('reg-phone-national');
+    if (nat) nat.value = '';
   } else {
     extraLabel.textContent = 'Email';
-    extraInput.type = 'email';
-    extraInput.placeholder = 'name@mail.com';
-    extraInput.autocomplete = 'email';
-    extraInput.inputMode = 'email';
+    phoneRow?.classList.add('screen-hidden');
+    extraEmail?.classList.remove('screen-hidden');
+    extraEmail.type = 'email';
+    extraEmail.placeholder = 'name@mail.com';
+    extraEmail.autocomplete = 'email';
+    extraEmail.value = '';
+    fillPhoneFromE164('reg', parsed.value, document.getElementById('reg-country').value);
   }
-  extraInput.value = '';
   setRegStep(2);
 });
 
@@ -1550,9 +1640,10 @@ document.getElementById('reg-submit').addEventListener('click', async () => {
   errorEl.textContent = '';
   const fullName = document.getElementById('reg-fio').value.trim();
   const country = document.getElementById('reg-country').value.trim();
+  const countryIso = document.getElementById('reg-country-iso').value.trim();
   const password = document.getElementById('reg-password').value;
   const password2 = document.getElementById('reg-password2').value;
-  const extra = document.getElementById('reg-extra').value.trim();
+  const extraEmail = document.getElementById('reg-extra-email')?.value.trim() || '';
 
   const contactRaw = document.getElementById('reg-contact').value.trim();
   const contactNow = parseContact(contactRaw);
@@ -1565,17 +1656,22 @@ document.getElementById('reg-submit').addEventListener('click', async () => {
   let phone = '';
   if (contactNow.kind === 'email') {
     email = contactNow.value;
-    const ph = parseContact(extra);
-    if (!ph || ph.kind !== 'phone') {
-      errorEl.textContent = 'Укажите номер телефона';
+    const ph = readPhoneE164('reg');
+    if (!ph.ok) {
+      errorEl.textContent = ph.error || 'Укажите номер телефона';
       return;
     }
-    phone = ph.value;
+    phone = ph.e164;
   } else {
-    phone = contactNow.value;
-    const em = parseContact(extra);
+    const ph = readPhoneE164('reg');
+    if (!ph.ok) {
+      errorEl.textContent = ph.error || 'Проверьте номер телефона под выбранную страну';
+      return;
+    }
+    phone = ph.e164;
+    const em = parseContact(extraEmail);
     if (!em || em.kind !== 'email') {
-      errorEl.textContent = 'Укажите корректный email';
+      errorEl.textContent = 'Укажите email';
       return;
     }
     email = em.value;
@@ -1600,7 +1696,7 @@ document.getElementById('reg-submit').addEventListener('click', async () => {
   try {
     const me = await apiFetch('/users/me/register', {
       method: 'POST',
-      body: JSON.stringify({ fullName, email, phone, country, password }),
+      body: JSON.stringify({ fullName, email, phone, country, countryIso, password }),
     });
     profile = me;
     enterApp(me);
@@ -1661,7 +1757,7 @@ document.getElementById('login-submit').addEventListener('click', async () => {
 document.getElementById('reg-contact')?.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') document.getElementById('reg-next').click();
 });
-['reg-password2', 'reg-password', 'reg-extra', 'reg-fio'].forEach((id) => {
+['reg-password2', 'reg-password', 'reg-extra-email', 'reg-phone-national', 'reg-fio'].forEach((id) => {
   document.getElementById(id)?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') document.getElementById('reg-submit').click();
   });
@@ -2139,8 +2235,7 @@ function fillEditForm() {
   document.getElementById('edit-display').value = profile.displayName || '';
   document.getElementById('edit-fullname').value = profile.fullName || '';
   document.getElementById('edit-email').value = profile.email || '';
-  document.getElementById('edit-phone').value = profile.phone || '';
-  document.getElementById('edit-country').value = profile.country || '';
+  fillPhoneFromE164('edit', profile.phone || '', profile.country || 'Россия');
   document.getElementById('edit-profile-error').textContent = '';
 }
 
@@ -2148,14 +2243,20 @@ document.getElementById('save-profile-btn').addEventListener('click', async () =
   const errorEl = document.getElementById('edit-profile-error');
   errorEl.textContent = '';
   try {
+    const ph = readPhoneE164('edit');
+    if (!ph.ok) {
+      errorEl.textContent = ph.error;
+      return;
+    }
     const me = await apiFetch('/users/me/profile', {
       method: 'PUT',
       body: JSON.stringify({
         displayName: document.getElementById('edit-display').value,
         fullName: document.getElementById('edit-fullname').value,
         email: document.getElementById('edit-email').value,
-        phone: document.getElementById('edit-phone').value,
+        phone: ph.e164,
         country: document.getElementById('edit-country').value,
+        countryIso: document.getElementById('edit-country-iso').value,
       }),
     });
     profile = { ...profile, ...me };
@@ -2261,7 +2362,8 @@ async function initKycScreen() {
 
   document.querySelector('#kyc-done h2').textContent = 'Заявка отправлена';
   document.getElementById('kyc-fullname').value = profile?.fullName || '';
-  document.getElementById('kyc-country').value = profile?.country || '';
+  const kc = geo()?.byName(profile?.country) || geo()?.byIso('RU');
+  if (kc) setCountryFields('kyc', kc);
   setKycStep(1);
 
   try {
@@ -2340,6 +2442,7 @@ document.getElementById('kyc-submit').addEventListener('click', async () => {
       body: JSON.stringify({
         fullName: document.getElementById('kyc-fullname').value.trim(),
         country: document.getElementById('kyc-country').value.trim(),
+        countryIso: document.getElementById('kyc-country-iso').value.trim(),
       }),
     });
     document.querySelectorAll('#kyc-step-1, #kyc-step-2, #kyc-step-3').forEach((el) => {
@@ -4046,6 +4149,25 @@ document.getElementById('chat-input')?.addEventListener('blur', () => {
 });
 
 try { applyPrefs(); } catch { /* ignore */ }
+(function initGeoUi() {
+  const ru = geo()?.byIso('RU');
+  if (ru) {
+    setCountryFields('reg', ru);
+    setCountryFields('edit', ru);
+    setCountryFields('kyc', ru);
+  }
+  ['reg', 'edit', 'kyc'].forEach((prefix) => {
+    document.getElementById(`${prefix}-country-btn`)?.addEventListener('click', () => openCountrySheet(prefix));
+  });
+  bindPhoneNational('reg-phone-national');
+  bindPhoneNational('edit-phone-national');
+  document.getElementById('country-sheet-close')?.addEventListener('click', () => {
+    document.getElementById('country-sheet')?.classList.add('screen-hidden');
+  });
+  document.getElementById('country-sheet-search')?.addEventListener('input', (e) => {
+    renderCountrySheet(e.target.value);
+  });
+})();
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
   let open = false;

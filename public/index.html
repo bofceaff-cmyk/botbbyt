@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=21">
+<link rel="stylesheet" href="style.css?v=22">
 </head>
 <body>
 <div id="auth-gate" class="auth-gate">
@@ -48,10 +48,16 @@
           <input type="text" id="reg-fio" placeholder="Иванов Иван Иванович" autocomplete="name">
           <div id="reg-extra-wrap">
             <label id="reg-extra-label">Телефон</label>
-            <input type="tel" id="reg-extra" placeholder="+7 900 000-00-00" autocomplete="tel">
+            <div id="reg-phone-row" class="phone-row">
+              <span class="phone-dial" id="reg-phone-dial">+7</span>
+              <input type="tel" id="reg-phone-national" inputmode="numeric" autocomplete="tel-national" enterkeyhint="done" placeholder="9000000000">
+            </div>
+            <input type="email" id="reg-extra-email" class="screen-hidden" placeholder="name@mail.com" autocomplete="email">
           </div>
           <label>Страна</label>
-          <input type="text" id="reg-country" placeholder="Россия" value="Россия">
+          <button type="button" class="geo-select" id="reg-country-btn">🇷🇺 Россия</button>
+          <input type="hidden" id="reg-country" value="Россия">
+          <input type="hidden" id="reg-country-iso" value="RU">
           <label>Пароль</label>
           <input type="password" id="reg-password" placeholder="Пароль" autocomplete="new-password">
           <label>Повтор пароля</label>
@@ -827,9 +833,15 @@
       <label>Email</label>
       <input type="email" id="edit-email" placeholder="name@mail.com">
       <label>Телефон</label>
-      <input type="tel" id="edit-phone" placeholder="+7…">
+      <div class="phone-row">
+        <span class="phone-dial" id="edit-phone-dial">+7</span>
+        <input type="tel" id="edit-phone-national" inputmode="numeric" autocomplete="tel-national" enterkeyhint="done">
+      </div>
+      <input type="hidden" id="edit-phone">
       <label>Страна</label>
-      <input type="text" id="edit-country" placeholder="Россия">
+      <button type="button" class="geo-select" id="edit-country-btn">🇷🇺 Россия</button>
+      <input type="hidden" id="edit-country" value="Россия">
+      <input type="hidden" id="edit-country-iso" value="RU">
       <div class="error" id="edit-profile-error"></div>
       <button class="btn-primary full" id="save-profile-btn">Сохранить</button>
     </div>
@@ -853,7 +865,9 @@
       <label>ФИО полностью</label>
       <input type="text" id="kyc-fullname" placeholder="Как в документе">
       <label>Страна</label>
-      <input type="text" id="kyc-country" placeholder="Страна проживания">
+      <button type="button" class="geo-select" id="kyc-country-btn">🇷🇺 Россия</button>
+      <input type="hidden" id="kyc-country" value="Россия">
+      <input type="hidden" id="kyc-country-iso" value="RU">
       <button class="btn-primary full" id="kyc-next-1">Далее</button>
     </div>
 
@@ -1143,6 +1157,15 @@
 </nav>
 </div>
 
+<div id="country-sheet" class="sheet screen-hidden">
+  <div class="sheet-backdrop" id="country-sheet-close"></div>
+  <div class="sheet-card">
+    <div class="sheet-title">Страна</div>
+    <input type="search" id="country-sheet-search" placeholder="Поиск страны" autocomplete="off">
+    <div id="country-sheet-list" class="sheet-list"></div>
+  </div>
+</div>
+
 <div id="ban-overlay" class="ban-overlay screen-hidden">
   <div class="ban-card">
     <h2>Аккаунт ограничен</h2>
@@ -1150,6 +1173,7 @@
     <button type="button" class="btn-primary full" id="ban-support">Написать в поддержку</button>
   </div>
 </div>
-<script src="app.js?v=27"></script>
+<script src="geo.js?v=1"></script>
+<script src="app.js?v=28"></script>
 </body>
 </html>

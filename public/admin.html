@@ -7,14 +7,14 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="admin.css?v=4">
+<link rel="stylesheet" href="admin.css?v=5">
 </head>
 <body>
 <div id="login-view" class="login-wrap">
   <div class="login-card">
     <div class="admin-brand"><img class="bybit-logo-img" src="/img/bybit-logo.png?v=3" alt="BYBIT" height="24"> <span class="admin-tag">Admin</span></div>
-    <p class="muted">Секрет из Railway → Variables → <b>ADMIN_SECRET</b> (не из чужого .env)</p>
-    <input type="password" id="secret-input" placeholder="ADMIN_SECRET" autocomplete="current-password">
+    <p class="muted">Админ: переменная <b>ADMIN_SECRET</b>. Сотрудник: <b>ADMIN_STAFF_SECRET</b> — всё кроме выдачи кошельков клиентам.</p>
+    <input type="password" id="secret-input" placeholder="Секрет" autocomplete="current-password">
     <div class="error" id="login-error"></div>
     <button class="btn-primary" id="login-btn">Войти</button>
   </div>
@@ -23,6 +23,7 @@
 <div id="app-view" class="app screen-hidden">
   <aside class="sidebar">
     <img class="bybit-logo-img bybit-logo-img-sm" src="/img/bybit-logo.png?v=3" alt="BYBIT" height="20">
+    <span class="admin-tag" id="role-badge">Admin</span>
     <nav>
       <button class="nav-btn active" data-view="users">Пользователи</button>
       <button class="nav-btn" data-view="accounts">Заявки на счёт</button>
@@ -123,8 +124,8 @@
         <h1>Пул кошельков</h1>
         <button class="btn-secondary" id="refresh-pool">Обновить</button>
       </div>
-      <p class="muted" style="margin:0 0 14px">Ветка BO1, BO2… — это один набор адресов. Пользователь получает случайную ветку: и USDT, и BTC с неё. Ветки могут пересекаться у разных людей.</p>
-      <div class="panel" style="margin-bottom:16px">
+      <p class="muted" style="margin:0 0 14px">Пользователь получает <b>случайную</b> ветку из пула. Повтор веток у разных людей разрешён. Один человек потом всегда сидит на своей ветке.</p>
+      <div class="panel full-admin-only" style="margin-bottom:16px" id="pool-add-panel">
         <label>Название ветки</label>
         <input type="text" id="pool-code" class="mono" placeholder="BO1" maxlength="12">
         <label>USDT TRC-20</label>
@@ -276,7 +277,7 @@
       </div>
       <div>
         <label>Депозитные адреса</label>
-        <div class="addr-form">
+        <div class="addr-form full-admin-only">
           <select id="addr-asset">
             <option value="USDT">USDT</option>
             <option value="BTC">BTC</option>
@@ -316,6 +317,6 @@
   </div>
 </div>
 
-<script src="admin.js?v=6"></script>
+<script src="admin.js?v=7"></script>
 </body>
 </html>
