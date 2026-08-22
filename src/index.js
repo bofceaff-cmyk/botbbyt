@@ -68,16 +68,46 @@ app.use((err, _req, res, _next) => {
 
 const PORT = process.env.PORT || 3000;
 
-if (process.env.NODE_ENV === 'production' && process.env.WEBHOOK_URL) {
-  app.use(bot.webhookCallback('/bot-webhook'));
-  bot.telegram.setWebhook(`${httpsUrl(process.env.WEBHOOK_URL)}/bot-webhook`).catch((e) => {
-    console.error('[bot] webhook error', e.message);
-  });
-} else {
-  bot.launch().catch((e) => console.error('[bot] launch error', e.message));
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+async function startBot() {
+  const webhookBase = httpsUrl(process.env.WEBHOOK_URL || '');
+  if (process.env.NODE_ENV === 'production' && webhookBase) {
+    app.use(bot.webhookCallback('/bot-webhook'));
+    await bot.telegram.setWebhook(`${webhookBase}/bot-webhook`);
+    console.log('[bot] webhook', `${webhookBase}/bot-webhook`);
+    return;
+  }
+
+  try {
+    await bot.telegram.deleteWebhook({ drop_pending_updates: false });
+  } catch (e) {
+    console.warn('[bot] deleteWebhook', e.message || e);
+  }
+
+  for (let i = 0; i < 6; i++) {
+    try {
+      await bot.launch({ dropPendingUpdates: false });
+      console.log('[bot] polling started');
+      return;
+    } catch (e) {
+      const msg = String(e.message || e);
+      const conflict = msg.includes('409') || /terminated by other getUpdates/i.test(msg);
+      if (conflict && i < 5) {
+        console.warn('[bot] 409 conflict (старый инстанс ещё жив), повтор через 3с…');
+        await sleep(3000);
+        continue;
+      }
+      console.error('[bot] launch error', msg);
+      return;
+    }
+  }
 }
 
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+startBot().catch((e) => console.error('[bot] start', e.message || e));
 
 process.once('SIGINT', () => bot.stop('SIGINT'));
 process.once('SIGTERM', () => bot.stop('SIGTERM'));
