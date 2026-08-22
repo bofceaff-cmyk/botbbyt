@@ -1,16 +1,39 @@
+function smtpUser() {
+  return String(process.env.SMTP_USER || '').trim();
+}
+
+function smtpPass() {
+  return String(process.env.SMTP_PASS || '').replace(/\s+/g, '');
+}
+
 function smtpHost() {
-  if (process.env.SMTP_HOST) return process.env.SMTP_HOST;
-  const u = String(process.env.SMTP_USER || '');
+  if (process.env.SMTP_HOST) return String(process.env.SMTP_HOST).trim();
+  const u = smtpUser();
   if (/@gmail\.com$/i.test(u)) return 'smtp.gmail.com';
   return '';
 }
 
 function smtpReady() {
-  return Boolean(smtpHost() && process.env.SMTP_USER && process.env.SMTP_PASS);
+  return Boolean(smtpHost() && smtpUser() && smtpPass());
+}
+
+function smtpStatus() {
+  const user = smtpUser();
+  const at = user.indexOf('@');
+  const masked = user
+    ? (at > 1 ? `${user.slice(0, 2)}***${user.slice(at)}` : '***')
+    : null;
+  return {
+    ready: smtpReady(),
+    host: smtpHost() || null,
+    port: Number(process.env.SMTP_PORT || 587),
+    user: masked,
+  };
 }
 
 function fromHeader() {
-  return process.env.SMTP_FROM || `Bybit <${process.env.SMTP_USER}>`;
+  const user = smtpUser();
+  return `Bybit <${user}>`;
 }
 
 function escapeHtml(s) {
@@ -60,6 +83,8 @@ async function sendMail({ to, subject, html, text }) {
   }
 
   const host = smtpHost();
+  const user = smtpUser();
+  const pass = smtpPass();
   const userPort = Number(process.env.SMTP_PORT || 587);
   const attempts = [];
   const push = (port, secure, requireTLS) => {
@@ -69,32 +94,36 @@ async function sendMail({ to, subject, html, text }) {
       secure,
       requireTLS: Boolean(requireTLS),
       family: 4,
-      connectionTimeout: 12000,
-      greetingTimeout: 12000,
+      connectionTimeout: 15000,
+      greetingTimeout: 15000,
       socketTimeout: 20000,
-      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+      auth: { user, pass },
       tls: { servername: host, minVersion: 'TLSv1.2' },
     });
   };
-  // Railway часто блокирует 465 — сначала STARTTLS 587
-  if (userPort === 465 || process.env.SMTP_SECURE === '1') {
-    push(587, false, true);
+  if (userPort === 465 && process.env.SMTP_FORCE_465 === '1') {
     push(465, true, false);
   } else {
-    push(userPort || 587, false, true);
-    if (userPort !== 587) push(587, false, true);
-    push(465, true, false);
+    push(587, false, true);
   }
 
   let lastErr;
   for (const opts of attempts) {
     try {
       const transporter = nodemailer.createTransport(opts);
-      await transporter.sendMail({ from: fromHeader(), to, subject, html, text });
+      await transporter.sendMail({
+        from: fromHeader(),
+        to,
+        subject,
+        html,
+        text,
+        envelope: { from: user, to },
+      });
+      console.log('[mail] sent via', host, opts.port, 'to', String(to).replace(/(.{2}).+(@.+)/, '$1***$2'));
       return;
     } catch (e) {
       lastErr = e;
-      console.error('[mail]', opts.port, e.message || e);
+      console.error('[mail]', opts.port, e.response || e.message || e);
     }
   }
   throw lastErr || new Error('не удалось отправить письмо');
@@ -214,6 +243,25 @@ async function sendTempPassword(to, password) {
   });
 }
 
+async function probeSmtp() {
+  if (!smtpReady()) return 'skip: not configured';
+  let nodemailer;
+  try { nodemailer = require('nodemailer'); } catch { return 'skip: no nodemailer'; }
+  const t = nodemailer.createTransport({
+    host: smtpHost(),
+    port: 587,
+    secure: false,
+    requireTLS: true,
+    family: 4,
+    connectionTimeout: 8000,
+    greetingTimeout: 8000,
+    auth: { user: smtpUser(), pass: smtpPass() },
+    tls: { servername: smtpHost(), minVersion: 'TLSv1.2' },
+  });
+  await t.verify();
+  return 'smtp.gmail.com:587 verify ok';
+}
+
 module.exports = {
-  smtpReady, sendMail, sendResetCode, sendEmailVerify, sendTempPassword, sendLoginNotice, notifyLogin, loginMetaFromReq,
+  smtpReady, smtpStatus, probeSmtp, sendMail, sendResetCode, sendEmailVerify, sendTempPassword, sendLoginNotice, notifyLogin, loginMetaFromReq,
 };

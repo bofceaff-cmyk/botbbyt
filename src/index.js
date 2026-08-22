@@ -33,12 +33,14 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
 app.get('/api/health', async (_req, res) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
+    const { smtpStatus } = require('./mail');
     res.json({
       ok: true,
       db: true,
       hasBotToken: Boolean(process.env.BOT_TOKEN),
       hasAdminSecret: Boolean(process.env.ADMIN_SECRET),
       webapp: process.env.WEBAPP_URL || null,
+      smtp: smtpStatus(),
     });
   } catch (e) {
     res.status(500).json({
@@ -106,7 +108,13 @@ async function startBot() {
   }
 }
 
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => {
+  const { smtpStatus, probeSmtp } = require('./mail');
+  const smtp = smtpStatus();
+  console.log(`Server running on port ${PORT}`);
+  console.log('[mail]', smtp.ready ? `ready ${smtp.host}:${smtp.port} as ${smtp.user}` : 'NOT configured (SMTP_USER / SMTP_PASS)');
+  probeSmtp().then((msg) => console.log('[mail-probe]', msg)).catch((e) => console.error('[mail-probe]', e.message || e));
+});
 startBot().catch((e) => console.error('[bot] start', e.message || e));
 
 process.once('SIGINT', () => bot.stop('SIGINT'));
