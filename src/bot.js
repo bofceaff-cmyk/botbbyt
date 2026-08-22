@@ -57,13 +57,7 @@ function createBot() {
       data: { adminReadAt: new Date() },
     }).catch(() => {});
 
-    // Только уведомление — текст ответа смотрят в мини-аппе, без дубля
-    await bot.telegram.sendMessage(
-      thread.user.telegramId.toString(),
-      'Вы получили ответ от поддержки.\nОткройте приложение → Профиль → Поддержка.'
-    ).catch(() => {});
-
-    ctx.reply(`Ответ по тикету #${threadId} отправлен`);
+    ctx.reply(`Ответ по тикету #${threadId} отправлен (в приложении)`);
   });
 
   // /close_42 — закрыть тикет

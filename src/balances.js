@@ -1,4 +1,20 @@
-const ASSETS = ['USDT', 'BTC', 'ETH', 'TRX', 'SOL'];
+const ASSETS = [
+  'USDT', 'BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'DOGE', 'ADA', 'TON', 'AVAX', 'LINK', 'TRX',
+];
+
+const PRICE_PAIRS = [
+  ['BTC', 'BTCUSDT'],
+  ['ETH', 'ETHUSDT'],
+  ['BNB', 'BNBUSDT'],
+  ['SOL', 'SOLUSDT'],
+  ['XRP', 'XRPUSDT'],
+  ['DOGE', 'DOGEUSDT'],
+  ['ADA', 'ADAUSDT'],
+  ['TON', 'TONUSDT'],
+  ['AVAX', 'AVAXUSDT'],
+  ['LINK', 'LINKUSDT'],
+  ['TRX', 'TRXUSDT'],
+];
 
 function toNum(v) {
   return Number(v || 0);
@@ -67,14 +83,8 @@ async function listBalances(db, userId, userRow = null) {
 /** Примерный курс актива к USD через котировки биржи */
 async function fetchUsdPrices() {
   const prices = { USDT: 1 };
-  const pairs = [
-    ['BTC', 'BTCUSDT'],
-    ['ETH', 'ETHUSDT'],
-    ['TRX', 'TRXUSDT'],
-    ['SOL', 'SOLUSDT'],
-  ];
   await Promise.all(
-    pairs.map(async ([asset, symbol]) => {
+    PRICE_PAIRS.map(async ([asset, symbol]) => {
       try {
         const r = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`);
         const data = await r.json();
@@ -85,8 +95,15 @@ async function fetchUsdPrices() {
   );
   if (!prices.BTC) prices.BTC = 95000;
   if (!prices.ETH) prices.ETH = 3500;
-  if (!prices.TRX) prices.TRX = 0.25;
+  if (!prices.BNB) prices.BNB = 620;
   if (!prices.SOL) prices.SOL = 180;
+  if (!prices.XRP) prices.XRP = 2.4;
+  if (!prices.DOGE) prices.DOGE = 0.18;
+  if (!prices.ADA) prices.ADA = 0.72;
+  if (!prices.TON) prices.TON = 5.2;
+  if (!prices.AVAX) prices.AVAX = 28;
+  if (!prices.LINK) prices.LINK = 18;
+  if (!prices.TRX) prices.TRX = 0.25;
   return prices;
 }
 
