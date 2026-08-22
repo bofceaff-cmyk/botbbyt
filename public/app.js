@@ -761,22 +761,24 @@ function convertAssetMeta(id) {
   return CONVERT_ASSETS.find((a) => a.id === id) || CONVERT_ASSETS[0];
 }
 
+const ICO_CHEV = '<svg class="ico-chev" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M7.41 9.84 12 14.42l4.59-4.58L18 11.25l-6 6-6-6z"/></svg>';
+const ICO_SWAP = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 8h11.5M15.5 5.5 18.5 8 15.5 10.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M17 16H5.5M8.5 13.5 5.5 16 8.5 18.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+function coinTicker(symbol) {
+  let s = String(symbol || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (s.endsWith('USDT') && s !== 'USDT') s = s.slice(0, -4);
+  return s || 'USDT';
+}
+
 function coinSrc(symbol) {
-  const s = String(symbol || '').toUpperCase().replace(/[-_]?USDT$/i, '');
-  const local = {
-    BTC: '/img/btc.svg', ETH: '/img/eth.svg', BNB: '/img/bnb.svg', SOL: '/img/sol.svg',
-    XRP: '/img/xrp.svg', DOGE: '/img/doge.svg', ADA: '/img/ada.svg', TON: '/img/ton.svg',
-    AVAX: '/img/avax.svg', LINK: '/img/link.svg', TRX: '/img/trx.svg', USDT: '/img/usdt.svg',
-  };
-  if (local[s]) return local[s];
-  return `https://bin.bnbstatic.com/static/assets/logos/${s}.png`;
+  return `/api/market/icon/${coinTicker(symbol)}`;
 }
 
 function coinLogoHtml(symbol, size = 32) {
-  const src = coinSrc(symbol);
-  const raw = String(symbol || 'BTC').toUpperCase().replace(/[-_]?USDT$/i, '');
-  const cdn = `https://bin.bnbstatic.com/static/assets/logos/${raw}.png`;
-  return `<img class="coin-logo quote-logo" src="${src}" alt="" width="${size}" height="${size}" loading="lazy" onerror="this.onerror=null;this.src='${cdn}'">`;
+  const id = coinTicker(symbol);
+  const src = `/api/market/icon/${id}`;
+  const fb = `https://assets.coincap.io/assets/icons/${id.toLowerCase()}@2x.png`;
+  return `<img class="coin-logo quote-logo" src="${src}" alt="${id}" width="${size}" height="${size}" loading="lazy" referrerpolicy="no-referrer" onerror="if(!this.dataset.f){this.dataset.f=1;this.src='${fb}';}else{this.onerror=null;}">`;
 }
 
 function coinIconHtml(a, size = 22) {
@@ -1504,12 +1506,27 @@ document.getElementById('reg-contact')?.addEventListener('keydown', (e) => {
   });
 });
 
-document.getElementById('login-forgot')?.addEventListener('click', () => {
+document.getElementById('login-forgot')?.addEventListener('click', async () => {
   const parsed = parseContact(document.getElementById('login-contact').value);
-  setForgotKind(parsed?.kind === 'phone' ? 'phone' : 'email');
-  document.getElementById('forgot-email').value = parsed?.value || '';
-  document.getElementById('forgot-error').textContent = '';
-  showAuthGate('forgot');
+  const contact = parsed?.value || document.getElementById('login-contact').value.trim() || 'не указан';
+  let to = '';
+  try {
+    const r = await fetch('/api/support-mail');
+    const d = await r.json();
+    to = String(d.email || '').trim();
+  } catch { /* open compose anyway */ }
+  const subject = encodeURIComponent('Восстановление пароля Bybit Wallet');
+  const body = encodeURIComponent(
+    `Здравствуйте,\n\nПрошу восстановить пароль от моего аккаунта в Bybit Wallet.\n\nЛогин (email / телефон): ${contact}\nTelegram ID: ${tg.initDataUnsafe?.user?.id || '—'}\n\nСпасибо.`,
+  );
+  const href = `mailto:${to}?subject=${subject}&body=${body}`;
+  try {
+    window.location.href = href;
+  } catch {
+    const a = document.createElement('a');
+    a.href = href;
+    a.click();
+  }
 });
 document.getElementById('forgot-back')?.addEventListener('click', () => {
   showAuthGate('forms');
@@ -2380,7 +2397,7 @@ function openTrade(symbol, change24h) {
   tradeSymbol = String(symbol || tradeSymbol || 'LINK').toUpperCase().replace(/USDT$/, '');
   chartSymbol = tradeSymbol;
   if (change24h != null) chartChange24h = change24h;
-  document.getElementById('trade-pair-btn').innerHTML = `${coinLogoHtml(tradeSymbol, 22)} <span>${tradeSymbol}/USDT</span> <span>▾</span>`;
+  document.getElementById('trade-pair-btn').innerHTML = `${coinLogoHtml(tradeSymbol, 22)} <span>${tradeSymbol}/USDT</span> ${ICO_CHEV}`;
   const qtyIn = document.getElementById('trade-qty-input');
   if (qtyIn) qtyIn.placeholder = `0.001 ${tradeSymbol}`;
   document.querySelectorAll('.trade-tf').forEach((b) => {
@@ -2703,7 +2720,7 @@ function fillTradePairList() {
       document.getElementById('trade-pair-sheet').classList.add('screen-hidden');
       if (tradeProduct === 'futures') {
         futSymbol = String(row.dataset.symbol).toUpperCase();
-        document.getElementById('fut-pair-btn').textContent = `${futSymbol}USDT ▾`;
+        document.getElementById('fut-pair-btn').innerHTML = `${coinLogoHtml(futSymbol, 20)} <span>${futSymbol}USDT</span> ${ICO_CHEV}`;
         loadFutures();
       } else {
         setTradeProduct('spot');
@@ -2751,7 +2768,7 @@ function setTradeProduct(prod) {
   if (tradeProduct === 'convert') refreshConvertPane();
   if (tradeProduct === 'spot') {
     const btn = document.getElementById('trade-pair-btn');
-    if (btn) btn.innerHTML = `${coinLogoHtml(tradeSymbol, 22)} <span>${tradeSymbol}/USDT</span> <span>▾</span>`;
+    if (btn) btn.innerHTML = `${coinLogoHtml(tradeSymbol, 22)} <span>${tradeSymbol}/USDT</span> ${ICO_CHEV}`;
     loadTradeChart();
   }
   if (tradeProduct === 'futures') { loadFutures(); loadPaper(); }
@@ -2773,8 +2790,8 @@ function pxOf(sym) {
 function refreshConvertPane() {
   const fromBtn = document.getElementById('cv-from-btn');
   const toBtn = document.getElementById('cv-to-btn');
-  if (fromBtn) fromBtn.innerHTML = `${coinLogoHtml(cvFrom, 22)} <span>${cvFrom}</span> ▾`;
-  if (toBtn) toBtn.innerHTML = `${coinLogoHtml(cvTo, 22)} <span>${cvTo}</span> ▾`;
+  if (fromBtn) fromBtn.innerHTML = `${coinLogoHtml(cvFrom, 22)} <span>${cvFrom}</span> ${ICO_CHEV}`;
+  if (toBtn) toBtn.innerHTML = `${coinLogoHtml(cvTo, 22)} <span>${cvTo}</span> ${ICO_CHEV}`;
   document.getElementById('cv-avail').textContent = fmtUsdPrice(walletAmt(cvFrom));
   const amt = parseQty(document.getElementById('cv-amount')?.value);
   const fp = cvFrom === 'USDT' ? 1 : pxOf(cvFrom);
@@ -2854,6 +2871,12 @@ document.getElementById('cv-max')?.addEventListener('click', () => {
   document.getElementById('cv-amount').value = String(walletAmt(cvFrom));
   refreshConvertPane();
 });
+{
+  const el = document.getElementById('cv-swap');
+  if (el) el.innerHTML = ICO_SWAP;
+  const el2 = document.getElementById('convert-swap');
+  if (el2) el2.innerHTML = ICO_SWAP;
+}
 document.getElementById('cv-swap')?.addEventListener('click', () => {
   const a = cvFrom; cvFrom = cvTo; cvTo = a;
   refreshConvertPane();
@@ -2970,9 +2993,8 @@ async function loadOverview() {
       <div><span>В обороте</span><b>${n(d.circulating)}</b></div>
       <div><span>Общая эмиссия</span><b>${n(d.total)}</b></div>
       <div><span>Макс. эмиссия</span><b>${n(d.max)}</b></div>`;
-    const links = [];
-    if (d.homepage) links.push(`<a href="${d.homepage}" target="_blank">Website</a>`);
-    document.getElementById('ov-links').innerHTML = links.join(' · ');
+    const linksEl = document.getElementById('ov-links');
+    if (linksEl) linksEl.innerHTML = '';
   } catch {
     about.textContent = 'Не удалось загрузить обзор';
   }

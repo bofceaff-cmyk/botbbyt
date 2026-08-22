@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=18">
+<link rel="stylesheet" href="style.css?v=19">
 </head>
 <body>
 <div id="auth-gate" class="auth-gate">
@@ -241,7 +241,7 @@
           <button type="button" class="cv-asset" id="cv-from-btn">USDT ▾</button>
         </div>
         <input type="text" id="cv-amount" inputmode="decimal" enterkeyhint="done" data-amount autocomplete="off" placeholder="0.01–10,000">
-        <button type="button" class="cv-swap" id="cv-swap">⇅</button>
+        <button type="button" class="cv-swap" id="cv-swap" aria-label="Поменять"></button>
         <div class="cv-pair">
           <span>Кому</span>
           <button type="button" class="cv-asset" id="cv-to-btn">TRX ▾</button>
@@ -1018,7 +1018,7 @@
       </div>
 
       <div class="convert-swap-row">
-        <button type="button" class="convert-swap-ico" id="convert-swap" aria-label="Поменять">⇅</button>
+        <button type="button" class="convert-swap-ico" id="convert-swap" aria-label="Поменять"></button>
       </div>
 
       <div class="convert-side">
@@ -1134,6 +1134,6 @@
     <button type="button" class="btn-primary full" id="ban-support">Написать в поддержку</button>
   </div>
 </div>
-<script src="app.js?v=18"></script>
+<script src="app.js?v=19"></script>
 </body>
 </html>

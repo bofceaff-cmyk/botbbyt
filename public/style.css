@@ -137,10 +137,7 @@ main { padding: 12px 14px 32px; }
   font-weight: 600; padding: 8px 0 10px; cursor: pointer; position: relative;
 }
 .uc-tab.active { color: var(--text); }
-.uc-tab.active::after {
-  content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
-  background: var(--accent); border-radius: 2px 2px 0 0;
-}
+.uc-tab.active::after { display: none; }
 .uc-sec-head { padding: 16px 0 6px; }
 .uc-sec-head h4 { margin: 0 0 4px; font-size: 16px; font-weight: 700; }
 .uc-sec-head p { margin: 0; font-size: 12px; color: var(--text-2); }
@@ -1252,16 +1249,7 @@ body.auth-locked {
 .bybit-tab.active {
   color: #fff;
 }
-.bybit-tab.active::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -1px;
-  height: 3px;
-  background: #f7a600;
-  border-radius: 3px 3px 0 0;
-}
+.bybit-tab.active::after { display: none; }
 .bybit-warn {
   display: flex;
   gap: 10px;
@@ -1665,7 +1653,6 @@ body.auth-locked {
 .trade-prod.active {
   color: var(--text);
   font-weight: 700;
-  box-shadow: inset 0 -2px 0 var(--accent);
 }
 
 .trade-pair-row {
@@ -1717,7 +1704,6 @@ body.auth-locked {
 .trade-sub.active {
   color: var(--text);
   font-weight: 700;
-  box-shadow: inset 0 -2px 0 var(--accent);
 }
 .trade-stats {
   display: flex;
@@ -1840,7 +1826,7 @@ body.auth-locked {
 
 .cv-top { display: flex; gap: 18px; margin: 4px 0 12px; border-bottom: 1px solid var(--line); }
 .cv-mode { background: none; border: none; color: var(--text-3); font-weight: 700; padding: 0 0 8px; }
-.cv-mode.active { color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); }
+.cv-mode.active { color: var(--text); font-weight: 700; }
 .cv-box {
   background: var(--panel);
   border: 1px solid var(--line-soft);
@@ -1866,9 +1852,12 @@ body.auth-locked {
 .cv-asset img { width: 22px; height: 22px; border-radius: 50%; }
 .cv-box input { width: 100%; background: transparent; border: none; color: var(--text); font-size: 22px; padding: 8px 0; }
 .cv-swap {
-  width: 36px; height: 36px; margin: 8px auto; display: block;
-  border-radius: 50%; border: 1px solid var(--line); background: var(--bg); color: var(--text);
+  width: 40px; height: 40px; margin: 10px auto; display: grid; place-items: center;
+  border-radius: 50%; border: 1px solid var(--line); background: var(--panel-2); color: var(--text);
+  padding: 0;
 }
+.cv-swap svg { display: block; }
+.ico-chev { width: 12px; height: 12px; opacity: 0.7; flex-shrink: 0; }
 .cv-out { font-size: 22px; font-weight: 700; min-height: 32px; color: var(--text); }
 .cv-rate { font-size: 12px; color: var(--text-3); margin: 8px 0; }
 .cv-go {
