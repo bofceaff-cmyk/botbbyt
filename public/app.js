@@ -182,7 +182,9 @@ function showScreen(name) {
       'deposit', 'transfer', 'history', 'withdraw', 'convert', 'earn', 'card',
     ]);
     const tab = MAIN_TABS.has(name) ? name : (
-      walletScreens.has(name) ? 'wallet' : 'profile'
+      name === 'chart' ? 'markets' : (
+        walletScreens.has(name) ? 'wallet' : 'profile'
+      )
     );
     t.classList.toggle('active', t.dataset.tab === tab);
   });
@@ -217,6 +219,7 @@ document.querySelectorAll('.tab').forEach((tab) => {
 document.getElementById('open-deposit').addEventListener('click', () => showScreen('deposit'));
 document.getElementById('open-transfer').addEventListener('click', () => showScreen('transfer'));
 document.getElementById('open-history').addEventListener('click', () => showScreen('history'));
+document.getElementById('wallet-pnl')?.addEventListener('click', () => showScreen('history'));
 document.getElementById('wallet-go-profile')?.addEventListener('click', () => showScreen('profile'));
 document.getElementById('open-withdraw')?.addEventListener('click', () => showScreen('withdraw'));
 document.getElementById('open-convert')?.addEventListener('click', () => showScreen('convert'));
@@ -238,6 +241,8 @@ let balanceHidden = localStorage.getItem('byx_hide_bal') === '1';
 let lastWalletBalance = 0;
 let lastEarnBalance = 0;
 let lastBtcPrice = 77420;
+let lastQuotes = [];
+let assetChange24h = { USDT: 0 };
 let convertOptions = null;
 let earnProducts = [];
 let selectedEarnProduct = null;
@@ -298,22 +303,42 @@ function renderWalletAmounts(available, earn) {
       const px = a.id === 'USDT' ? 1 : (Number(prices[a.id]) || 0);
       const fiat = amt * px;
       const amtStr = typeof fmtAssetAmt === 'function' ? fmtAssetAmt(a.id, amt) : fmtUsdt(amt, 4);
+      const ch = a.id === 'USDT' ? 0 : (Number(assetChange24h[a.id]) || 0);
+      const prevFiat = ch <= -99.999 ? fiat : fiat / (1 + ch / 100);
+      const dFiat = fiat - prevFiat;
+      const chgUp = dFiat >= 0;
+      const chgTxt = a.id === 'USDT'
+        ? '0.00 (0.00%)'
+        : `${chgUp ? '+' : ''}${fmtUsdt(dFiat, 2)} (${chgUp ? '+' : ''}${ch.toFixed(2)}%)`;
       return `
-          <div class="assets-coin-row">
+          <button type="button" class="assets-coin-row" data-asset-open="${a.id}">
             <div class="assets-coin-left">
               <img class="assets-coin-logo" src="${a.icon}" alt="${a.id}" width="36" height="36">
               <div>
                 <div class="assets-coin-sym">${a.id}</div>
-                <div class="assets-coin-chg muted">0.00 (0.00%)</div>
+                <div class="assets-coin-chg ${chgUp ? 'chg-up' : 'chg-down'}">${maskBal(chgTxt)}</div>
               </div>
             </div>
             <div class="assets-coin-right">
               <div class="mono assets-coin-amt">${maskBal(amtStr)}</div>
               <div class="muted assets-coin-fiat">${maskBal(`${fmtUsdt(fiat)} USD`)}</div>
             </div>
-          </div>`;
+          </button>`;
     }).join('');
     list.innerHTML = rows || '';
+    list.querySelectorAll('[data-asset-open]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.assetOpen;
+        if (id === 'USDT') {
+          convertFromAsset = 'USDT';
+          convertToAsset = 'BTC';
+        } else {
+          convertFromAsset = 'USDT';
+          convertToAsset = id;
+        }
+        showScreen('convert');
+      });
+    });
   }
 
   const earnAmt = document.getElementById('wallet-earn-amt');
@@ -336,8 +361,31 @@ function renderWalletAmounts(available, earn) {
     }
   }
 
+  let pnlUsd = 0;
+  for (const a of assets) {
+    if (a.id === 'USDT') continue;
+    const amt = Number(bals[a.id]) || 0;
+    const px = Number(prices[a.id]) || 0;
+    const now = amt * px;
+    const ch = Number(assetChange24h[a.id]) || 0;
+    const prev = ch <= -99.999 ? now : now / (1 + ch / 100);
+    pnlUsd += now - prev;
+  }
+  const pnlPctBase = total - pnlUsd;
+  const pnlPct = pnlPctBase > 1e-9 ? (pnlUsd / pnlPctBase) * 100 : 0;
+  const pnlUp = pnlUsd >= 0;
   const pnl = document.querySelector('#wallet-pnl .pnl-val');
-  if (pnl) pnl.textContent = '+0.00 USD (+0.00%)';
+  if (pnl) {
+    pnl.textContent = balanceHidden
+      ? '****'
+      : `${pnlUp ? '+' : ''}${fmtUsdt(pnlUsd, 2)} USD (${pnlUp ? '+' : ''}${pnlPct.toFixed(2)}%)`;
+    pnl.classList.toggle('chg-up', pnlUp);
+    pnl.classList.toggle('chg-down', !pnlUp);
+  }
+  const sparkLine = document.querySelector('.spark-line');
+  const sparkFill = document.querySelector('#sparkGrad stop');
+  if (sparkLine) sparkLine.setAttribute('stroke', pnlUp ? '#0ecb81' : '#f6465d');
+  if (sparkFill) sparkFill.setAttribute('stop-color', pnlUp ? '#0ecb81' : '#f6465d');
 }
 
 function formatCardMask(num) {
@@ -473,8 +521,15 @@ const CONVERT_ASSETS = [
   { id: 'USDT', name: 'Tether', icon: '/img/usdt.svg?v=2' },
   { id: 'BTC', name: 'Bitcoin', icon: '/img/btc.svg?v=1' },
   { id: 'ETH', name: 'Ethereum', icon: '/img/eth.svg?v=1' },
-  { id: 'TRX', name: 'TRON', icon: '/img/trx.svg?v=1' },
+  { id: 'BNB', name: 'BNB', icon: '/img/bnb.svg?v=1' },
   { id: 'SOL', name: 'Solana', icon: '/img/sol.svg?v=1' },
+  { id: 'XRP', name: 'XRP', icon: '/img/xrp.svg?v=1' },
+  { id: 'DOGE', name: 'Dogecoin', icon: '/img/doge.svg?v=1' },
+  { id: 'ADA', name: 'Cardano', icon: '/img/ada.svg?v=1' },
+  { id: 'TON', name: 'Toncoin', icon: '/img/ton.svg?v=1' },
+  { id: 'AVAX', name: 'Avalanche', icon: '/img/avax.svg?v=1' },
+  { id: 'LINK', name: 'Chainlink', icon: '/img/link.svg?v=1' },
+  { id: 'TRX', name: 'TRON', icon: '/img/trx.svg?v=1' },
 ];
 
 let convertFromAsset = 'USDT';
@@ -487,7 +542,9 @@ function convertAssetMeta(id) {
 }
 
 function coinIconHtml(a, size = 22) {
-  return `<img class="coin-logo" src="${a.icon}" alt="" width="${size}" height="${size}">`;
+  const q = lastQuotes.find((x) => String(x.symbol).toUpperCase() === a.id);
+  const src = (q && q.image) ? q.image : a.icon;
+  return `<img class="coin-logo" src="${src}" alt="" width="${size}" height="${size}" onerror="this.style.display='none'">`;
 }
 
 function getBalancesMap() {
@@ -506,6 +563,11 @@ function fmtAssetAmt(asset, n) {
   return x.toFixed(6).replace(/\.?0+$/, '') || '0';
 }
 
+function quoteIconFor(id, fallback) {
+  const q = lastQuotes.find((x) => String(x.symbol).toUpperCase() === id);
+  return (q && q.image) || fallback;
+}
+
 function setConvertFromAsset(id) {
   if (id === convertToAsset) convertToAsset = convertFromAsset;
   convertFromAsset = id;
@@ -513,7 +575,7 @@ function setConvertFromAsset(id) {
   document.getElementById('convert-from-asset').value = id;
   document.getElementById('convert-from-label').textContent = id;
   const ico = document.getElementById('convert-from-icon');
-  if (ico) { ico.src = meta.icon; ico.alt = id; }
+  if (ico) { ico.src = quoteIconFor(id, meta.icon); ico.alt = id; }
   const bal = getBalancesMap()[id] || 0;
   document.getElementById('convert-hint').textContent = fmtAssetAmt(id, bal);
   setConvertToAsset(convertToAsset, false);
@@ -530,7 +592,7 @@ function setConvertToAsset(id, closeSheet = true) {
   document.getElementById('convert-asset').value = id;
   document.getElementById('convert-to-label').textContent = id;
   const ico = document.getElementById('convert-to-icon');
-  if (ico) { ico.src = meta.icon; ico.alt = id; }
+  if (ico) { ico.src = quoteIconFor(id, meta.icon); ico.alt = id; }
   if (closeSheet) document.getElementById('convert-asset-sheet')?.classList.add('screen-hidden');
   updateConvertEstimate();
 }
@@ -572,21 +634,25 @@ async function loadAssetPrices() {
   try {
     const r = await fetch('/api/market/quotes');
     const quotes = await r.json().catch(() => []);
-    assetPrices = { USDT: 1 };
-    if (Array.isArray(quotes)) {
-      for (const q of quotes) {
-        const sym = String(q.symbol || '').toUpperCase();
-        const px = Number(q.price);
-        if (Number.isFinite(px) && px > 0 && ['BTC', 'ETH', 'TRX', 'SOL'].includes(sym)) {
-          assetPrices[sym] = px;
-        }
-      }
-    }
+    applyMarketQuotes(quotes);
   } catch { /* keep previous */ }
   if (!assetPrices.BTC) assetPrices.BTC = lastBtcPrice || 95000;
-  if (!assetPrices.ETH) assetPrices.ETH = 3500;
-  if (!assetPrices.TRX) assetPrices.TRX = 0.25;
-  if (!assetPrices.SOL) assetPrices.SOL = 180;
+}
+
+function applyMarketQuotes(quotes) {
+  if (!Array.isArray(quotes)) return;
+  lastQuotes = quotes;
+  assetPrices = { ...(assetPrices || {}), USDT: 1 };
+  assetChange24h = { USDT: 0 };
+  for (const q of quotes) {
+    const sym = String(q.symbol || '').toUpperCase();
+    const px = Number(q.price);
+    if (Number.isFinite(px) && px > 0) assetPrices[sym] = px;
+    const ch = Number(q.change24h);
+    if (Number.isFinite(ch)) assetChange24h[sym] = ch;
+  }
+  if (assetPrices.BTC) lastBtcPrice = assetPrices.BTC;
+  if (profile) applyBalanceVisibility();
 }
 
 function estimateConvertOut(amount, from, to) {
@@ -1536,9 +1602,18 @@ function openChart(symbol, change24h) {
   document.querySelectorAll('#chart-intervals .seg-btn').forEach((b) => {
     b.classList.toggle('active', b.dataset.interval === '1h');
   });
+  const buy = document.getElementById('chart-buy');
+  if (buy) buy.textContent = `Купить ${chartSymbol}`;
   showScreen('chart');
   loadChart();
 }
+
+document.getElementById('chart-buy')?.addEventListener('click', () => {
+  const id = String(chartSymbol || 'BTC').toUpperCase();
+  convertFromAsset = 'USDT';
+  convertToAsset = CONVERT_ASSETS.some((a) => a.id === id) ? id : 'BTC';
+  showScreen('convert');
+});
 
 async function fetchKlines(symbol, interval) {
   const pair = `${String(symbol).toUpperCase().replace(/USDT$/, '')}USDT`;
@@ -1668,10 +1743,8 @@ async function loadQuotes() {
     const quotes = await r.json().catch(() => null);
     if (!r.ok || !Array.isArray(quotes)) throw new Error(quotes?.error || 'bad');
     const btcQ = quotes.find((q) => String(q.symbol).toUpperCase() === 'BTC');
-    if (btcQ?.price) {
-      lastBtcPrice = Number(btcQ.price) || lastBtcPrice;
-      if (profile) applyBalanceVisibility();
-    }
+    if (btcQ?.price) lastBtcPrice = Number(btcQ.price) || lastBtcPrice;
+    applyMarketQuotes(quotes);
     document.getElementById('ticker-strip').innerHTML = quotes.slice(0, 6).map((q, i) => {
       const chg = fmtChange(q.change24h);
       return `

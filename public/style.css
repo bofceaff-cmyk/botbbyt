@@ -539,7 +539,9 @@ input:focus { border-color: rgba(247, 166, 0, 0.55); }
   margin-top: 8px; padding: 0; border: none; background: none;
   color: var(--text-2); font: inherit; font-size: 13px; cursor: pointer;
 }
-.assets-pnl .pnl-val { color: var(--green); font-weight: 600; }
+.assets-pnl .pnl-val { font-weight: 600; }
+.assets-pnl .pnl-val.chg-up { color: var(--green); }
+.assets-pnl .pnl-val.chg-down { color: var(--red, #f6465d); }
 .pnl-chevron { color: var(--text-3); }
 .assets-spark {
   width: 88px; height: 44px; flex-shrink: 0; margin-top: 6px; opacity: 0.95;
@@ -772,6 +774,8 @@ input:focus { border-color: rgba(247, 166, 0, 0.55); }
 .assets-coin-row {
   display: flex; align-items: center; justify-content: space-between;
   gap: 12px; padding: 12px 0;
+  width: 100%; border: none; background: none; color: inherit;
+  font: inherit; text-align: left; cursor: pointer;
 }
 .assets-coin-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .assets-coin-ico {
