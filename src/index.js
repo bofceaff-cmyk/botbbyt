@@ -112,7 +112,9 @@ app.listen(PORT, () => {
   const { smtpStatus } = require('./mail');
   const smtp = smtpStatus();
   console.log(`Server running on port ${PORT}`);
-  console.log('[mail]', smtp.ready ? `ready ${smtp.host}:${smtp.port} as ${smtp.user}` : 'NOT configured (SMTP_USER / SMTP_PASS)');
+  console.log('[mail]', smtp.ready
+    ? `ready ${smtp.transport || 'smtp'} ${smtp.host || ''}:${smtp.port} as ${smtp.user || 'http'}`
+    : 'NOT configured');
 });
 startBot().catch((e) => console.error('[bot] start', e.message || e));
 

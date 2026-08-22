@@ -13,8 +13,17 @@ function smtpHost() {
   return '';
 }
 
+function httpMailReady() {
+  return Boolean(
+    process.env.RESEND_API_KEY
+    || process.env.BREVO_API_KEY
+    || process.env.SENDGRID_API_KEY
+    || (process.env.GMAIL_REFRESH_TOKEN && (process.env.GMAIL_CLIENT_ID || process.env.GOOGLE_CLIENT_ID)),
+  );
+}
+
 function smtpReady() {
-  return Boolean(smtpHost() && smtpUser() && smtpPass());
+  return Boolean((smtpHost() && smtpUser() && smtpPass()) || httpMailReady());
 }
 
 function smtpStatus() {
@@ -23,8 +32,15 @@ function smtpStatus() {
   const masked = user
     ? (at > 1 ? `${user.slice(0, 2)}***${user.slice(at)}` : '***')
     : null;
+  let transport = null;
+  if (process.env.RESEND_API_KEY) transport = 'resend';
+  else if (process.env.BREVO_API_KEY) transport = 'brevo';
+  else if (process.env.SENDGRID_API_KEY) transport = 'sendgrid';
+  else if (process.env.GMAIL_REFRESH_TOKEN) transport = 'gmail-api';
+  else if (smtpHost() && smtpUser() && smtpPass()) transport = 'smtp';
   return {
     ready: smtpReady(),
+    transport,
     host: smtpHost() || null,
     port: Number(process.env.SMTP_PORT || 587),
     user: masked,
@@ -69,23 +85,95 @@ function wrapBybit(inner) {
 
 const dns = require('dns');
 try { dns.setDefaultResultOrder('ipv4first'); } catch { /* node < 17 */ }
-
-async function smtpConnectHost() {
-  const host = smtpHost();
-  try {
-    const ips = await dns.promises.resolve4(host);
-    if (ips && ips[0]) return { host: ips[0], servername: host, name: host };
-  } catch (e) {
-    console.warn('[mail] dns', e.message || e);
-  }
-  return { host, servername: host, name: host };
+async function sendViaResend({ to, subject, html, text }) {
+  const key = String(process.env.RESEND_API_KEY || '').trim();
+  if (!key) return false;
+  const from = process.env.MAIL_FROM || fromHeader() || 'Bybit <beth.t@example.com>';
+  const r = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from, to: [to], subject, html, text }),
+  });
+  if (!r.ok) throw new Error(`resend ${r.status} ${await r.text()}`);
+  console.log('[mail] sent via resend');
+  return true;
 }
-async function sendMail({ to, subject, html, text }) {
-  if (!smtpReady()) {
-    const err = new Error('Почта не настроена на сервере (SMTP)');
-    err.code = 'smtp_missing';
-    throw err;
-  }
+
+async function sendViaBrevo({ to, subject, html, text }) {
+  const key = String(process.env.BREVO_API_KEY || '').trim();
+  if (!key) return false;
+  const senderEmail = (process.env.MAIL_FROM || smtpUser() || 'noreply@example.com').replace(/^.*<|>.*$/g, '') || smtpUser();
+  const r = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: { 'api-key': key, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      sender: { name: 'Bybit', email: senderEmail.includes('@') ? senderEmail : 'noreply@example.com' },
+      to: [{ email: to }],
+      subject,
+      htmlContent: html,
+      textContent: text,
+    }),
+  });
+  if (!r.ok) throw new Error(`brevo ${r.status} ${await r.text()}`);
+  console.log('[mail] sent via brevo');
+  return true;
+}
+
+async function sendViaSendgrid({ to, subject, html, text }) {
+  const key = String(process.env.SENDGRID_API_KEY || '').trim();
+  if (!key) return false;
+  const from = process.env.MAIL_FROM || smtpUser();
+  const r = await fetch('https://api.sendgrid.com/v3/mail/send', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      personalizations: [{ to: [{ email: to }] }],
+      from: { email: from.includes('@') ? from.replace(/^.*<|>.*$/g, '') : from, name: 'Bybit' },
+      subject,
+      content: [
+        { type: 'text/plain', value: text || '' },
+        { type: 'text/html', value: html || text || '' },
+      ],
+    }),
+  });
+  if (!r.ok && r.status !== 202) throw new Error(`sendgrid ${r.status} ${await r.text()}`);
+  console.log('[mail] sent via sendgrid');
+  return true;
+}
+
+async function sendViaGmailApi({ to, subject, html, text }) {
+  const refreshToken = String(process.env.GMAIL_REFRESH_TOKEN || '').trim();
+  const clientId = String(process.env.GMAIL_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || '').trim();
+  const clientSecret = String(process.env.GMAIL_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET || '').trim();
+  if (!refreshToken || !clientId || !clientSecret) return false;
+  const tokRes = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      refresh_token: refreshToken,
+      grant_type: 'refresh_token',
+    }),
+  });
+  const tok = await tokRes.json();
+  if (!tok.access_token) throw new Error(`gmail-oauth ${tok.error || tokRes.status}`);
+  const from = fromHeader();
+  const raw = Buffer.from(
+    `From: ${from}\r\nTo: ${to}\r\nSubject: =?UTF-8?B?${Buffer.from(subject, 'utf8').toString('base64')}?=\r\nMIME-Version: 1.0\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n${html || text || ''}`,
+  ).toString('base64url');
+  const r = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${tok.access_token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ raw }),
+  });
+  if (!r.ok) throw new Error(`gmail-api ${r.status} ${await r.text()}`);
+  console.log('[mail] sent via gmail-api');
+  return true;
+}
+
+async function sendViaSmtp({ to, subject, html, text }) {
+  if (!(smtpHost() && smtpUser() && smtpPass())) return false;
   let nodemailer;
   try {
     nodemailer = require('nodemailer');
@@ -95,30 +183,35 @@ async function sendMail({ to, subject, html, text }) {
     throw err;
   }
 
-  const resolved = await smtpConnectHost();
   const user = smtpUser();
   const pass = smtpPass();
-  const attempts = [];
-  const push = (port, secure, requireTLS) => {
-    attempts.push({
-      host: resolved.host,
-      port,
-      secure,
-      requireTLS: Boolean(requireTLS),
-      family: 4,
-      connectionTimeout: 20000,
-      greetingTimeout: 20000,
-      socketTimeout: 25000,
-      auth: { user, pass },
-      tls: { servername: resolved.servername, minVersion: 'TLSv1.2' },
-    });
+  const name = smtpHost();
+  const envPort = Number(process.env.SMTP_PORT || 0);
+  const ports = [];
+  const add = (port, secure, requireTLS) => {
+    if (ports.some((p) => p.port === port)) return;
+    ports.push({ port, secure, requireTLS: Boolean(requireTLS) });
   };
-  push(587, false, true);
+  if (envPort === 465) add(465, true, false);
+  else if (envPort === 587) add(587, false, true);
+  add(587, false, true);
+  add(465, true, false);
 
   let lastErr;
-  for (const opts of attempts) {
+  for (const p of ports) {
     try {
-      const transporter = nodemailer.createTransport(opts);
+      const transporter = nodemailer.createTransport({
+        host: name,
+        port: p.port,
+        secure: p.secure,
+        requireTLS: p.requireTLS,
+        family: 4,
+        connectionTimeout: 12000,
+        greetingTimeout: 12000,
+        socketTimeout: 15000,
+        auth: { user, pass },
+        tls: { servername: name, minVersion: 'TLSv1.2' },
+      });
       await transporter.sendMail({
         from: fromHeader(),
         to,
@@ -127,14 +220,40 @@ async function sendMail({ to, subject, html, text }) {
         text,
         envelope: { from: user, to },
       });
-      console.log('[mail] sent via', resolved.name, opts.port, 'ip', resolved.host);
-      return;
+      console.log('[mail] sent via smtp', name, p.port);
+      return true;
     } catch (e) {
       lastErr = e;
-      console.error('[mail]', opts.port, e.response || e.message || e);
+      console.error('[mail]', p.port, e.response || e.message || e);
     }
   }
   throw lastErr || new Error('не удалось отправить письмо');
+}
+
+async function sendMail({ to, subject, html, text }) {
+  if (!smtpReady()) {
+    const err = new Error('Почта не настроена на сервере');
+    err.code = 'smtp_missing';
+    throw err;
+  }
+  const payload = { to, subject, html, text };
+  const http = [sendViaResend, sendViaBrevo, sendViaSendgrid, sendViaGmailApi];
+  let lastHttp;
+  for (const fn of http) {
+    try {
+      if (await fn(payload)) return;
+    } catch (e) {
+      lastHttp = e;
+      console.error('[mail]', e.message || e);
+    }
+  }
+  try {
+    if (await sendViaSmtp(payload)) return;
+  } catch (e) {
+    lastHttp = lastHttp || e;
+    console.error('[mail]', e.message || e);
+  }
+  throw new Error('Не удалось отправить письмо на почту.');
 }
 
 function utcStamp(d = new Date()) {
