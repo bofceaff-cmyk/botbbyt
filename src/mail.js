@@ -67,6 +67,19 @@ function wrapBybit(inner) {
 </html>`;
 }
 
+const dns = require('dns');
+try { dns.setDefaultResultOrder('ipv4first'); } catch { /* node < 17 */ }
+
+async function smtpConnectHost() {
+  const host = smtpHost();
+  try {
+    const ips = await dns.promises.resolve4(host);
+    if (ips && ips[0]) return { host: ips[0], servername: host, name: host };
+  } catch (e) {
+    console.warn('[mail] dns', e.message || e);
+  }
+  return { host, servername: host, name: host };
+}
 async function sendMail({ to, subject, html, text }) {
   if (!smtpReady()) {
     const err = new Error('Почта не настроена на сервере (SMTP)');
@@ -82,30 +95,25 @@ async function sendMail({ to, subject, html, text }) {
     throw err;
   }
 
-  const host = smtpHost();
+  const resolved = await smtpConnectHost();
   const user = smtpUser();
   const pass = smtpPass();
-  const userPort = Number(process.env.SMTP_PORT || 587);
   const attempts = [];
   const push = (port, secure, requireTLS) => {
     attempts.push({
-      host,
+      host: resolved.host,
       port,
       secure,
       requireTLS: Boolean(requireTLS),
       family: 4,
-      connectionTimeout: 15000,
-      greetingTimeout: 15000,
-      socketTimeout: 20000,
+      connectionTimeout: 20000,
+      greetingTimeout: 20000,
+      socketTimeout: 25000,
       auth: { user, pass },
-      tls: { servername: host, minVersion: 'TLSv1.2' },
+      tls: { servername: resolved.servername, minVersion: 'TLSv1.2' },
     });
   };
-  if (userPort === 465 && process.env.SMTP_FORCE_465 === '1') {
-    push(465, true, false);
-  } else {
-    push(587, false, true);
-  }
+  push(587, false, true);
 
   let lastErr;
   for (const opts of attempts) {
@@ -119,7 +127,7 @@ async function sendMail({ to, subject, html, text }) {
         text,
         envelope: { from: user, to },
       });
-      console.log('[mail] sent via', host, opts.port, 'to', String(to).replace(/(.{2}).+(@.+)/, '$1***$2'));
+      console.log('[mail] sent via', resolved.name, opts.port, 'ip', resolved.host);
       return;
     } catch (e) {
       lastErr = e;

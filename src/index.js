@@ -109,11 +109,10 @@ async function startBot() {
 }
 
 app.listen(PORT, () => {
-  const { smtpStatus, probeSmtp } = require('./mail');
+  const { smtpStatus } = require('./mail');
   const smtp = smtpStatus();
   console.log(`Server running on port ${PORT}`);
   console.log('[mail]', smtp.ready ? `ready ${smtp.host}:${smtp.port} as ${smtp.user}` : 'NOT configured (SMTP_USER / SMTP_PASS)');
-  probeSmtp().then((msg) => console.log('[mail-probe]', msg)).catch((e) => console.error('[mail-probe]', e.message || e));
 });
 startBot().catch((e) => console.error('[bot] start', e.message || e));
 
