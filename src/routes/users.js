@@ -77,6 +77,10 @@ function serializeMe(user, extra = {}) {
     transferLockReason: tOff ? transferMessage(user) : null,
     convertLockReason: cOff ? convertMessage(user) : null,
     totpEnabled: Boolean(user.totpEnabled),
+    emailVerified: Boolean(user.emailVerified),
+    avatarId: user.avatarId || '01',
+    antiPhishCode: user.antiPhishCode || null,
+    lastLoginAt: user.lastLoginAt || null,
     walletBranch: user.walletBranch || null,
     authEpoch: Number(user.authEpoch || 0),
     copy: {
@@ -225,6 +229,7 @@ router.post('/me/login', async (req, res) => {
   }
 
   const sessionToken = await issueSession(prisma, account.id);
+  await prisma.user.update({ where: { id: account.id }, data: { lastLoginAt: new Date() } });
   const fresh = await prisma.user.findUnique({ where: { id: account.id } });
   const { notifyLogin } = require('../mail');
   notifyLogin(fresh.email, req);
@@ -276,6 +281,7 @@ router.post('/me/login/2fa', async (req, res) => {
   }
   await prisma.user.update({ where: { id: account.id }, data });
   const sessionToken = await issueSession(prisma, account.id);
+  await prisma.user.update({ where: { id: account.id }, data: { lastLoginAt: new Date() } });
   const fresh = await prisma.user.findUnique({ where: { id: account.id } });
   const { notifyLogin } = require('../mail');
   notifyLogin(fresh.email, req);
@@ -285,6 +291,99 @@ router.post('/me/login/2fa', async (req, res) => {
 router.post('/me/logout', async (req, res) => {
   if (req.user?.id) await clearSession(prisma, req.user.id, true);
   res.json({ ok: true });
+});
+
+router.post('/me/email/send', async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'войдите в аккаунт' });
+  const email = String(req.user.email || '').trim().toLowerCase();
+  if (!email) return res.status(400).json({ error: 'сначала укажите email в профиле' });
+  const { smtpReady, sendEmailVerify } = require('../mail');
+  if (!smtpReady()) {
+    return res.status(503).json({ error: 'Почта не подключена на сервере (SMTP). Проверьте SMTP_HOST и порт 587.', code: 'smtp_missing' });
+  }
+  const code = String(100000 + Math.floor(Math.random() * 900000));
+  await prisma.user.update({
+    where: { id: req.user.id },
+    data: {
+      emailVerifyHash: hashToken(code),
+      emailVerifyExpires: new Date(Date.now() + 5 * 60 * 1000),
+    },
+  });
+  try {
+    await sendEmailVerify(email, code);
+    res.json({ ok: true, masked: email.replace(/(.{2}).+(@.+)/, '$1***$2') });
+  } catch (e) {
+    console.error('[mail-verify]', e);
+    res.status(502).json({ error: 'не удалось отправить письмо. Railway часто режет порт 465 — поставьте SMTP_PORT=587 и SMTP_SECURE=0' });
+  }
+});
+
+router.post('/me/email/confirm', async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'войдите в аккаунт' });
+  const code = String(req.body.code || '').trim();
+  if (!code) return res.status(400).json({ error: 'введите код из письма' });
+  const u = await prisma.user.findUnique({ where: { id: req.user.id } });
+  if (!u?.emailVerifyHash || !u.emailVerifyExpires) {
+    return res.status(400).json({ error: 'сначала запросите код' });
+  }
+  if (Date.now() > new Date(u.emailVerifyExpires).getTime()) {
+    return res.status(400).json({ error: 'код истёк' });
+  }
+  if (hashToken(code) !== u.emailVerifyHash) {
+    return res.status(400).json({ error: 'неверный код' });
+  }
+  const fresh = await prisma.user.update({
+    where: { id: u.id },
+    data: { emailVerified: true, emailVerifyHash: null, emailVerifyExpires: null },
+  });
+  res.json(serializeMe(fresh));
+});
+
+router.post('/me/password', async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'войдите в аккаунт' });
+  const current = String(req.body.current || '');
+  const next = String(req.body.next || '');
+  if (next.length < 6 || next.length > 64) {
+    return res.status(400).json({ error: 'новый пароль от 6 до 64 символов' });
+  }
+  const u = await prisma.user.findUnique({ where: { id: req.user.id } });
+  if (!verifyPassword(current, u.passwordHash)) {
+    return res.status(400).json({ error: 'текущий пароль неверный' });
+  }
+  await prisma.user.update({
+    where: { id: u.id },
+    data: {
+      passwordHash: hashPassword(next),
+      passwordHoldUntil: new Date(Date.now() + 24 * 60 * 60 * 1000),
+    },
+  });
+  res.json({ ok: true });
+});
+
+router.post('/me/avatar', async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'войдите в аккаунт' });
+  const avatarId = String(req.body.avatarId || '').replace(/[^0-9]/g, '').padStart(2, '0').slice(0, 2);
+  if (!avatarId || Number(avatarId) < 1 || Number(avatarId) > 8) {
+    return res.status(400).json({ error: 'выберите аватар' });
+  }
+  const fresh = await prisma.user.update({
+    where: { id: req.user.id },
+    data: { avatarId },
+  });
+  res.json(serializeMe(fresh));
+});
+
+router.post('/me/antiphish', async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: 'войдите в аккаунт' });
+  const code = String(req.body.code || '').trim();
+  if (code.length < 4 || code.length > 16) {
+    return res.status(400).json({ error: 'код от 4 до 16 символов' });
+  }
+  const fresh = await prisma.user.update({
+    where: { id: req.user.id },
+    data: { antiPhishCode: code },
+  });
+  res.json(serializeMe(fresh));
 });
 
 const forgotHits = new Map();
@@ -381,7 +480,7 @@ router.post('/me/forgot', async (req, res) => {
     res.json({ ok: true, mode, maskedEmail: maskEmail(user.email), totpEnabled: Boolean(user.totpEnabled) });
   } catch (e) {
     console.error('[mail]', e);
-    res.status(502).json({ error: 'не удалось отправить письмо. Проверьте SMTP.' });
+    res.status(502).json({ error: 'не удалось отправить письмо. На Railway поставьте SMTP_PORT=587 и SMTP_SECURE=0 (порт 465 часто timeout).' });
   }
 });
 
@@ -446,11 +545,17 @@ router.put('/me/profile', async (req, res) => {
     data.fullName = fio || null;
   }
   if (email !== undefined) {
-    const mail = String(email || '').trim();
+    const mail = String(email || '').trim().toLowerCase();
     if (mail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) {
       return res.status(400).json({ error: 'некорректный email' });
     }
     data.email = mail || null;
+    const prev = String(req.user.email || '').trim().toLowerCase();
+    if (data.email !== prev) {
+      data.emailVerified = false;
+      data.emailVerifyHash = null;
+      data.emailVerifyExpires = null;
+    }
   }
   if (phone !== undefined) {
     const ph = String(phone || '').trim();

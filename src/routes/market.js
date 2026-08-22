@@ -388,6 +388,119 @@ router.get('/klines', async (req, res) => {
   }
 });
 
+const depthCache = new Map();
+router.get('/depth', async (req, res) => {
+  try {
+    const symbol = String(req.query.symbol || 'BTCUSDT').toUpperCase().replace(/[^A-Z0-9]/g, '') || 'BTCUSDT';
+    const pair = symbol.endsWith('USDT') ? symbol : `${symbol}USDT`;
+    const futures = String(req.query.market || '') === 'futures';
+    const key = `${futures ? 'f' : 's'}:${pair}`;
+    const hit = depthCache.get(key);
+    if (hit && Date.now() - hit.at < 1500) return res.json(hit.data);
+    const url = futures
+      ? `https://fapi.binance.com/fapi/v1/depth?symbol=${pair}&limit=12`
+      : `https://api.binance.com/api/v3/depth?symbol=${pair}&limit=12`;
+    const raw = await fetchJson(url, 6000);
+    const data = {
+      pair,
+      bids: (raw.bids || []).map((x) => ({ price: Number(x[0]), qty: Number(x[1]) })),
+      asks: (raw.asks || []).map((x) => ({ price: Number(x[0]), qty: Number(x[1]) })),
+    };
+    depthCache.set(key, { at: Date.now(), data });
+    res.json(data);
+  } catch (e) {
+    res.status(502).json({ error: 'стакан недоступен' });
+  }
+});
+
+let futCache = { at: 0, data: null };
+router.get('/futures', async (req, res) => {
+  try {
+    const symbol = String(req.query.symbol || 'BTCUSDT').toUpperCase().replace(/[^A-Z0-9]/g, '') || 'BTCUSDT';
+    const pair = symbol.endsWith('USDT') ? symbol : `${symbol}USDT`;
+    if (futCache.data && futCache.pair === pair && Date.now() - futCache.at < 2000) {
+      return res.json(futCache.data);
+    }
+    const [t, p] = await Promise.all([
+      fetchJson(`https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=${pair}`, 6000),
+      fetchJson(`https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${pair}`, 6000),
+    ]);
+    const data = {
+      pair,
+      price: Number(t.lastPrice),
+      change24h: Number(t.priceChangePercent),
+      high24h: Number(t.highPrice),
+      low24h: Number(t.lowPrice),
+      volume24h: Number(t.quoteVolume),
+      mark: Number(p.markPrice),
+      index: Number(p.indexPrice),
+      funding: Number(p.lastFundingRate) * 100,
+      nextFunding: p.nextFundingTime,
+    };
+    futCache = { at: Date.now(), pair, data };
+    res.json(data);
+  } catch (e) {
+    res.status(502).json({ error: 'фьючерсы недоступны' });
+  }
+});
+
+const coinCache = new Map();
+router.get('/coin', async (req, res) => {
+  try {
+    const symbol = String(req.query.symbol || 'BTC').toUpperCase().replace(/USDT$/, '');
+    const coin = COINS.find((c) => c.symbol === symbol) || COINS[0];
+    const hit = coinCache.get(coin.id);
+    if (hit && Date.now() - hit.at < 10 * 60 * 1000) return res.json(hit.data);
+    const raw = await fetchJson(
+      `https://api.coingecko.com/api/v3/coins/${coin.id}?localization=true&tickers=false&community_data=false&developer_data=false&sparkline=false`,
+      8000,
+    );
+    const md = raw.market_data || {};
+    const data = {
+      symbol: coin.symbol,
+      name: coin.name,
+      description: String(raw.description?.ru || raw.description?.en || '').replace(/<[^>]+>/g, '').slice(0, 600),
+      homepage: raw.links?.homepage?.[0] || null,
+      github: raw.links?.repos_url?.github?.[0] || null,
+      twitter: raw.links?.twitter_screen_name || null,
+      telegram: raw.links?.telegram_channel_identifier || null,
+      marketCap: md.market_cap?.usd ?? null,
+      fdv: md.fully_diluted_valuation?.usd ?? null,
+      circulating: md.circulating_supply ?? null,
+      total: md.total_supply ?? null,
+      max: md.max_supply ?? null,
+    };
+    coinCache.set(coin.id, { at: Date.now(), data });
+    res.json(data);
+  } catch (e) {
+    res.status(502).json({ error: 'обзор недоступен' });
+  }
+});
+
+const ALPHA_SYMS = ['TRUMPUSDT', 'HYPEUSDT', 'PEPEUSDT', 'BONKUSDT', 'WIFUSDT', '1000SATSUSDT'];
+let alphaCache = { at: 0, data: null };
+router.get('/alpha', async (_req, res) => {
+  try {
+    if (alphaCache.data && Date.now() - alphaCache.at < 8000) return res.json(alphaCache.data);
+    const raw = await fetchJson(
+      `https://api.binance.com/api/v3/ticker/24hr?symbols=${encodeURIComponent(JSON.stringify(ALPHA_SYMS))}`,
+      8000,
+    );
+    const list = (Array.isArray(raw) ? raw : []).map((r) => ({
+      symbol: String(r.symbol).replace(/USDT$/, ''),
+      pair: r.symbol,
+      price: Number(r.lastPrice),
+      change24h: Number(r.priceChangePercent),
+      volume24h: Number(r.quoteVolume),
+    }));
+    alphaCache = { at: Date.now(), data: list };
+    res.json(list);
+  } catch (e) {
+    if (alphaCache.data) return res.json(alphaCache.data);
+    res.status(502).json({ error: 'alpha недоступен' });
+  }
+});
+
 router.use((_req, res) => {
   res.status(404).json({ error: 'unknown market endpoint' });
 });

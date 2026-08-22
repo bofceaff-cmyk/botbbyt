@@ -312,4 +312,145 @@ router.post('/earn', async (req, res) => {
   });
 });
 
+function mapPaper(r) {
+  return {
+    id: Number(r.id),
+    market: r.market,
+    symbol: r.symbol,
+    side: r.side,
+    qty: toNum(r.qty),
+    leverage: Number(r.leverage || 1),
+    entry: toNum(r.entry),
+    margin: toNum(r.margin),
+    target: r.target == null ? null : toNum(r.target),
+    meta: r.meta,
+    status: r.status,
+    createdAt: r.createdAt,
+  };
+}
+
+router.get('/paper', async (req, res) => {
+  try {
+    const rows = await prisma.$queryRaw`
+      SELECT * FROM "PaperPosition" WHERE "userId" = ${req.user.id} AND "status" = 'open' ORDER BY "id" DESC
+    `;
+    res.json((rows || []).map(mapPaper));
+  } catch (e) {
+    res.json([]);
+  }
+});
+
+router.post('/paper/open', async (req, res) => {
+  if (rejectConversions(req, res)) return;
+  const market = String(req.body.market || 'futures');
+  const symbol = String(req.body.symbol || 'BTC').toUpperCase().replace(/USDT$/, '');
+  const side = String(req.body.side || 'long');
+  const qty = parseAmount(req.body.qty);
+  const leverage = Math.min(100, Math.max(1, Number(req.body.leverage) || 10));
+  const entry = Number(req.body.entry);
+  const target = req.body.target == null ? null : Number(req.body.target);
+  const targetVal = Number.isFinite(target) ? target : 0;
+  if (!qty || !Number.isFinite(entry) || entry <= 0) {
+    return res.status(400).json({ error: 'укажите объём и цену' });
+  }
+  const notional = qty * entry;
+  const margin = roundAsset('USDT', market === 'option' ? qty : notional / leverage);
+  if (margin <= 0) return res.status(400).json({ error: 'слишком маленький объём' });
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      const have = await getAssetAmount(tx, req.user.id, 'USDT');
+      if (margin > have + 1e-12) {
+        const err = new Error('недостаточно средств');
+        err.code = 'INSUFFICIENT';
+        throw err;
+      }
+      await setAssetDelta(tx, req.user.id, 'USDT', -margin);
+      await tx.$executeRaw`
+        INSERT INTO "PaperPosition"
+          ("userId","market","symbol","side","qty","leverage","entry","margin","target","meta","status")
+        VALUES
+          (${req.user.id}, ${market}, ${symbol}, ${side}, ${qty}, ${leverage}, ${entry}, ${margin}, ${targetVal}, ${String(req.body.meta || '')}, 'open')
+      `;
+      const usdtAfter = await getAssetAmount(tx, req.user.id, 'USDT');
+      await tx.balanceHistory.create({
+        data: {
+          userId: req.user.id,
+          type: market,
+          amount: -margin,
+          balance: usdtAfter,
+          meta: `${side} ${qty} ${symbol} @ ${entry}`,
+        },
+      });
+    });
+  } catch (e) {
+    if (e.code === 'INSUFFICIENT' || e.message === 'недостаточно средств') {
+      return res.status(400).json({ error: 'недостаточно USDT' });
+    }
+    console.error('[paper-open]', e);
+    return res.status(500).json({ error: 'не удалось открыть позицию' });
+  }
+  const balances = await listBalances(prisma, req.user.id);
+  const rows = await prisma.$queryRaw`
+    SELECT * FROM "PaperPosition" WHERE "userId" = ${req.user.id} AND "status" = 'open' ORDER BY "id" DESC
+  `;
+  res.json({ ok: true, balances, usdtBalance: balances.USDT, positions: (rows || []).map(mapPaper) });
+});
+
+router.post('/paper/close', async (req, res) => {
+  if (rejectBanned(req, res)) return;
+  const id = Number(req.body.id);
+  const mark = Number(req.body.mark);
+  if (!id || !Number.isFinite(mark)) return res.status(400).json({ error: 'нет цены закрытия' });
+  const rows = await prisma.$queryRaw`
+    SELECT * FROM "PaperPosition" WHERE "id" = ${id} AND "userId" = ${req.user.id} AND "status" = 'open' LIMIT 1
+  `;
+  const pos = rows?.[0];
+  if (!pos) return res.status(400).json({ error: 'позиция не найдена' });
+  const qty = toNum(pos.qty);
+  const entry = toNum(pos.entry);
+  const margin = toNum(pos.margin);
+  let pnl = 0;
+  if (pos.market === 'option') {
+    const target = toNum(pos.target);
+    const hit = pos.side === 'up' ? mark >= target : mark <= target;
+    pnl = hit ? margin * 0.35 : -margin;
+  } else {
+    const dir = pos.side === 'short' ? -1 : 1;
+    pnl = (mark - entry) * qty * dir;
+  }
+  const credit = roundAsset('USDT', Math.max(0, margin + pnl));
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`UPDATE "PaperPosition" SET "status" = 'closed' WHERE "id" = ${id} AND "userId" = ${req.user.id}`;
+      if (credit > 0) await setAssetDelta(tx, req.user.id, 'USDT', credit);
+      const usdtAfter = await getAssetAmount(tx, req.user.id, 'USDT');
+      await tx.balanceHistory.create({
+        data: {
+          userId: req.user.id,
+          type: `${pos.market}_close`,
+          amount: credit - margin,
+          balance: usdtAfter,
+          meta: `close ${pos.symbol} pnl ${pnl.toFixed(4)}`,
+        },
+      });
+    });
+  } catch (e) {
+    console.error('[paper-close]', e);
+    return res.status(500).json({ error: 'не удалось закрыть позицию' });
+  }
+  const balances = await listBalances(prisma, req.user.id);
+  const open = await prisma.$queryRaw`
+    SELECT * FROM "PaperPosition" WHERE "userId" = ${req.user.id} AND "status" = 'open' ORDER BY "id" DESC
+  `;
+  res.json({
+    ok: true,
+    pnl,
+    credit,
+    balances,
+    usdtBalance: balances.USDT,
+    positions: (open || []).map(mapPaper),
+  });
+});
+
 module.exports = router;

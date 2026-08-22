@@ -289,6 +289,34 @@ router.post('/users/:id/kick', async (req, res) => {
   res.json(serializeUser(updated));
 });
 
+router.delete('/users/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  const user = await prisma.user.findUnique({ where: { id } });
+  if (!user) return res.status(404).json({ error: 'пользователь не найден' });
+  try {
+    await prisma.$transaction(async (tx) => {
+      const threads = await tx.supportThread.findMany({ where: { userId: id }, select: { id: true } });
+      const tids = threads.map((t) => t.id);
+      if (tids.length) {
+        await tx.supportMessage.deleteMany({ where: { threadId: { in: tids } } });
+      }
+      await tx.supportThread.deleteMany({ where: { userId: id } });
+      await tx.kycDocument.deleteMany({ where: { userId: id } });
+      await tx.depositAddress.deleteMany({ where: { userId: id } });
+      await tx.assetBalance.deleteMany({ where: { userId: id } });
+      await tx.financeRequest.deleteMany({ where: { userId: id } });
+      await tx.balanceHistory.deleteMany({ where: { userId: id } });
+      await tx.transfer.deleteMany({ where: { OR: [{ fromUserId: id }, { toUserId: id }] } });
+      await tx.$executeRaw`DELETE FROM "PaperPosition" WHERE "userId" = ${id}`;
+      await tx.user.delete({ where: { id } });
+    });
+    res.json({ ok: true, id });
+  } catch (e) {
+    console.error('[admin-delete-user]', e);
+    res.status(500).json({ error: 'не удалось удалить аккаунт: ' + (e.message || 'ошибка БД') });
+  }
+});
+
 // Изменить баланс: credit (внести) / debit (списать) / adjust (установить итог)
 router.post('/users/:id/credit', async (req, res) => {
   const id = Number(req.params.id);
