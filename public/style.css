@@ -19,6 +19,38 @@
   --topbar-h: 56px;
 }
 
+html[data-theme="light"] {
+  --bg: #f4f5f7;
+  --bg-elevated: #ffffff;
+  --panel: #ffffff;
+  --panel-2: #eef0f3;
+  --line: #d9dee6;
+  --line-soft: #e6e9ee;
+  --text: #111827;
+  --text-2: #5b6472;
+  --text-3: #8a93a0;
+}
+html[data-theme="light"] body,
+html[data-theme="light"] .auth-gate,
+html[data-theme="light"] .auth-sheet,
+html[data-theme="light"] .screen-trade,
+html[data-theme="light"] #screen-profile {
+  background: var(--bg);
+  color: var(--text);
+}
+
+.totp-copy-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+  margin: 8px 0 10px;
+}
+.totp-copy-row input {
+  flex: 1;
+  margin: 0;
+  font-size: 13px;
+  user-select: all;
+}
 * { box-sizing: border-box; }
 html, body {
   height: 100%;

@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=19">
+<link rel="stylesheet" href="style.css?v=20">
 </head>
 <body>
 <div id="auth-gate" class="auth-gate">
@@ -222,10 +222,10 @@
   <!-- TRADE -->
   <section id="screen-trade" class="screen screen-trade screen-hidden">
     <div class="trade-products" id="trade-products">
-      <button type="button" class="trade-prod" data-prod="convert">Конвертация</button>
-      <button type="button" class="trade-prod active" data-prod="spot">Спот</button>
-      <button type="button" class="trade-prod" data-prod="futures">Фьючерсы</button>
-      <button type="button" class="trade-prod" data-prod="options">Опцион</button>
+      <button type="button" class="trade-prod" data-prod="convert" data-i18n="trade.convert">Конвертация</button>
+      <button type="button" class="trade-prod active" data-prod="spot" data-i18n="trade.spot">Спот</button>
+      <button type="button" class="trade-prod" data-prod="futures" data-i18n="trade.futures">Фьючерсы</button>
+      <button type="button" class="trade-prod" data-prod="options" data-i18n="trade.options">Опцион</button>
       <button type="button" class="trade-prod" data-prod="alpha">Alpha</button>
     </div>
 
@@ -479,7 +479,7 @@
         <div class="assets-total-left">
           <div class="assets-total-line">
             <span class="mono assets-total-num" id="wallet-balance">0.00</span>
-            <span class="assets-ccy">USD <span class="assets-ccy-caret">▾</span></span>
+            <span class="assets-ccy" id="assets-ccy-label">USD <span class="assets-ccy-caret">▾</span></span>
           </div>
           <div class="assets-btc" id="wallet-btc">≈ 0.00000000 BTC</div>
           <button type="button" class="assets-pnl" id="wallet-pnl">
@@ -616,7 +616,7 @@
   <section id="screen-profile" class="screen screen-hidden">
     <div class="uc-top">
       <button type="button" class="back-btn" data-back="markets" style="position:static;margin:0">←</button>
-      <h1>Центр пользователя</h1>
+      <h1 data-i18n="uc.title">Центр пользователя</h1>
       <div class="uc-top-right">
         <button type="button" class="uc-icon-btn" id="uc-lang-btn" aria-label="Язык">🌐</button>
       </div>
@@ -641,10 +641,10 @@
     </div>
 
     <div class="uc-tabs" id="uc-tabs">
-      <button type="button" class="uc-tab active" data-uc="data">Мои данные</button>
-      <button type="button" class="uc-tab" data-uc="security">Безопасность</button>
-      <button type="button" class="uc-tab" data-uc="params">Параметры</button>
-      <button type="button" class="uc-tab" data-uc="general">Общее</button>
+      <button type="button" class="uc-tab active" data-uc="data" data-i18n="uc.data">Мои данные</button>
+      <button type="button" class="uc-tab" data-uc="security" data-i18n="uc.security">Безопасность</button>
+      <button type="button" class="uc-tab" data-uc="params" data-i18n="uc.params">Параметры</button>
+      <button type="button" class="uc-tab" data-uc="general" data-i18n="uc.general">Общее</button>
     </div>
 
     <div id="uc-pane-data">
@@ -711,7 +711,12 @@
       <p class="muted" id="totp-status" style="padding:0 4px 8px">Двухфакторная защита входа выключена.</p>
       <div id="totp-setup" class="screen-hidden uc-form">
         <div id="totp-qr" class="totp-qr"></div>
-        <div class="muted mono" id="totp-secret" style="word-break:break-all;margin:8px 0"></div>
+        <label>Ключ аутентификатора</label>
+        <div class="totp-copy-row">
+          <input type="text" class="mono" id="totp-secret" readonly>
+          <button type="button" class="btn-secondary" id="totp-copy-secret">Копировать</button>
+        </div>
+        <button type="button" class="btn-ghost full" id="totp-copy-otpauth">Копировать ссылку otpauth://</button>
         <label>Код из приложения</label>
         <input type="text" id="totp-enable-code" inputmode="numeric" maxlength="8" placeholder="000000" autocomplete="one-time-code">
         <div class="error" id="totp-error"></div>
@@ -747,6 +752,10 @@
         <input type="password" id="uc-pwd-new" autocomplete="new-password">
         <label>Повтор</label>
         <input type="password" id="uc-pwd-new2" autocomplete="new-password">
+        <div id="uc-pwd-totp-wrap" class="screen-hidden">
+          <label>Код Google Authenticator</label>
+          <input type="text" id="uc-pwd-totp" inputmode="numeric" maxlength="8" placeholder="000000" autocomplete="one-time-code">
+        </div>
         <div class="error" id="uc-pwd-error"></div>
         <button type="button" class="btn-primary full" id="uc-pwd-save">Сохранить пароль</button>
       </div>
@@ -754,15 +763,15 @@
     </div>
 
     <div id="uc-pane-params" class="screen-hidden">
-      <button type="button" class="uc-row"><span class="uc-ico">⏰</span><span class="uc-label">Ориентировочный часовой пояс</span><span class="uc-val">Последние 24 часа</span><span class="uc-chev">›</span></button>
+      <button type="button" class="uc-row" id="uc-tz-row"><span class="uc-ico">⏰</span><span class="uc-label" data-i18n="tz">Ориентировочный часовой пояс</span><span class="uc-val" id="uc-tz-val">UTC+3</span><span class="uc-chev">›</span></button>
       <button type="button" class="uc-row" id="open-withdraw-from-profile"><span class="uc-ico">👛</span><span class="uc-label">Адрес вывода</span><span class="uc-chev">›</span></button>
       <button type="button" class="uc-row" id="open-support"><span class="uc-ico">🔔</span><span class="uc-label">Настройки уведомлений</span><span class="uc-chev">›</span></button>
     </div>
 
     <div id="uc-pane-general" class="screen-hidden">
-      <button type="button" class="uc-row" id="uc-lang-row"><span class="uc-ico">文</span><span class="uc-label">Язык</span><span class="uc-val">Русский</span><span class="uc-chev">›</span></button>
-      <button type="button" class="uc-row"><span class="uc-ico">$</span><span class="uc-label">Курс</span><span class="uc-val">USD</span><span class="uc-chev">›</span></button>
-      <button type="button" class="uc-row"><span class="uc-ico">🌙</span><span class="uc-label">Настройки темы</span><span class="uc-val">Ночной режим</span><span class="uc-chev">›</span></button>
+      <button type="button" class="uc-row" id="uc-lang-row"><span class="uc-ico">文</span><span class="uc-label" data-i18n="lang">Язык</span><span class="uc-val" id="uc-lang-val">Русский</span><span class="uc-chev">›</span></button>
+      <button type="button" class="uc-row" id="uc-fiat-row"><span class="uc-ico">$</span><span class="uc-label" data-i18n="fiat">Курс</span><span class="uc-val" id="uc-fiat-val">USD</span><span class="uc-chev">›</span></button>
+      <button type="button" class="uc-row" id="uc-theme-row"><span class="uc-ico">🌙</span><span class="uc-label" data-i18n="theme">Настройки темы</span><span class="uc-val" id="uc-theme-val">Ночной режим</span><span class="uc-chev">›</span></button>
       <a class="uc-row" href="https://www.bybit.com/ru-RU/help-center/" target="_blank" rel="noopener" style="text-decoration:none"><span class="uc-ico">?</span><span class="uc-label">Справочный центр</span><span class="uc-chev">›</span></a>
     </div>
 
@@ -1098,19 +1107,19 @@
     <span class="tab-ico" aria-hidden="true">
       <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 3.2 3 11h2.2v8.2h5.1v-5.2h3.4v5.2h5.1V11H21L12 3.2z"/></svg>
     </span>
-    <span>Главная</span>
+    <span data-i18n="tab.home">Главная</span>
   </button>
   <button class="tab" data-tab="tickers">
     <span class="tab-ico" aria-hidden="true">
       <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="5" width="16" height="14" rx="3"/><path d="M7 15.5 10.2 11l2.6 3 4.2-5.5"/></svg>
     </span>
-    <span>Рынки</span>
+    <span data-i18n="tab.markets">Рынки</span>
   </button>
   <button class="tab" data-tab="trade">
     <span class="tab-ico" aria-hidden="true">
       <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="5" width="16" height="14" rx="3"/><path d="M7 9h7M7 12h10M7 15h5"/></svg>
     </span>
-    <span>Торговать</span>
+    <span data-i18n="tab.trade">Торговать</span>
   </button>
   <button class="tab" data-tab="tradfi">
     <span class="tab-ico" aria-hidden="true">
@@ -1122,7 +1131,7 @@
     <span class="tab-ico" aria-hidden="true">
       <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3.5" y="6" width="17" height="12.5" rx="2.5"/><path d="M16.2 12.2h3.3v2.6H16.2a1.3 1.3 0 1 1 0-2.6z"/></svg>
     </span>
-    <span>Активы</span>
+    <span data-i18n="tab.assets">Активы</span>
   </button>
 </nav>
 </div>
@@ -1134,6 +1143,6 @@
     <button type="button" class="btn-primary full" id="ban-support">Написать в поддержку</button>
   </div>
 </div>
-<script src="app.js?v=19"></script>
+<script src="app.js?v=20"></script>
 </body>
 </html>

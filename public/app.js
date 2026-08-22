@@ -326,6 +326,110 @@ document.addEventListener('pointerdown', (e) => {
 }, true);
 bindAmountInputs();
 
+const I18N = {
+  ru: {
+    'tab.home': 'Главная', 'tab.markets': 'Рынки', 'tab.trade': 'Торговать', 'tab.assets': 'Активы',
+    'trade.convert': 'Конвертация', 'trade.spot': 'Спот', 'trade.futures': 'Фьючерсы', 'trade.options': 'Опцион',
+    'uc.title': 'Центр пользователя', 'uc.data': 'Мои данные', 'uc.security': 'Безопасность',
+    'uc.params': 'Параметры', 'uc.general': 'Общее',
+    tz: 'Ориентировочный часовой пояс', lang: 'Язык', fiat: 'Курс', theme: 'Настройки темы',
+    langRu: 'Русский', langEn: 'English', themeDark: 'Ночной режим', themeLight: 'Дневной режим',
+  },
+  en: {
+    'tab.home': 'Home', 'tab.markets': 'Markets', 'tab.trade': 'Trade', 'tab.assets': 'Assets',
+    'trade.convert': 'Convert', 'trade.spot': 'Spot', 'trade.futures': 'Futures', 'trade.options': 'Options',
+    'uc.title': 'User Center', 'uc.data': 'My data', 'uc.security': 'Security',
+    'uc.params': 'Preferences', 'uc.general': 'General',
+    tz: 'Estimated time zone', lang: 'Language', fiat: 'Currency', theme: 'Theme',
+    langRu: 'Русский', langEn: 'English', themeDark: 'Dark mode', themeLight: 'Light mode',
+  },
+};
+const TZ_LIST = [
+  { id: 'UTC-8', off: -8 }, { id: 'UTC-5', off: -5 }, { id: 'UTC+0', off: 0 },
+  { id: 'UTC+1', off: 1 }, { id: 'UTC+2', off: 2 }, { id: 'UTC+3', off: 3 },
+  { id: 'UTC+4', off: 4 }, { id: 'UTC+8', off: 8 },
+];
+function loadPrefs() {
+  try { return JSON.parse(localStorage.getItem('byx_prefs') || '{}'); } catch { return {}; }
+}
+const prefs = Object.assign({
+  lang: 'ru',
+  fiat: 'USD',
+  theme: 'dark',
+  tz: 'UTC+3',
+}, loadPrefs());
+let fxRates = { USD: 1, EUR: 0.92, RUB: 92 };
+window.pendingOtpauth = '';
+
+function t(key) {
+  return (I18N[prefs.lang] && I18N[prefs.lang][key]) || I18N.ru[key] || key;
+}
+function savePrefs() {
+  localStorage.setItem('byx_prefs', JSON.stringify(prefs));
+}
+function fmtMoneyFiat(usd) {
+  const rate = Number(fxRates[prefs.fiat]) || 1;
+  return `${fmtUsdt(Number(usd) * rate)} ${prefs.fiat}`;
+}
+function applyPrefs() {
+  document.documentElement.lang = prefs.lang === 'en' ? 'en' : 'ru';
+  document.documentElement.setAttribute('data-theme', prefs.theme === 'light' ? 'light' : 'dark');
+  try {
+    tg.setHeaderColor(prefs.theme === 'light' ? '#f4f5f7' : '#0b0e11');
+    tg.setBackgroundColor(prefs.theme === 'light' ? '#f4f5f7' : '#0b0e11');
+  } catch { /* ignore */ }
+  document.querySelectorAll('[data-i18n]').forEach((el) => {
+    el.textContent = t(el.getAttribute('data-i18n'));
+  });
+  const langVal = document.getElementById('uc-lang-val');
+  if (langVal) langVal.textContent = prefs.lang === 'en' ? t('langEn') : t('langRu');
+  const fiatVal = document.getElementById('uc-fiat-val');
+  if (fiatVal) fiatVal.textContent = prefs.fiat;
+  const themeVal = document.getElementById('uc-theme-val');
+  if (themeVal) themeVal.textContent = prefs.theme === 'light' ? t('themeLight') : t('themeDark');
+  const tzVal = document.getElementById('uc-tz-val');
+  if (tzVal) tzVal.textContent = prefs.tz;
+  const ccy = document.getElementById('assets-ccy-label');
+  if (ccy) ccy.innerHTML = `${prefs.fiat} <span class="assets-ccy-caret">▾</span>`;
+  if (typeof applyBalanceVisibility === 'function') applyBalanceVisibility();
+}
+function cyclePref(key, list) {
+  const i = Math.max(0, list.indexOf(prefs[key]));
+  prefs[key] = list[(i + 1) % list.length];
+  savePrefs();
+  applyPrefs();
+}
+async function copyText(text) {
+  const s = String(text || '');
+  if (!s) return false;
+  try {
+    await navigator.clipboard.writeText(s);
+    return true;
+  } catch {
+    const ta = document.createElement('textarea');
+    ta.value = s;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    ta.setSelectionRange(0, s.length);
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch { ok = false; }
+    ta.remove();
+    return ok;
+  }
+}
+async function loadFx() {
+  try {
+    const r = await fetch('/api/market/fx');
+    const d = await r.json();
+    if (d && d.USD) fxRates = d;
+    applyPrefs();
+  } catch { /* keep fallback */ }
+}
+applyPrefs();
+
 function syncTelegramBack() {
   if (!tg.BackButton) return;
   if (screenStack.length > 1) tg.BackButton.show();
@@ -511,8 +615,8 @@ function renderWalletAmounts(available, earn) {
   };
 
   set('wallet-balance', maskBal(usdTotal));
-  set('wallet-available', maskBal(`${usdAvail} USD`));
-  set('wallet-in-use', maskBal(`${usdEarn} USD`));
+  set('wallet-available', maskBal(fmtMoneyFiat(lastWalletBalance + cryptoUsd)));
+  set('wallet-in-use', maskBal(fmtMoneyFiat(lastEarnBalance)));
   set('wallet-btc', balanceHidden ? '≈ **** BTC' : `≈ ${btcStr} BTC`);
 
   const list = document.getElementById('assets-coin-list');
@@ -541,7 +645,7 @@ function renderWalletAmounts(available, earn) {
             </div>
             <div class="assets-coin-right">
               <div class="mono assets-coin-amt">${maskBal(amtStr)}</div>
-              <div class="muted assets-coin-fiat">${maskBal(`${fmtUsdt(fiat)} USD`)}</div>
+              <div class="muted assets-coin-fiat">${maskBal(fmtMoneyFiat(fiat))}</div>
             </div>
           </button>`;
     }).join('');
@@ -1079,6 +1183,7 @@ document.getElementById('uc-email-row')?.addEventListener('click', () => {
 });
 document.getElementById('uc-pwd-row')?.addEventListener('click', () => {
   document.getElementById('uc-pwd-form')?.classList.toggle('screen-hidden');
+  document.getElementById('uc-pwd-totp-wrap')?.classList.toggle('screen-hidden', !profile?.totpEnabled);
 });
 document.getElementById('uc-email-send')?.addEventListener('click', async () => {
   const err = document.getElementById('uc-email-error');
@@ -1115,6 +1220,7 @@ document.getElementById('uc-pwd-save')?.addEventListener('click', async () => {
       body: JSON.stringify({
         current: document.getElementById('uc-pwd-cur').value,
         next,
+        totpCode: document.getElementById('uc-pwd-totp')?.value.trim() || '',
       }),
     });
     document.getElementById('uc-pwd-form').classList.add('screen-hidden');
@@ -1136,6 +1242,24 @@ async function saveAntiPhish() {
 }
 document.getElementById('uc-antiphish-btn')?.addEventListener('click', saveAntiPhish);
 document.getElementById('uc-antiphish-row')?.addEventListener('click', saveAntiPhish);
+document.getElementById('uc-lang-btn')?.addEventListener('click', () => {
+  cyclePref('lang', ['ru', 'en']);
+});
+document.getElementById('uc-lang-row')?.addEventListener('click', () => {
+  cyclePref('lang', ['ru', 'en']);
+});
+document.getElementById('uc-fiat-row')?.addEventListener('click', () => {
+  cyclePref('fiat', ['USD', 'EUR', 'RUB']);
+});
+document.getElementById('assets-ccy-label')?.addEventListener('click', () => {
+  cyclePref('fiat', ['USD', 'EUR', 'RUB']);
+});
+document.getElementById('uc-theme-row')?.addEventListener('click', () => {
+  cyclePref('theme', ['dark', 'light']);
+});
+document.getElementById('uc-tz-row')?.addEventListener('click', () => {
+  cyclePref('tz', TZ_LIST.map((z) => z.id));
+});
 document.getElementById('uc-totp-toggle')?.addEventListener('click', () => {
   if (profile?.totpEnabled) {
     document.getElementById('totp-off-wrap')?.classList.remove('screen-hidden');
@@ -1322,6 +1446,8 @@ function enterApp(me, { startScreen = 'markets' } = {}) {
   if (me?.sessionToken) setSessionToken(me.sessionToken);
   profile = me;
   renderProfile(me);
+  applyPrefs();
+  loadFx();
   document.body.classList.remove('auth-locked');
   document.getElementById('auth-gate').classList.add('screen-hidden');
   document.getElementById('app-shell').classList.remove('screen-hidden');
@@ -3761,12 +3887,29 @@ document.getElementById('totp-start-btn')?.addEventListener('click', async () =>
     const res = await apiFetch('/users/me/2fa/setup', { method: 'POST' });
     document.getElementById('totp-setup')?.classList.remove('screen-hidden');
     document.getElementById('totp-qr').innerHTML = res.qrSvg || '';
-    document.getElementById('totp-secret').textContent = res.secret || '';
+    const secretEl = document.getElementById('totp-secret');
+    if (secretEl) {
+      secretEl.value = res.secret || '';
+      secretEl.onclick = () => { secretEl.select(); secretEl.setSelectionRange(0, 999); };
+    }
+    window.pendingOtpauth = res.otpauth || '';
     document.getElementById('totp-enable-code').value = '';
   } catch (e) {
     if (err) err.textContent = e.message;
     else tg.showAlert(e.message);
   }
+});
+document.getElementById('totp-copy-secret')?.addEventListener('click', async (e) => {
+  e.preventDefault();
+  const secret = document.getElementById('totp-secret')?.value || '';
+  const ok = await copyText(secret);
+  tg.showAlert(ok ? 'Ключ скопирован' : secret || 'нет ключа');
+});
+document.getElementById('totp-copy-otpauth')?.addEventListener('click', async (e) => {
+  e.preventDefault();
+  const uri = window.pendingOtpauth || '';
+  const ok = await copyText(uri);
+  tg.showAlert(ok ? 'Ссылка скопирована. Вставьте в Google Authenticator.' : uri || 'нет ссылки');
 });
 document.getElementById('totp-enable-btn')?.addEventListener('click', async () => {
   const err = document.getElementById('totp-error');
