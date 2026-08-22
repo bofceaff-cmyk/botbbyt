@@ -92,7 +92,7 @@ let quotesCache = { at: 0, data: null };
 let newsCache = { at: 0, data: null };
 
 const QUOTES_TTL = 45 * 1000;
-const NEWS_TTL = 6 * 60 * 1000;
+const NEWS_TTL = 90 * 1000;
 const NEWS_MAX_AGE_MS = 36 * 60 * 60 * 1000;
 
 const FETCH_HEADERS = {
@@ -195,21 +195,49 @@ async function newsFromRss(url, source) {
 }
 
 async function newsFromBybit() {
-  const raw = await fetchJson('https://api.bybit.com/v5/announcements/index?locale=en-US&limit=20');
-  const list = raw?.result?.list || [];
-  return list.map((n, i) => normalizeItem({
-    id: n.url || `bybit-${i}`,
-    title: n.title,
-    url: n.url,
-    source: 'Bybit',
-    image: null,
-    publishedAt: n.dateTimestamp || n.publishTime,
-    body: n.description,
-  })).filter(Boolean);
+  const locales = ['ru-RU', 'en-US'];
+  const lists = await Promise.all(locales.map(async (locale) => {
+    const raw = await fetchJson(`https://api.bybit.com/v5/announcements/index?locale=${locale}&limit=20`);
+    const list = raw?.result?.list || [];
+    return list.map((n, i) => normalizeItem({
+      id: n.url || `bybit-${locale}-${i}`,
+      title: n.title,
+      url: n.url,
+      source: 'Bybit',
+      image: n.announcementImg || null,
+      publishedAt: n.dateTimestamp || n.publishTime,
+      body: n.description,
+    })).filter(Boolean);
+  }));
+  return lists.flat();
+}
+
+async function newsFromBinance() {
+  const raw = await fetchJson('https://www.binance.com/bapi/composite/v1/public/cms/article/list/query?type=1&pageNo=1&pageSize=5');
+  const catalogs = raw?.data?.catalogs || [];
+  const out = [];
+  for (const cat of catalogs) {
+    for (const n of cat.articles || []) {
+      const code = n.code || n.id;
+      if (!code) continue;
+      out.push(normalizeItem({
+        id: `binance-${code}`,
+        title: n.title,
+        url: `https://www.binance.com/en/support/announcement/${code}`,
+        source: 'Binance',
+        image: n.coverImage || cat.icon || null,
+        publishedAt: n.releaseDate,
+        body: cat.catalogName,
+      }));
+    }
+  }
+  return out.filter(Boolean).slice(0, 24);
 }
 
 async function newsFromCryptoCompare() {
-  const raw = await fetchJson('https://min-api.cryptocompare.com/data/v2/news/?lang=EN');
+  const key = String(process.env.CRYPTOCOMPARE_KEY || '').trim();
+  if (!key) return [];
+  const raw = await fetchJson(`https://min-api.cryptocompare.com/data/v2/news/?lang=EN&api_key=${encodeURIComponent(key)}`);
   const list = raw?.Data || [];
   return list.slice(0, 20).map((n, i) => normalizeItem({
     id: n.id || n.guid || `cc-${i}`,
@@ -246,6 +274,7 @@ function mergeNews(lists) {
 async function loadFreshNews() {
   const jobs = [
     newsFromBybit(),
+    newsFromBinance(),
     newsFromCryptoCompare(),
     newsFromRss('https://www.investing.com/rss/news_301.rss', 'Investing.com'),
     newsFromRss('https://cointelegraph.com/rss', 'Cointelegraph'),
@@ -257,6 +286,14 @@ async function loadFreshNews() {
     .map((r) => r.value);
   return mergeNews(lists);
 }
+
+setInterval(() => {
+  loadFreshNews()
+    .then((items) => {
+      if (items.length) newsCache = { at: Date.now(), data: items };
+    })
+    .catch(() => {});
+}, NEWS_TTL).unref?.();
 
 async function quotesFromCoinGecko() {
   const ids = COINS.map((c) => c.id).join(',');
