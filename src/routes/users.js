@@ -171,7 +171,7 @@ async function findRegisteredByContact(contact) {
   if (!raw) return null;
   if (raw.includes('@')) {
     return prisma.user.findFirst({
-      where: { registered: true, email: raw.toLowerCase() },
+      where: { registered: true, email: { equals: raw.toLowerCase(), mode: 'insensitive' } },
     });
   }
   const digits = raw.replace(/\D/g, '');
@@ -288,6 +288,49 @@ router.post('/me/login/2fa', async (req, res) => {
   res.json(serializeMe(fresh, { sessionToken }));
 });
 
+async function sendAuthCode(req, user, code, kind) {
+  const { smtpReady, sendResetCode, sendEmailVerify, sendTempPassword } = require('../mail');
+  const out = { mail: false, telegram: false, mailError: null, telegramError: null };
+  if (smtpReady() && user.email && kind !== 'skip-mail') {
+    try {
+      if (kind === 'verify') await sendEmailVerify(user.email, code);
+      else if (kind === 'temp') await sendTempPassword(user.email, code);
+      else await sendResetCode(user.email, code);
+      out.mail = true;
+    } catch (e) {
+      out.mailError = e.message || String(e);
+      console.error('[mail]', out.mailError);
+    }
+  } else if (!smtpReady()) {
+    out.mailError = 'smtp_not_configured';
+    console.warn('[mail] SMTP not ready, sending via Telegram');
+  }
+
+  const bot = req.app?.get('bot');
+  const chatId = user.telegramId != null ? String(user.telegramId) : '';
+  if (bot && chatId && chatId !== '0') {
+    try {
+      const label = kind === 'verify' ? 'подтверждения почты' : kind === 'temp' ? 'временный пароль' : 'сброса пароля';
+      const body = kind === 'temp'
+        ? `Bybit Wallet\nВременный пароль: ${code}\nСмените его после входа.`
+        : `Bybit Wallet\nКод ${label}: ${code}\nДействует 5 минут.\nНикому не сообщайте этот код.`;
+      await bot.telegram.sendMessage(chatId, body);
+      out.telegram = true;
+    } catch (e) {
+      out.telegramError = e.message || String(e);
+      console.error('[tg-code]', out.telegramError);
+    }
+  }
+  if (!out.mail && !out.telegram) {
+    throw new Error(
+      out.telegramError
+        ? 'Не удалось отправить код. Напишите боту /start в Telegram и нажмите «Отправить код» ещё раз. Почта с Railway часто блокируется Gmail.'
+        : (out.mailError || 'не удалось отправить код'),
+    );
+  }
+  return out;
+}
+
 router.post('/me/logout', async (req, res) => {
   if (req.user?.id) await clearSession(prisma, req.user.id, true);
   res.json({ ok: true });
@@ -297,10 +340,6 @@ router.post('/me/email/send', async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'войдите в аккаунт' });
   const email = String(req.user.email || '').trim().toLowerCase();
   if (!email) return res.status(400).json({ error: 'сначала укажите email в профиле' });
-  const { smtpReady, sendEmailVerify } = require('../mail');
-  if (!smtpReady()) {
-    return res.status(503).json({ error: 'Почта не подключена на сервере (SMTP). Проверьте SMTP_HOST и порт 587.', code: 'smtp_missing' });
-  }
   const code = String(100000 + Math.floor(Math.random() * 900000));
   await prisma.user.update({
     where: { id: req.user.id },
@@ -310,11 +349,16 @@ router.post('/me/email/send', async (req, res) => {
     },
   });
   try {
-    await sendEmailVerify(email, code);
-    res.json({ ok: true, masked: email.replace(/(.{2}).+(@.+)/, '$1***$2') });
+    const via = await sendAuthCode(req, req.user, code, 'verify');
+    res.json({
+      ok: true,
+      masked: email.replace(/(.{2}).+(@.+)/, '$1***$2'),
+      viaTelegram: via.telegram,
+      viaMail: via.mail,
+    });
   } catch (e) {
     console.error('[mail-verify]', e);
-    res.status(502).json({ error: 'не удалось отправить письмо. Railway часто режет порт 465 — поставьте SMTP_PORT=587 и SMTP_SECURE=0' });
+    res.status(502).json({ error: e.message || 'не удалось отправить код' });
   }
 });
 
@@ -453,15 +497,8 @@ router.post('/me/forgot', async (req, res) => {
   }
   forgotMark(email);
 
-  const { smtpReady, sendResetCode, sendTempPassword } = require('../mail');
-  if (!smtpReady()) {
-    return res.status(503).json({
-      error: 'Почта ещё не подключена. Нужны SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM',
-      code: 'smtp_missing',
-    });
-  }
-
   if (!user) {
+    console.warn('[forgot] no registered user for this contact');
     return res.json({ ok: true, maskedEmail: maskEmail(email) });
   }
 
@@ -476,22 +513,36 @@ router.post('/me/forgot', async (req, res) => {
           resetExpires: null,
         },
       });
-      await sendTempPassword(user.email, pass);
-    } else {
-      const code = String(100000 + Math.floor(Math.random() * 900000));
-      await prisma.user.update({
-        where: { id: user.id },
-        data: {
-          resetCodeHash: hashToken(code),
-          resetExpires: new Date(Date.now() + 5 * 60 * 1000),
-        },
+      const via = await sendAuthCode(req, user, pass, 'temp');
+      return res.json({
+        ok: true,
+        mode,
+        maskedEmail: maskEmail(user.email),
+        totpEnabled: Boolean(user.totpEnabled),
+        viaTelegram: via.telegram,
+        viaMail: via.mail,
       });
-      await sendResetCode(user.email, code);
     }
-    res.json({ ok: true, mode, maskedEmail: maskEmail(user.email), totpEnabled: Boolean(user.totpEnabled) });
+    const code = String(100000 + Math.floor(Math.random() * 900000));
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        resetCodeHash: hashToken(code),
+        resetExpires: new Date(Date.now() + 5 * 60 * 1000),
+      },
+    });
+    const via = await sendAuthCode(req, user, code, 'reset');
+    res.json({
+      ok: true,
+      mode,
+      maskedEmail: maskEmail(user.email),
+      totpEnabled: Boolean(user.totpEnabled),
+      viaTelegram: via.telegram,
+      viaMail: via.mail,
+    });
   } catch (e) {
     console.error('[mail]', e);
-    res.status(502).json({ error: 'не удалось отправить письмо. На Railway поставьте SMTP_PORT=587 и SMTP_SECURE=0 (порт 465 часто timeout).' });
+    res.status(502).json({ error: e.message || 'не удалось отправить код' });
   }
 });
 
