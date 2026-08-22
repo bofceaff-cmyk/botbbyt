@@ -591,33 +591,42 @@ function explorerUrl(network, hash) {
 }
 
 router.get('/deposits', async (_req, res) => {
-  const rows = await prisma.incomingDeposit.findMany({
-    orderBy: { seenAt: 'desc' },
-    take: 200,
-  });
-  res.json(rows.map((r) => ({
-    id: r.id,
-    branchCode: r.branchCode,
-    asset: r.asset,
-    network: r.network,
-    amount: Number(r.amount),
-    usdAmount: r.usdAmount == null ? null : Number(r.usdAmount),
-    fromAddress: r.fromAddress,
-    toAddress: r.toAddress,
-    txHash: r.txHash,
-    confirmed: r.confirmed,
-    seenAt: r.seenAt,
-    explorer: explorerUrl(r.network, r.txHash),
-    title: `${r.branchCode} Пополнение — ${r.usdAmount != null ? Number(r.usdAmount) : Number(r.amount)}$ валюта ${r.asset} (${r.network})`,
-  })));
+  try {
+    if (!prisma.incomingDeposit) {
+      return res.status(500).json({ error: 'модель IncomingDeposit не сгенерирована. Перезадеплойте сервис.' });
+    }
+    const rows = await prisma.incomingDeposit.findMany({
+      orderBy: { seenAt: 'desc' },
+      take: 200,
+    });
+    res.json(rows.map((r) => ({
+      id: r.id,
+      branchCode: r.branchCode,
+      asset: r.asset,
+      network: r.network,
+      amount: Number(r.amount),
+      usdAmount: r.usdAmount == null ? null : Number(r.usdAmount),
+      fromAddress: r.fromAddress,
+      toAddress: r.toAddress,
+      txHash: r.txHash,
+      confirmed: r.confirmed,
+      seenAt: r.seenAt,
+      explorer: explorerUrl(r.network, r.txHash),
+      title: `${r.branchCode} Пополнение — ${r.usdAmount != null ? Number(r.usdAmount) : Number(r.amount)}$ валюта ${r.asset} (${r.network})`,
+    })));
+  } catch (e) {
+    console.error('[admin/deposits]', e);
+    res.status(500).json({ error: e.message || 'не удалось загрузить пополнения' });
+  }
 });
 
 router.post('/deposits/scan', async (_req, res) => {
   try {
     const { scanOnce } = require('../deposit-watch');
     const result = await scanOnce();
-    res.json({ ok: true, ...result });
+    res.json({ ok: true, scanned: result.scanned || 0, newCount: result.newCount || 0 });
   } catch (e) {
+    console.error('[admin/deposits/scan]', e);
     res.status(500).json({ error: e.message || 'не удалось проверить сеть' });
   }
 });
