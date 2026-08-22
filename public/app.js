@@ -391,7 +391,9 @@ function applyPrefs() {
   if (tzVal) tzVal.textContent = prefs.tz;
   const ccy = document.getElementById('assets-ccy-label');
   if (ccy) ccy.innerHTML = `${prefs.fiat} <span class="assets-ccy-caret">▾</span>`;
-  if (typeof applyBalanceVisibility === 'function') applyBalanceVisibility();
+  if (typeof applyBalanceVisibility === 'function') {
+    try { applyBalanceVisibility(); } catch { /* CONVERT_ASSETS may not exist yet */ }
+  }
 }
 function cyclePref(key, list) {
   const i = Math.max(0, list.indexOf(prefs[key]));
@@ -428,7 +430,6 @@ async function loadFx() {
     applyPrefs();
   } catch { /* keep fallback */ }
 }
-applyPrefs();
 
 function syncTelegramBack() {
   if (!tg.BackButton) return;
@@ -590,7 +591,8 @@ function renderWalletAmounts(available, earn) {
   bals.USDT = lastWalletBalance;
 
   let cryptoUsd = 0;
-  const assets = typeof CONVERT_ASSETS !== 'undefined' ? CONVERT_ASSETS : [{ id: 'USDT' }];
+  let assets = [{ id: 'USDT' }];
+  try { if (CONVERT_ASSETS) assets = CONVERT_ASSETS; } catch { /* not ready */ }
   const prices = typeof assetPrices !== 'undefined' ? assetPrices : { USDT: 1 };
   for (const a of assets) {
     if (a.id === 'USDT') continue;
@@ -620,8 +622,10 @@ function renderWalletAmounts(available, earn) {
   set('wallet-btc', balanceHidden ? '≈ **** BTC' : `≈ ${btcStr} BTC`);
 
   const list = document.getElementById('assets-coin-list');
-  if (list && typeof CONVERT_ASSETS !== 'undefined') {
-    const rows = CONVERT_ASSETS.map((a) => {
+  let assetRows = null;
+  try { assetRows = CONVERT_ASSETS; } catch { assetRows = null; }
+  if (list && assetRows) {
+    const rows = assetRows.map((a) => {
       const amt = Number(bals[a.id]) || 0;
       if (a.id !== 'USDT' && amt <= 0) return '';
       const px = a.id === 'USDT' ? 1 : (Number(prices[a.id]) || 0);
@@ -3991,4 +3995,5 @@ document.getElementById('chat-input')?.addEventListener('blur', () => {
   }, 80);
 });
 
+try { applyPrefs(); } catch { /* ignore */ }
 boot();
