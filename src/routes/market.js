@@ -247,6 +247,11 @@ async function quotesFromBinance() {
       name: coin.name,
       price: Number(row.lastPrice),
       change24h: Number(row.priceChangePercent),
+      high24h: Number(row.highPrice),
+      low24h: Number(row.lowPrice),
+      volume24h: Number(row.quoteVolume),
+      bid: Number(row.bidPrice),
+      ask: Number(row.askPrice),
       marketCap: null,
       image: null,
     };
@@ -358,7 +363,7 @@ router.get('/klines', async (req, res) => {
     if (hit && Date.now() - hit.at < KLINES_TTL) return res.json(hit.data);
 
     const raw = await fetchJson(
-      `https://api.binance.com/api/v3/klines?symbol=${coin.binance}&interval=${interval}&limit=96`
+      `https://api.binance.com/api/v3/klines?symbol=${coin.binance}&interval=${interval}&limit=120`
     );
     const candles = raw.map((k) => ({
       time: k[0],

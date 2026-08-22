@@ -1,4 +1,5 @@
 const express = require('express');
+const crypto = require('crypto');
 const fs = require('fs');
 const prisma = require('../db');
 const { upload, absolutePath } = require('../upload');
@@ -87,14 +88,8 @@ function serializeMe(user, extra = {}) {
 }
 
 router.get('/me', async (req, res) => {
-  if (req.user.registered && !req.sessionOk) {
-    return res.json({
-      registered: true,
-      needLogin: true,
-      totpEnabled: Boolean(req.user.totpEnabled),
-      banned: Boolean(req.user.banned),
-      banReason: req.user.banned ? banMessage(req.user) : null,
-    });
+  if (!req.sessionOk || !req.user) {
+    return res.json({ registered: false, needLogin: true });
   }
 
   const transfersCount = await prisma.transfer.count({
@@ -111,9 +106,8 @@ router.get('/me', async (req, res) => {
 
 // Регистрация (первый вход) — ФИО, телефон, почта + пароль, UID генерируется сам
 router.post('/me/register', async (req, res) => {
-  if (req.user.registered) {
-    return res.status(400).json({ error: 'вы уже зарегистрированы — войдите' });
-  }
+  const tg = req.tgUser;
+  if (!tg) return res.status(401).json({ error: 'откройте через бота' });
 
   const fullName = String(req.body.fullName || '').trim();
   const email = String(req.body.email || '').trim().toLowerCase();
@@ -135,70 +129,93 @@ router.post('/me/register', async (req, res) => {
   }
 
   const emailTaken = await prisma.user.findFirst({
-    where: { email, NOT: { id: req.user.id }, registered: true },
+    where: { email, registered: true },
   });
   if (emailTaken) {
-    return res.status(400).json({ error: 'этот email уже занят' });
+    return res.status(400).json({ error: 'этот email уже занят — войдите или восстановите пароль' });
   }
 
-  const uid = req.user.uid || await generateUid();
+  const uid = await generateUid();
   const shortName = fullName.split(/\s+/)[0] || fullName;
 
-  const updated = await prisma.user.update({
-    where: { id: req.user.id },
+  const created = await prisma.user.create({
     data: {
+      telegramId: BigInt(tg.id),
+      usernameTg: tg.username || null,
+      firstNameTg: tg.first_name || null,
       uid,
       fullName,
       email,
       phone,
       country: country || null,
-      displayName: req.user.displayName || shortName,
+      displayName: tg.username || shortName,
       passwordHash: hashPassword(password),
       registered: true,
       registeredAt: new Date(),
     },
   });
 
-  const sessionToken = await issueSession(prisma, updated.id);
-  res.json(serializeMe(updated, { sessionToken }));
+  const sessionToken = await issueSession(prisma, created.id);
+  const { notifyLogin } = require('../mail');
+  notifyLogin(created.email, req);
+  res.json(serializeMe(created, { sessionToken }));
 });
 
 // Вход в уже созданный аккаунт (email или телефон + пароль этого Telegram-пользователя)
+async function findRegisteredByContact(contact) {
+  const raw = String(contact || '').trim();
+  if (!raw) return null;
+  if (raw.includes('@')) {
+    return prisma.user.findFirst({
+      where: { registered: true, email: raw.toLowerCase() },
+    });
+  }
+  const digits = raw.replace(/\D/g, '');
+  if (digits.length < 8) return null;
+  const tail = digits.slice(-10);
+  const users = await prisma.user.findMany({
+    where: { registered: true, NOT: { phone: null } },
+    take: 800,
+  });
+  return users.find((u) => String(u.phone || '').replace(/\D/g, '').endsWith(tail)) || null;
+}
+
 router.post('/me/login', async (req, res) => {
   const contact = String(req.body.email || req.body.contact || req.body.phone || '').trim();
   const password = String(req.body.password || '');
+  const tg = req.tgUser;
 
-  if (!req.user.registered) {
-    return res.status(400).json({ error: 'аккаунт ещё не создан — зарегистрируйтесь' });
-  }
   if (!contact || !password) {
     return res.status(400).json({ error: 'укажите email/телефон и пароль' });
   }
 
-  const emailOk = contact.includes('@')
-    && String(req.user.email || '').toLowerCase() === contact.toLowerCase();
-  const phoneDigits = contact.replace(/\D/g, '');
-  const userPhoneDigits = String(req.user.phone || '').replace(/\D/g, '');
-  const phoneOk = phoneDigits.length >= 8 && userPhoneDigits.endsWith(phoneDigits.slice(-10));
-
-  if (!emailOk && !phoneOk) {
+  const account = await findRegisteredByContact(contact);
+  if (!account || !verifyPassword(password, account.passwordHash)) {
     return res.status(400).json({ error: 'неверный email/телефон или пароль' });
   }
-  if (!verifyPassword(password, req.user.passwordHash)) {
-    return res.status(400).json({ error: 'неверный email/телефон или пароль' });
-  }
-  if (req.user.banned) {
+  if (account.banned) {
     return res.status(403).json({
-      error: banMessage(req.user),
+      error: banMessage(account),
       code: 'banned',
-      banReason: banMessage(req.user),
+      banReason: banMessage(account),
     });
   }
 
-  if (req.user.totpEnabled) {
+  if (tg) {
+    await prisma.user.update({
+      where: { id: account.id },
+      data: {
+        telegramId: BigInt(tg.id),
+        usernameTg: tg.username || account.usernameTg,
+        firstNameTg: tg.first_name || account.firstNameTg,
+      },
+    });
+  }
+
+  if (account.totpEnabled) {
     const tmp = newToken();
     await prisma.user.update({
-      where: { id: req.user.id },
+      where: { id: account.id },
       data: {
         totpTempTokenHash: hashToken(tmp),
         totpTempExpires: new Date(Date.now() + 5 * 60 * 1000),
@@ -207,32 +224,39 @@ router.post('/me/login', async (req, res) => {
     return res.json({ need2fa: true, totpToken: tmp });
   }
 
-  const sessionToken = await issueSession(prisma, req.user.id);
-  res.json(serializeMe(req.user, { sessionToken }));
+  const sessionToken = await issueSession(prisma, account.id);
+  const fresh = await prisma.user.findUnique({ where: { id: account.id } });
+  const { notifyLogin } = require('../mail');
+  notifyLogin(fresh.email, req);
+  res.json(serializeMe(fresh, { sessionToken }));
 });
 
 router.post('/me/login/2fa', async (req, res) => {
-  if (!req.user.registered || !req.user.totpEnabled) {
-    return res.status(400).json({ error: '2FA не подключена' });
+  const totpToken = String(req.body.totpToken || '');
+  const code = String(req.body.code || '').trim();
+  if (!totpToken) return res.status(400).json({ error: 'сессия подтверждения истекла, войдите снова' });
+
+  const account = await prisma.user.findFirst({
+    where: { totpTempTokenHash: hashToken(totpToken), registered: true },
+  });
+  if (!account || !account.totpEnabled) {
+    return res.status(400).json({ error: 'сессия подтверждения истекла, войдите снова' });
   }
-  if (req.user.banned) {
-    return res.status(403).json({ error: banMessage(req.user), code: 'banned', banReason: banMessage(req.user) });
+  if (account.banned) {
+    return res.status(403).json({ error: banMessage(account), code: 'banned', banReason: banMessage(account) });
   }
-  if (totpIsLocked(req.user.id)) {
+  if (totpIsLocked(account.id)) {
     return res.status(429).json({ error: MSG.TOTP_LOCKED, code: 'totp_locked' });
   }
 
-  const totpToken = String(req.body.totpToken || '');
-  const code = String(req.body.code || '').trim();
-  const storedHash = req.user.totpTempTokenHash;
-  const exp = req.user.totpTempExpires ? new Date(req.user.totpTempExpires).getTime() : 0;
-  if (!storedHash || !totpToken || hashToken(totpToken) !== storedHash || Date.now() > exp) {
+  const exp = account.totpTempExpires ? new Date(account.totpTempExpires).getTime() : 0;
+  if (Date.now() > exp) {
     return res.status(400).json({ error: 'сессия подтверждения истекла, войдите снова' });
   }
 
-  const secret = decryptSecret(req.user.totpSecret);
+  const secret = decryptSecret(account.totpSecret);
   const backups = (() => {
-    try { return JSON.parse(req.user.totpBackupHashes || '[]'); } catch { return []; }
+    try { return JSON.parse(account.totpBackupHashes || '[]'); } catch { return []; }
   })();
   const totpOk = secret && verifyTotp(secret, code);
   let backupIdx = -1;
@@ -240,24 +264,167 @@ router.post('/me/login/2fa', async (req, res) => {
     backupIdx = backups.findIndex((h) => verifyPassword(code.toLowerCase(), h));
   }
   if (!totpOk && backupIdx < 0) {
-    totpMarkFail(req.user.id);
+    totpMarkFail(account.id);
     return res.status(400).json({ error: MSG.TOTP_INVALID, code: 'totp_invalid' });
   }
-  totpMarkOk(req.user.id);
+  totpMarkOk(account.id);
 
   const data = { totpTempTokenHash: null, totpTempExpires: null };
   if (backupIdx >= 0) {
     backups.splice(backupIdx, 1);
     data.totpBackupHashes = JSON.stringify(backups);
   }
-  await prisma.user.update({ where: { id: req.user.id }, data });
-  const sessionToken = await issueSession(prisma, req.user.id);
-  res.json(serializeMe(req.user, { sessionToken }));
+  await prisma.user.update({ where: { id: account.id }, data });
+  const sessionToken = await issueSession(prisma, account.id);
+  const fresh = await prisma.user.findUnique({ where: { id: account.id } });
+  const { notifyLogin } = require('../mail');
+  notifyLogin(fresh.email, req);
+  res.json(serializeMe(fresh, { sessionToken }));
 });
 
 router.post('/me/logout', async (req, res) => {
-  await clearSession(prisma, req.user.id, true);
+  if (req.user?.id) await clearSession(prisma, req.user.id, true);
   res.json({ ok: true });
+});
+
+const forgotHits = new Map();
+function forgotLocked(key) {
+  const row = forgotHits.get(key);
+  return Boolean(row && row.until > Date.now());
+}
+function forgotMark(key) {
+  const row = forgotHits.get(key) || { n: 0, until: 0 };
+  row.n += 1;
+  if (row.n >= 5) {
+    row.until = Date.now() + 10 * 60 * 1000;
+    row.n = 0;
+  }
+  forgotHits.set(key, row);
+}
+
+function maskEmail(email) {
+  const raw = String(email || '');
+  const at = raw.indexOf('@');
+  if (at < 1) return '****@****';
+  const name = raw.slice(0, at);
+  const domain = raw.slice(at);
+  const keep = Math.min(3, name.length);
+  return `${name.slice(0, keep)}${'*'.repeat(Math.max(3, name.length - keep))}${domain}`;
+}
+
+function genTempPassword() {
+  const raw = crypto.randomBytes(6).toString('base64').replace(/[^a-zA-Z0-9]/g, 'x');
+  return `Byb-${raw.slice(0, 10)}`;
+}
+
+router.post('/me/forgot/start', async (req, res) => {
+  const contact = String(req.body.email || req.body.contact || req.body.phone || '').trim();
+  if (!contact) return res.status(400).json({ error: 'укажите email или телефон' });
+  const user = await findRegisteredByContact(contact);
+  const email = user?.email || (contact.includes('@') ? contact.toLowerCase() : '');
+  res.json({
+    ok: true,
+    email: email || null,
+    maskedEmail: email ? maskEmail(email) : '****@****',
+    totpEnabled: Boolean(user?.totpEnabled),
+  });
+});
+
+router.post('/me/forgot', async (req, res) => {
+  const contact = String(req.body.email || req.body.contact || req.body.phone || '').trim();
+  const mode = String(req.body.mode || 'code') === 'temp' ? 'temp' : 'code';
+  const user = await findRegisteredByContact(contact);
+  const email = user?.email || (contact.includes('@') ? contact.toLowerCase() : '');
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: 'укажите корректный email' });
+  }
+  if (forgotLocked(email)) {
+    return res.status(429).json({ error: 'слишком много попыток. Подождите 10 минут.' });
+  }
+  forgotMark(email);
+
+  const { smtpReady, sendResetCode, sendTempPassword } = require('../mail');
+  if (!smtpReady()) {
+    return res.status(503).json({
+      error: 'Почта ещё не подключена. Нужны SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM',
+      code: 'smtp_missing',
+    });
+  }
+
+  if (!user) {
+    return res.json({ ok: true, maskedEmail: maskEmail(email) });
+  }
+
+  try {
+    if (mode === 'temp') {
+      const pass = genTempPassword();
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          passwordHash: hashPassword(pass),
+          resetCodeHash: null,
+          resetExpires: null,
+        },
+      });
+      await sendTempPassword(user.email, pass);
+    } else {
+      const code = String(100000 + Math.floor(Math.random() * 900000));
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          resetCodeHash: hashToken(code),
+          resetExpires: new Date(Date.now() + 5 * 60 * 1000),
+        },
+      });
+      await sendResetCode(user.email, code);
+    }
+    res.json({ ok: true, mode, maskedEmail: maskEmail(user.email), totpEnabled: Boolean(user.totpEnabled) });
+  } catch (e) {
+    console.error('[mail]', e);
+    res.status(502).json({ error: 'не удалось отправить письмо. Проверьте SMTP.' });
+  }
+});
+
+router.post('/me/reset', async (req, res) => {
+  const email = String(req.body.email || '').trim().toLowerCase();
+  const code = String(req.body.code || '').trim();
+  const totpCode = String(req.body.totpCode || '').trim();
+  const password = String(req.body.password || '');
+  if (!email || !code) return res.status(400).json({ error: 'укажите email и код из письма' });
+  if (password.length < 6 || password.length > 64) {
+    return res.status(400).json({ error: 'пароль от 6 до 64 символов' });
+  }
+  const user = await prisma.user.findFirst({ where: { email, registered: true } });
+  if (!user || !user.resetCodeHash || !user.resetExpires) {
+    return res.status(400).json({ error: 'код неверный или истёк' });
+  }
+  if (Date.now() > new Date(user.resetExpires).getTime()) {
+    return res.status(400).json({ error: 'код истёк, запросите новый' });
+  }
+  if (hashToken(code) !== user.resetCodeHash) {
+    return res.status(400).json({ error: 'код неверный или истёк' });
+  }
+  if (user.totpEnabled) {
+    if (!totpCode) return res.status(400).json({ error: 'введите код Google Authenticator' });
+    const secret = decryptSecret(user.totpSecret);
+    if (!secret || !verifyTotp(secret, totpCode)) {
+      return res.status(400).json({ error: MSG.TOTP_INVALID, code: 'totp_invalid' });
+    }
+  }
+  await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      passwordHash: hashPassword(password),
+      resetCodeHash: null,
+      resetExpires: null,
+      passwordHoldUntil: new Date(Date.now() + 24 * 60 * 60 * 1000),
+    },
+  });
+  const sessionToken = await issueSession(prisma, user.id);
+  const fresh = await prisma.user.findUnique({ where: { id: user.id } });
+  const { notifyLogin } = require('../mail');
+  notifyLogin(fresh.email, req);
+  res.json(serializeMe(fresh, { sessionToken }));
 });
 
 router.put('/me/profile', async (req, res) => {
