@@ -1,5 +1,8 @@
 const crypto = require('crypto');
 const prisma = require('./db');
+const { sessionMatches } = require('./session');
+const { banMessage } = require('./restrictions');
+const MSG = require('./messages');
 
 function checkTelegramAuth(initData, botToken) {
   if (!botToken) return null;
@@ -26,6 +29,25 @@ function checkTelegramAuth(initData, botToken) {
   if (!userRaw) return null;
 
   return JSON.parse(userRaw);
+}
+
+function pathOf(req) {
+  return String(req.originalUrl || '').split('?')[0];
+}
+
+function isOpenAuthRoute(req) {
+  const url = pathOf(req);
+  if (req.method === 'POST' && /\/users\/me\/(login|register|login\/2fa)$/.test(url)) return true;
+  if (req.method === 'GET' && /\/users\/me$/.test(url)) return true;
+  return false;
+}
+
+function isSupportRoute(req) {
+  return /\/support(\/|$)/.test(pathOf(req));
+}
+
+function isLogoutRoute(req) {
+  return req.method === 'POST' && /\/users\/me\/logout$/.test(pathOf(req));
 }
 
 async function requireTelegramUser(req, res, next) {
@@ -58,7 +80,24 @@ async function requireTelegramUser(req, res, next) {
       });
     }
 
+    const token = req.header('X-Session-Token') || req.query.session || '';
+    const sessionOk = sessionMatches(user, token);
+    req.sessionOk = sessionOk;
     req.user = user;
+
+    if (user.registered && !sessionOk && !isOpenAuthRoute(req)) {
+      return res.status(401).json({ error: MSG.SESSION_REVOKED, code: 'session_revoked' });
+    }
+
+    const isMeGet = req.method === 'GET' && /\/users\/me$/.test(pathOf(req));
+    if (user.banned && !isOpenAuthRoute(req) && !isSupportRoute(req) && !isLogoutRoute(req) && !isMeGet) {
+      return res.status(403).json({
+        error: banMessage(user),
+        code: 'banned',
+        banReason: banMessage(user),
+      });
+    }
+
     next();
   } catch (e) {
     console.error('[auth]', e);
