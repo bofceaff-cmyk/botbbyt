@@ -1028,11 +1028,15 @@ router.post('/me/kyc/submit', async (req, res) => {
 router.post('/me/2fa/setup', async (req, res) => {
   if (!req.sessionOk) return res.status(401).json({ error: MSG.SESSION_REVOKED, code: 'session_revoked' });
   if (req.user.totpEnabled) return res.status(400).json({ error: '2FA уже включена' });
-  const secret = generateSecret();
-  await prisma.user.update({
-    where: { id: req.user.id },
-    data: { totpPendingSecret: encryptSecret(secret) },
-  });
+  const rotate = Boolean(req.body && req.body.rotate);
+  let secret = !rotate ? decryptSecret(req.user.totpPendingSecret) : '';
+  if (!secret) {
+    secret = generateSecret();
+    await prisma.user.update({
+      where: { id: req.user.id },
+      data: { totpPendingSecret: encryptSecret(secret) },
+    });
+  }
   const account = req.user.email || req.user.uid || `user${req.user.id}`;
   const otpauth = otpauthUrl({ secret, account });
   const svg = await qrSvg(otpauth);
