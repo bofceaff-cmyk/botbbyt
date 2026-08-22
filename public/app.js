@@ -88,41 +88,99 @@ let appReady = false;
 let quotesTimer = null;
 let newsTimer = null;
 let profileTimer = null;
+let quotesEs = null;
+let quotesWs = null;
+let pendingTotpToken = '';
+let screenStack = ['markets'];
+
+const SESSION_KEY = 'byx_session';
+const COPY = {
+  transfersDisabled: 'Переводы для вашего аккаунта временно недоступны. Обратитесь в службу поддержки.',
+  conversionsDisabled: 'Конвертация для вашего аккаунта временно недоступна. Обратитесь в службу поддержки.',
+};
+
+function getSessionToken() {
+  try { return localStorage.getItem(SESSION_KEY) || ''; } catch { return ''; }
+}
+function setSessionToken(token) {
+  try {
+    if (token) localStorage.setItem(SESSION_KEY, token);
+    else localStorage.removeItem(SESSION_KEY);
+  } catch { /* private mode */ }
+}
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
 function isTransientError(msg, status) {
+  if (status === 401 || status === 403) return false;
   if (status === 502 || status === 503 || status === 504) return true;
   return /502|503|504|Failed to fetch|NetworkError|Нет связи|Application failed/i.test(String(msg || ''));
+}
+
+function forceLogoutToAuth(message) {
+  setSessionToken('');
+  profile = null;
+  appReady = false;
+  if (quotesTimer) clearInterval(quotesTimer);
+  if (newsTimer) clearInterval(newsTimer);
+  if (profileTimer) clearInterval(profileTimer);
+  quotesTimer = newsTimer = profileTimer = null;
+  stopQuotesLive();
+  stopSupportPoll();
+  document.getElementById('ban-overlay')?.classList.add('screen-hidden');
+  showAuthGate('forms');
+  setAuthTab('login');
+  const el = document.getElementById('login-error');
+  if (el && message) el.textContent = message;
+}
+
+function showBanOverlay(reason) {
+  const box = document.getElementById('ban-overlay');
+  const text = document.getElementById('ban-reason');
+  if (text) text.textContent = reason || COPY.transfersDisabled;
+  box?.classList.remove('screen-hidden');
 }
 
 async function apiFetch(path, options = {}, { retries = 4 } = {}) {
   let lastErr = null;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      const r = await fetch(API_BASE + path, {
-        ...options,
-        headers: {
-          ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
-          'X-Telegram-Init-Data': tg.initData || '',
-          ...(options.headers || {}),
-        },
-      });
+      const headers = {
+        ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+        'X-Telegram-Init-Data': tg.initData || '',
+        ...(options.headers || {}),
+      };
+      const tok = getSessionToken();
+      if (tok) headers['X-Session-Token'] = tok;
+      const r = await fetch(API_BASE + path, { ...options, headers });
       const data = await r.json().catch(() => ({}));
       if (!r.ok) {
         const msg = data.error || `Ошибка сервера (${r.status})`;
+        if (r.status === 401 && (data.code === 'session_revoked' || /сессия/i.test(msg))) {
+          forceLogoutToAuth(msg);
+          throw new Error(msg);
+        }
+        if (r.status === 403 && data.code === 'banned') {
+          showBanOverlay(data.banReason || msg);
+          throw new Error(msg);
+        }
         if (isTransientError(msg, r.status) && attempt < retries) {
           await sleep(700 * (attempt + 1));
           continue;
         }
-        throw new Error(msg);
+        const err = new Error(msg);
+        err.code = data.code;
+        err.status = r.status;
+        throw err;
       }
+      if (data && data.sessionToken) setSessionToken(data.sessionToken);
       return data;
     } catch (e) {
       lastErr = e;
-      if (isTransientError(e.message) && attempt < retries) {
+      if (e.code === 'session_revoked' || e.status === 401) throw e;
+      if (isTransientError(e.message, e.status) && attempt < retries) {
         await sleep(700 * (attempt + 1));
         continue;
       }
@@ -149,9 +207,10 @@ async function wakeServer() {
 }
 
 async function apiBlob(path) {
-  const r = await fetch(API_BASE + path, {
-    headers: { 'X-Telegram-Init-Data': tg.initData || '' },
-  });
+  const headers = { 'X-Telegram-Init-Data': tg.initData || '' };
+  const tok = getSessionToken();
+  if (tok) headers['X-Session-Token'] = tok;
+  const r = await fetch(API_BASE + path, { headers });
   if (!r.ok) throw new Error('не удалось загрузить файл');
   return r.blob();
 }
@@ -182,12 +241,72 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
-function showScreen(name) {
+function blurChatKeyboard() {
+  const input = document.getElementById('chat-input');
+  if (input) input.blur();
+  document.body.classList.remove('kb-open');
+  document.documentElement.style.setProperty('--kb', '0px');
+}
+
+function updateKeyboardInset() {
+  const vv = window.visualViewport;
+  const base = tg.viewportStableHeight || window.innerHeight;
+  let kb = 0;
+  if (vv) kb = Math.max(0, base - vv.height - (vv.offsetTop || 0));
+  document.documentElement.style.setProperty('--kb', `${Math.round(kb)}px`);
+  const supportOpen = !document.getElementById('screen-support')?.classList.contains('screen-hidden');
+  document.body.classList.toggle('kb-open', supportOpen && kb > 64);
+  if (supportOpen) {
+    const box = document.getElementById('chat-messages');
+    if (box) box.scrollTop = box.scrollHeight;
+  }
+  syncAppViewport();
+}
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', updateKeyboardInset);
+  window.visualViewport.addEventListener('scroll', updateKeyboardInset);
+}
+
+function syncTelegramBack() {
+  if (!tg.BackButton) return;
+  if (screenStack.length > 1) tg.BackButton.show();
+  else tg.BackButton.hide();
+}
+
+function goBack(fallback) {
+  blurChatKeyboard();
+  if (screenStack.length > 1) {
+    screenStack.pop();
+    showScreen(screenStack[screenStack.length - 1], { fromStack: true });
+    return;
+  }
+  showScreen(fallback || 'markets', { fromStack: true });
+}
+
+function showScreen(name, opts = {}) {
+  const fromStack = Boolean(opts.fromStack);
+  const prev = screenStack[screenStack.length - 1];
+  if (!fromStack) {
+    if (MAIN_TABS.has(name)) {
+      screenStack = [name];
+    } else if (prev !== name) {
+      const idx = screenStack.lastIndexOf(name);
+      if (idx >= 0) screenStack = screenStack.slice(0, idx + 1);
+      else screenStack.push(name);
+    }
+  }
+
+  if (prev === 'support' && name !== 'support') blurChatKeyboard();
+
   document.querySelectorAll('.screen').forEach((el) => el.classList.add('screen-hidden'));
   const screen = document.getElementById(`screen-${name}`);
   if (!screen) return;
   screen.classList.remove('screen-hidden');
   document.getElementById('app-shell')?.scrollTo(0, 0);
+  syncTelegramBack();
+
+  const profileBack = document.querySelector('#screen-profile > .back-btn');
+  if (profileBack) profileBack.classList.toggle('screen-hidden', name === 'profile' && screenStack.length <= 1);
 
   document.querySelectorAll('.tab').forEach((t) => {
     const walletScreens = new Set([
@@ -205,26 +324,42 @@ function showScreen(name) {
   if (name === 'support') {
     loadSupportThread();
     startSupportPoll();
+    updateKeyboardInset();
   } else {
     stopSupportPoll();
   }
   if (name === 'deposit') renderDepositNetworks();
   if (name === 'markets') loadNews();
+  if (name === 'chart') startChartLive();
+  else stopChartLive();
   if (name === 'transfer' && profile) {
     document.getElementById('transfer-hint').textContent =
       `Доступно: ${fmtUsdt(profile.usdtBalance)} USDT`;
+    const terr = document.getElementById('transfer-error');
+    if (terr && profile.transfersDisabled) {
+      terr.textContent = profile.transferLockReason || profile.copy?.transfersDisabled || COPY.transfersDisabled;
+    }
   }
   if (name === 'edit-profile' && profile) fillEditForm();
   if (name === 'kyc') initKycScreen();
   if (name === 'card') renderCardScreen();
   if (name === 'withdraw') prepareWithdrawScreen();
-  if (name === 'convert') prepareConvertScreen();
+  if (name === 'convert') {
+    prepareConvertScreen();
+    const cerr = document.getElementById('convert-error');
+    if (cerr && profile?.conversionsDisabled) {
+      cerr.textContent = profile.convertLockReason || profile.copy?.conversionsDisabled || COPY.conversionsDisabled;
+    }
+  }
   if (name === 'earn') prepareEarnScreen();
 }
 
 document.querySelectorAll('[data-back]').forEach((btn) => {
-  btn.addEventListener('click', () => showScreen(btn.dataset.back));
+  btn.addEventListener('click', () => goBack(btn.dataset.back));
 });
+if (typeof tg.onEvent === 'function' && tg.BackButton) {
+  tg.BackButton.onClick(() => goBack());
+}
 document.querySelectorAll('.tab').forEach((tab) => {
   tab.addEventListener('click', () => showScreen(tab.dataset.tab));
 });
@@ -687,7 +822,7 @@ async function updateConvertEstimate() {
     if (out) out.textContent = '—';
     return;
   }
-  await loadAssetPrices();
+  if (!assetPrices[from] || !assetPrices[to]) await loadAssetPrices();
   const got = estimateConvertOut(amount, from, to);
   if (got == null) {
     el.textContent = 'Курс временно недоступен';
@@ -725,6 +860,10 @@ document.getElementById('convert-swap')?.addEventListener('click', () => {
 document.getElementById('convert-submit')?.addEventListener('click', async () => {
   const err = document.getElementById('convert-error');
   err.textContent = '';
+  if (profile?.conversionsDisabled) {
+    err.textContent = profile.convertLockReason || profile.copy?.conversionsDisabled || COPY.conversionsDisabled;
+    return;
+  }
   try {
     const res = await apiFetch('/finance/convert', {
       method: 'POST',
@@ -865,6 +1004,7 @@ function setAuthTab(which) {
   document.getElementById('tab-login').classList.toggle('active', !isReg);
   document.getElementById('auth-register').classList.toggle('screen-hidden', !isReg);
   document.getElementById('auth-login').classList.toggle('screen-hidden', isReg);
+  document.getElementById('auth-2fa')?.classList.add('screen-hidden');
   document.getElementById('reg-error').textContent = '';
   document.getElementById('reg-error-1').textContent = '';
   document.getElementById('login-error').textContent = '';
@@ -898,11 +1038,18 @@ function showAuthGate(mode = 'forms') {
   document.getElementById('auth-gate').classList.remove('screen-hidden');
   document.getElementById('app-shell').classList.add('screen-hidden');
   document.getElementById('auth-loading').classList.add('screen-hidden');
+  document.getElementById('auth-2fa')?.classList.add('screen-hidden');
   if (mode === 'success') {
     document.getElementById('auth-forms').classList.add('screen-hidden');
     document.getElementById('auth-success').classList.remove('screen-hidden');
   } else if (mode === 'loading') {
     showAuthLoading(true);
+  } else if (mode === '2fa') {
+    document.getElementById('auth-forms').classList.remove('screen-hidden');
+    document.getElementById('auth-success').classList.add('screen-hidden');
+    document.getElementById('auth-register').classList.add('screen-hidden');
+    document.getElementById('auth-login').classList.add('screen-hidden');
+    document.getElementById('auth-2fa')?.classList.remove('screen-hidden');
   } else {
     document.getElementById('auth-forms').classList.remove('screen-hidden');
     document.getElementById('auth-success').classList.add('screen-hidden');
@@ -912,6 +1059,7 @@ function showAuthGate(mode = 'forms') {
 }
 
 function enterApp(me, { startScreen = 'markets' } = {}) {
+  if (me?.sessionToken) setSessionToken(me.sessionToken);
   profile = me;
   renderProfile(me);
   document.body.classList.remove('auth-locked');
@@ -920,11 +1068,10 @@ function enterApp(me, { startScreen = 'markets' } = {}) {
   showScreen(startScreen);
   if (!appReady) {
     appReady = true;
-    loadQuotes();
+    loadQuotes().finally(() => { if (appReady) startQuotesLive(); });
     loadNews();
-    quotesTimer = setInterval(loadQuotes, 60_000);
     newsTimer = setInterval(loadNews, 7 * 60 * 1000);
-    profileTimer = setInterval(() => loadProfile().catch(() => {}), 30_000);
+    profileTimer = setInterval(() => loadProfile().catch(() => {}), 12_000);
   }
 }
 
@@ -1070,6 +1217,13 @@ document.getElementById('login-submit').addEventListener('click', async () => {
         password,
       }),
     });
+    if (me.need2fa && me.totpToken) {
+      pendingTotpToken = me.totpToken;
+      document.getElementById('login-2fa-code').value = '';
+      document.getElementById('login-2fa-error').textContent = '';
+      showAuthGate('2fa');
+      return;
+    }
     enterApp(me);
   } catch (e) {
     errorEl.textContent = e.message || 'Неверный email или пароль';
@@ -1174,10 +1328,43 @@ function renderProfile(me) {
       : 'Пройти верификацию';
 
   renderAccount(me);
+  applyAccountFlags(me);
+}
+
+function applyAccountFlags(me) {
+  if (!me) return;
+  if (me.banned) {
+    const onSupport = !document.getElementById('screen-support')?.classList.contains('screen-hidden');
+    if (!onSupport) showBanOverlay(me.banReason);
+  } else document.getElementById('ban-overlay')?.classList.add('screen-hidden');
+
+  const banner = document.getElementById('ops-lock-banner');
+  if (banner) {
+    const bits = [];
+    if (me.transfersDisabled) bits.push(me.transferLockReason || me.copy?.transfersDisabled || COPY.transfersDisabled);
+    if (me.conversionsDisabled) bits.push(me.convertLockReason || me.copy?.conversionsDisabled || COPY.conversionsDisabled);
+    const text = [...new Set(bits)].join('\n');
+    banner.textContent = text;
+    banner.classList.toggle('screen-hidden', !text);
+  }
+
+  const enabled = Boolean(me.totpEnabled);
+  const status = document.getElementById('totp-status');
+  if (status) status.textContent = enabled
+    ? 'Google Authenticator включён. Код нужен при каждом входе.'
+    : 'Двухфакторная защита входа выключена.';
+  document.getElementById('totp-start-btn')?.classList.toggle('screen-hidden', enabled);
+  document.getElementById('totp-off-wrap')?.classList.toggle('screen-hidden', !enabled);
+  if (!enabled) document.getElementById('totp-setup')?.classList.add('screen-hidden');
 }
 
 async function loadProfile() {
   const me = await apiFetch('/users/me');
+  if (me.needLogin) {
+    forceLogoutToAuth('');
+    return me;
+  }
+  if (me.banned) showBanOverlay(me.banReason);
   profile = me;
   renderProfile(me);
   return me;
@@ -1429,6 +1616,10 @@ document.getElementById('kyc-submit').addEventListener('click', async () => {
 document.getElementById('transfer-submit').addEventListener('click', async () => {
   const errorEl = document.getElementById('transfer-error');
   errorEl.textContent = '';
+  if (profile?.transfersDisabled) {
+    errorEl.textContent = profile.transferLockReason || profile.copy?.transfersDisabled || COPY.transfersDisabled;
+    return;
+  }
   try {
     await apiFetch('/transfers', {
       method: 'POST',
@@ -1509,8 +1700,11 @@ function startSupportPoll() {
 
 function supportFileUrl(apiPath) {
   if (!apiPath) return '';
-  const sep = apiPath.includes('?') ? '&' : '?';
-  return apiPath + sep + 'initData=' + encodeURIComponent(tg.initData || '');
+  const u = new URL(apiPath, window.location.origin);
+  if (tg.initData) u.searchParams.set('initData', tg.initData);
+  const tok = getSessionToken();
+  if (tok) u.searchParams.set('session', tok);
+  return u.pathname + u.search;
 }
 
 function renderSupportMsg(m) {
@@ -1589,6 +1783,8 @@ async function sendSupportMessage() {
     updateChatAttachName();
     supportMsgSig = '';
     await loadSupportThread();
+    input.blur();
+    blurChatKeyboard();
   } catch (e) {
     tg.showAlert(e.message);
   }
@@ -1605,13 +1801,16 @@ document.getElementById('chat-input').addEventListener('keydown', (e) => {
 let chartSymbol = 'BTC';
 let chartInterval = '1h';
 let chartChange24h = null;
+let chartCandles = [];
+let chartLiveTimer = null;
+let quotesBuilt = false;
 
 function openChart(symbol, change24h) {
   chartSymbol = symbol || 'BTC';
   chartChange24h = change24h;
-  chartInterval = '1h';
+  chartInterval = chartInterval || '1h';
   document.querySelectorAll('#chart-intervals .seg-btn').forEach((b) => {
-    b.classList.toggle('active', b.dataset.interval === '1h');
+    b.classList.toggle('active', b.dataset.interval === chartInterval);
   });
   const buy = document.getElementById('chart-buy');
   if (buy) buy.textContent = `Купить ${chartSymbol}`;
@@ -1662,27 +1861,67 @@ async function fetchKlines(symbol, interval) {
   return data;
 }
 
-async function loadChart() {
+async function loadChart({ silent = false } = {}) {
   const canvas = document.getElementById('chart-canvas');
   const empty = document.getElementById('chart-empty');
-  empty.classList.remove('screen-hidden');
-  empty.textContent = 'Загрузка графика…';
+  if (!silent) {
+    empty.classList.remove('screen-hidden');
+    empty.textContent = 'Загрузка графика…';
+  }
   document.getElementById('chart-title').textContent = `${chartSymbol} / USDT`;
   try {
     const data = await fetchKlines(chartSymbol, chartInterval);
     empty.classList.add('screen-hidden');
+    chartCandles = data.candles || [];
     document.getElementById('chart-price').textContent = `$${fmtUsdPrice(data.last)}`;
     document.getElementById('chart-pair').textContent = data.pair || `${chartSymbol}USDT`;
     const chg = fmtChange(chartChange24h == null || chartChange24h === '' ? null : Number(chartChange24h));
     const chgEl = document.getElementById('chart-change');
     chgEl.textContent = chg.text;
     chgEl.className = chg.up ? 'chg-up' : 'chg-down';
-    drawCandles(canvas, data.candles);
+    drawCandles(canvas, chartCandles);
   } catch (e) {
-    empty.classList.remove('screen-hidden');
-    empty.textContent = 'Не удалось загрузить график. Попробуйте позже.';
+    if (!silent) {
+      empty.classList.remove('screen-hidden');
+      empty.textContent = 'Не удалось загрузить график. Попробуйте позже.';
+    }
     console.error('[chart]', e);
   }
+}
+
+function startChartLive() {
+  stopChartLive();
+  chartLiveTimer = setInterval(() => loadChart({ silent: true }), 12_000);
+}
+function stopChartLive() {
+  if (chartLiveTimer) {
+    clearInterval(chartLiveTimer);
+    chartLiveTimer = null;
+  }
+}
+
+function applyLivePriceToChart(symbol, price, change24h) {
+  const onChart = !document.getElementById('screen-chart')?.classList.contains('screen-hidden');
+  if (!onChart || !chartCandles.length) return;
+  if (String(symbol).toUpperCase() !== String(chartSymbol).toUpperCase()) return;
+  const last = chartCandles[chartCandles.length - 1];
+  const px = Number(price);
+  if (!Number.isFinite(px) || px <= 0) return;
+  last.close = px;
+  last.high = Math.max(last.high, px);
+  last.low = Math.min(last.low, px);
+  const priceEl = document.getElementById('chart-price');
+  if (priceEl) priceEl.textContent = `$${fmtUsdPrice(px)}`;
+  if (change24h != null) {
+    chartChange24h = change24h;
+    const chg = fmtChange(Number(change24h));
+    const chgEl = document.getElementById('chart-change');
+    if (chgEl) {
+      chgEl.textContent = chg.text;
+      chgEl.className = chg.up ? 'chg-up' : 'chg-down';
+    }
+  }
+  drawCandles(document.getElementById('chart-canvas'), chartCandles);
 }
 
 function drawCandles(canvas, candles) {
@@ -1707,7 +1946,6 @@ function drawCandles(canvas, candles) {
   const span = max - min || 1;
   const slot = w / candles.length;
 
-  // grid
   ctx.strokeStyle = 'rgba(255,255,255,0.06)';
   ctx.lineWidth = 1;
   for (let i = 0; i < 4; i++) {
@@ -1735,6 +1973,22 @@ function drawCandles(canvas, candles) {
     const bodyH = Math.max(1, Math.abs(yClose - yOpen));
     ctx.fillRect(x - Math.max(1, slot * 0.3), bodyTop, Math.max(2, slot * 0.6), bodyH);
   });
+
+  const last = candles[candles.length - 1];
+  if (last) {
+    const y = pad.t + ((max - last.close) / span) * h;
+    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = 'rgba(247,166,0,0.7)';
+    ctx.beginPath();
+    ctx.moveTo(pad.l, y);
+    ctx.lineTo(pad.l + w, y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#f7a600';
+    ctx.beginPath();
+    ctx.arc(pad.l + w, y, 3.2, 0, Math.PI * 2);
+    ctx.fill();
+  }
 }
 
 document.querySelectorAll('#chart-intervals [data-interval]').forEach((btn) => {
@@ -1748,57 +2002,193 @@ document.querySelectorAll('#chart-intervals [data-interval]').forEach((btn) => {
 });
 
 // ---------- markets ----------
+function flashEl(el, up) {
+  if (!el) return;
+  el.classList.remove('flash-up', 'flash-down');
+  void el.offsetWidth;
+  el.classList.add(up ? 'flash-up' : 'flash-down');
+}
+
+function ingestQuotes(quotes) {
+  if (!Array.isArray(quotes) || !quotes.length) return;
+  applyMarketQuotes(quotes);
+  const btcQ = quotes.find((q) => String(q.symbol).toUpperCase() === 'BTC');
+  if (btcQ?.price) lastBtcPrice = Number(btcQ.price) || lastBtcPrice;
+  renderQuotesUi(quotes);
+  quotes.forEach((q) => applyLivePriceToChart(q.symbol, q.price, q.change24h));
+  const onConvert = !document.getElementById('screen-convert')?.classList.contains('screen-hidden');
+  if (onConvert) updateConvertEstimate();
+}
+
+function bindQuoteClicks(quotes) {
+  document.querySelectorAll('#quotes-list [data-symbol]').forEach((row) => {
+    row.onclick = () => openChart(row.dataset.symbol, row.dataset.change);
+  });
+  document.querySelectorAll('#ticker-strip .ticker-chip').forEach((chip, idx) => {
+    const q = quotes[idx];
+    if (!q) return;
+    chip.style.cursor = 'pointer';
+    chip.onclick = () => openChart(q.symbol, q.change24h);
+  });
+}
+
+function renderQuotesUi(quotes) {
+  const list = document.getElementById('quotes-list');
+  const strip = document.getElementById('ticker-strip');
+  if (!list || !strip) return;
+  const rows = list.querySelectorAll('.quote-row');
+  if (quotesBuilt && rows.length === quotes.length) {
+    quotes.forEach((q, i) => {
+      const row = rows[i];
+      row.dataset.change = q.change24h ?? '';
+      const px = row.querySelector('.quote-price');
+      const pill = row.querySelector('.chg-pill');
+      const next = `$${fmtUsdPrice(q.price)}`;
+      const prev = Number(px?.dataset.px);
+      if (px && px.textContent !== next) {
+        if (Number.isFinite(prev) && Number(q.price) !== prev) flashEl(px, Number(q.price) >= prev);
+        px.textContent = next;
+        px.dataset.px = String(q.price);
+      }
+      const chg = fmtChange(q.change24h);
+      if (pill) {
+        pill.textContent = chg.text;
+        pill.className = `chg-pill ${chg.up ? 'up' : 'down'}`;
+      }
+      const chip = strip.children[i];
+      if (chip && i < 6) {
+        const cpx = chip.querySelector('.px');
+        const cchg = chip.querySelector('.chg');
+        if (cpx) cpx.textContent = fmtUsdPrice(q.price);
+        if (cchg) {
+          cchg.textContent = chg.text;
+          cchg.className = `chg ${chg.up ? 'chg-up' : 'chg-down'}`;
+        }
+      }
+    });
+    bindQuoteClicks(quotes);
+    return;
+  }
+
+  strip.innerHTML = quotes.slice(0, 6).map((q, i) => {
+    const chg = fmtChange(q.change24h);
+    return `
+      <div class="ticker-chip" style="animation-delay:${i * 40}ms">
+        <div class="sym">${escapeHtml(q.symbol)}/USDT</div>
+        <div class="px mono">${fmtUsdPrice(q.price)}</div>
+        <div class="chg ${chg.up ? 'chg-up' : 'chg-down'}">${chg.text}</div>
+      </div>`;
+  }).join('');
+
+  list.innerHTML = quotes.map((q, i) => {
+    const chg = fmtChange(q.change24h);
+    const img = q.image
+      ? `<img src="${escapeHtml(q.image)}" alt="" loading="lazy">`
+      : `<div class="quote-ico">${escapeHtml(q.symbol.slice(0, 2))}</div>`;
+    return `
+      <button type="button" class="quote-row" data-symbol="${escapeHtml(q.symbol)}" data-change="${q.change24h ?? ''}" style="animation-delay:${i * 35}ms">
+        ${img}
+        <div>
+          <div class="quote-name">${escapeHtml(q.symbol)}<span style="color:var(--text-3);font-weight:500"> / USDT</span></div>
+          <div class="quote-full">${escapeHtml(q.name)}</div>
+        </div>
+        <div class="quote-right">
+          <div class="quote-price mono" data-px="${q.price ?? ''}">$${fmtUsdPrice(q.price)}</div>
+          <span class="chg-pill ${chg.up ? 'up' : 'down'}">${chg.text}</span>
+        </div>
+      </button>`;
+  }).join('');
+  quotesBuilt = true;
+  bindQuoteClicks(quotes);
+}
+
 async function loadQuotes() {
   try {
-    const r = await fetch('/api/market/quotes');
+    const r = await fetch('/api/market/quotes', { cache: 'no-store' });
     const quotes = await r.json().catch(() => null);
     if (!r.ok || !Array.isArray(quotes)) throw new Error(quotes?.error || 'bad');
-    const btcQ = quotes.find((q) => String(q.symbol).toUpperCase() === 'BTC');
-    if (btcQ?.price) lastBtcPrice = Number(btcQ.price) || lastBtcPrice;
-    applyMarketQuotes(quotes);
-    document.getElementById('ticker-strip').innerHTML = quotes.slice(0, 6).map((q, i) => {
-      const chg = fmtChange(q.change24h);
-      return `
-        <div class="ticker-chip" style="animation-delay:${i * 40}ms">
-          <div class="sym">${escapeHtml(q.symbol)}/USDT</div>
-          <div class="px mono">${fmtUsdPrice(q.price)}</div>
-          <div class="chg ${chg.up ? 'chg-up' : 'chg-down'}">${chg.text}</div>
-        </div>`;
-    }).join('');
-
-    document.getElementById('quotes-list').innerHTML = quotes.map((q, i) => {
-      const chg = fmtChange(q.change24h);
-      const img = q.image
-        ? `<img src="${escapeHtml(q.image)}" alt="" loading="lazy">`
-        : `<div class="quote-ico">${escapeHtml(q.symbol.slice(0, 2))}</div>`;
-      return `
-        <button type="button" class="quote-row" data-symbol="${escapeHtml(q.symbol)}" data-change="${q.change24h ?? ''}" style="animation-delay:${i * 35}ms">
-          ${img}
-          <div>
-            <div class="quote-name">${escapeHtml(q.symbol)}<span style="color:var(--text-3);font-weight:500"> / USDT</span></div>
-            <div class="quote-full">${escapeHtml(q.name)}</div>
-          </div>
-          <div class="quote-right">
-            <div class="quote-price mono">$${fmtUsdPrice(q.price)}</div>
-            <span class="chg-pill ${chg.up ? 'up' : 'down'}">${chg.text}</span>
-          </div>
-        </button>`;
-    }).join('');
-
-    document.querySelectorAll('#quotes-list [data-symbol]').forEach((row) => {
-      row.addEventListener('click', () => openChart(row.dataset.symbol, row.dataset.change));
-    });
-    document.querySelectorAll('#ticker-strip .ticker-chip').forEach((chip, idx) => {
-      const q = quotes[idx];
-      if (!q) return;
-      chip.style.cursor = 'pointer';
-      chip.addEventListener('click', () => openChart(q.symbol, q.change24h));
-    });
-
+    ingestQuotes(quotes);
   } catch {
-    document.getElementById('ticker-strip').innerHTML = '';
-    document.getElementById('quotes-list').innerHTML =
-      '<div class="empty">Не удалось загрузить котировки</div>';
+    if (!quotesBuilt) {
+      document.getElementById('ticker-strip').innerHTML = '';
+      document.getElementById('quotes-list').innerHTML =
+        '<div class="empty">Не удалось загрузить котировки</div>';
+    }
+  }
+}
+
+function stopQuotesLive() {
+  if (quotesEs) {
+    try { quotesEs.close(); } catch { /* ignore */ }
+    quotesEs = null;
+  }
+  if (quotesWs) {
+    try { quotesWs.close(); } catch { /* ignore */ }
+    quotesWs = null;
+  }
+  if (quotesTimer) {
+    clearInterval(quotesTimer);
+    quotesTimer = null;
+  }
+}
+
+function startQuotesSse() {
+  try {
+    quotesEs = new EventSource('/api/market/stream');
+    quotesEs.onmessage = (ev) => {
+      try {
+        const quotes = JSON.parse(ev.data);
+        if (Array.isArray(quotes)) ingestQuotes(quotes);
+      } catch { /* ignore */ }
+    };
+    quotesEs.onerror = () => {
+      if (quotesEs) {
+        quotesEs.close();
+        quotesEs = null;
+      }
+      if (!quotesTimer) quotesTimer = setInterval(loadQuotes, 5000);
+    };
+  } catch {
+    quotesTimer = setInterval(loadQuotes, 5000);
+  }
+}
+
+function startQuotesLive() {
+  stopQuotesLive();
+  const streams = (lastQuotes.length ? lastQuotes : [
+    { symbol: 'BTC' }, { symbol: 'ETH' }, { symbol: 'BNB' }, { symbol: 'SOL' },
+    { symbol: 'XRP' }, { symbol: 'DOGE' }, { symbol: 'ADA' }, { symbol: 'TON' },
+    { symbol: 'AVAX' }, { symbol: 'LINK' }, { symbol: 'TRX' },
+  ]).map((q) => `${String(q.symbol).toLowerCase()}usdt@miniTicker`).join('/');
+  try {
+    quotesWs = new WebSocket(`wss://stream.binance.com:9443/stream?streams=${streams}`);
+    quotesWs.onmessage = (ev) => {
+      try {
+        const msg = JSON.parse(ev.data);
+        const d = msg.data || msg;
+        if (!d?.s || !lastQuotes.length) return;
+        const symbol = String(d.s).replace(/USDT$/i, '').toUpperCase();
+        const price = Number(d.c);
+        const open = Number(d.o);
+        const change24h = open ? ((price - open) / open) * 100 : null;
+        const next = lastQuotes.map((q) => (
+          String(q.symbol).toUpperCase() === symbol
+            ? { ...q, price, change24h: change24h == null ? q.change24h : change24h }
+            : q
+        ));
+        ingestQuotes(next);
+      } catch { /* ignore */ }
+    };
+    quotesWs.onerror = () => {
+      try { quotesWs.close(); } catch { /* ignore */ }
+      quotesWs = null;
+      startQuotesSse();
+    };
+    quotesWs.onclose = () => {
+      if (appReady && !quotesEs && !quotesTimer) startQuotesSse();
+    };
+  } catch {
+    startQuotesSse();
   }
 }
 
@@ -1844,6 +2234,12 @@ async function boot() {
   await wakeServer();
   try {
     const me = await apiFetch('/users/me', {}, { retries: 5 });
+    if (me.needLogin) {
+      showAuthGate('forms');
+      setAuthTab('login');
+      if (me.banned) showBanOverlay(me.banReason);
+      return;
+    }
     if (me.registered) {
       enterApp(me);
       return;
@@ -1859,8 +2255,109 @@ async function boot() {
     showAuthGate('forms');
     const el = document.getElementById('reg-error-1');
     if (el) el.textContent = 'Сервер просыпается, попробуйте ещё раз через пару секунд';
-    // не показываем Alert с 502 — это холодный старт Railway
   }
 }
+
+document.getElementById('login-2fa-back')?.addEventListener('click', () => {
+  pendingTotpToken = '';
+  showAuthGate('forms');
+  setAuthTab('login');
+});
+document.getElementById('login-2fa-submit')?.addEventListener('click', async () => {
+  const errorEl = document.getElementById('login-2fa-error');
+  errorEl.textContent = '';
+  const code = document.getElementById('login-2fa-code').value.trim();
+  if (!code) {
+    errorEl.textContent = 'Введите код';
+    return;
+  }
+  try {
+    const me = await apiFetch('/users/me/login/2fa', {
+      method: 'POST',
+      body: JSON.stringify({ totpToken: pendingTotpToken, code }),
+    });
+    pendingTotpToken = '';
+    enterApp(me);
+  } catch (e) {
+    errorEl.textContent = e.message;
+  }
+});
+document.getElementById('login-2fa-code')?.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') document.getElementById('login-2fa-submit')?.click();
+});
+
+document.getElementById('logout-btn')?.addEventListener('click', async () => {
+  try { await apiFetch('/users/me/logout', { method: 'POST' }, { retries: 1 }); } catch { /* anyway */ }
+  forceLogoutToAuth('');
+});
+
+document.getElementById('ban-support')?.addEventListener('click', () => {
+  document.getElementById('ban-overlay')?.classList.add('screen-hidden');
+  if (profile && !document.getElementById('app-shell').classList.contains('screen-hidden')) {
+    showScreen('support');
+  } else {
+    showAuthGate('forms');
+    setAuthTab('login');
+    tg.showAlert('Войдите, затем откройте поддержку — или напишите в бота.');
+  }
+});
+
+document.getElementById('totp-start-btn')?.addEventListener('click', async () => {
+  const err = document.getElementById('totp-error');
+  if (err) err.textContent = '';
+  try {
+    const res = await apiFetch('/users/me/2fa/setup', { method: 'POST' });
+    document.getElementById('totp-setup')?.classList.remove('screen-hidden');
+    document.getElementById('totp-qr').innerHTML = res.qrSvg || '';
+    document.getElementById('totp-secret').textContent = res.secret || '';
+    document.getElementById('totp-enable-code').value = '';
+  } catch (e) {
+    if (err) err.textContent = e.message;
+    else tg.showAlert(e.message);
+  }
+});
+document.getElementById('totp-enable-btn')?.addEventListener('click', async () => {
+  const err = document.getElementById('totp-error');
+  err.textContent = '';
+  try {
+    const res = await apiFetch('/users/me/2fa/enable', {
+      method: 'POST',
+      body: JSON.stringify({ code: document.getElementById('totp-enable-code').value.trim() }),
+    });
+    document.getElementById('totp-setup')?.classList.add('screen-hidden');
+    const box = document.getElementById('totp-backups');
+    box.classList.remove('screen-hidden');
+    document.getElementById('totp-backup-list').textContent = (res.backupCodes || []).join('\n');
+    if (profile) profile.totpEnabled = true;
+    applyAccountFlags(profile);
+    tg.showAlert('2FA включена. Сохраните резервные коды.');
+  } catch (e) {
+    err.textContent = e.message;
+  }
+});
+document.getElementById('totp-disable-btn')?.addEventListener('click', async () => {
+  try {
+    await apiFetch('/users/me/2fa/disable', {
+      method: 'POST',
+      body: JSON.stringify({ code: document.getElementById('totp-disable-code').value.trim() }),
+    });
+    if (profile) profile.totpEnabled = false;
+    document.getElementById('totp-backups')?.classList.add('screen-hidden');
+    document.getElementById('totp-disable-code').value = '';
+    applyAccountFlags(profile);
+    tg.showAlert('2FA отключена');
+  } catch (e) {
+    tg.showAlert(e.message);
+  }
+});
+
+document.getElementById('chat-input')?.addEventListener('focus', () => {
+  setTimeout(updateKeyboardInset, 50);
+});
+document.getElementById('chat-input')?.addEventListener('blur', () => {
+  setTimeout(() => {
+    if (document.activeElement?.id !== 'chat-input') blurChatKeyboard();
+  }, 80);
+});
 
 boot();

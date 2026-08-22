@@ -266,6 +266,17 @@ tr:last-child td { border-bottom: none; }
   color: var(--text); font-size: 14px;
 }
 .check-row input { width: auto; }
+.restrict-block {
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #10141a;
+}
+.restrict-block textarea {
+  width: 100%;
+  resize: vertical;
+}
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
 
 .addr-form { display: grid; gap: 8px; margin-bottom: 10px; }

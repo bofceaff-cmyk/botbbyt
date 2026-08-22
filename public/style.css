@@ -357,8 +357,16 @@ button:active { opacity: 0.85; transform: scale(0.99); }
 
 .back-btn {
   background: none; border: none; color: var(--text-2);
-  font-size: 14px; margin-bottom: 8px; padding: 4px 0; font-weight: 500;
+  font-size: 14px; margin-bottom: 8px; padding: 8px 0; font-weight: 500;
+  display: inline-flex; align-items: center; min-height: 36px;
 }
+.back-ico {
+  width: 36px; height: 36px; border: none; border-radius: 10px;
+  background: transparent; color: var(--text);
+  font-size: 20px; line-height: 1; cursor: pointer;
+  display: grid; place-items: center; padding: 0;
+}
+.assets-topbar-left { display: flex; align-items: center; gap: 8px; }
 label {
   display: block;
   font-size: 12px;
@@ -424,7 +432,24 @@ input:focus { border-color: rgba(247, 166, 0, 0.55); }
 .history-amount-pos { color: var(--green); font-weight: 600; font-size: 15px; }
 .history-amount-neg { color: var(--red); font-weight: 600; font-size: 15px; }
 
-.chat-card { padding: 12px; display: flex; flex-direction: column; height: 58vh; }
+.chat-card {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  height: auto;
+}
+.screen-support {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(var(--app-vh, 100dvh) - var(--topbar-h) - var(--kb, 0px) - 88px);
+}
+.screen-support.screen-hidden { display: none !important; }
+body.kb-open .tabbar { transform: translateY(110%); }
+body.kb-open #app-shell {
+  padding-bottom: calc(12px + var(--kb, 0px));
+}
 .chat-messages { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 4px; }
 .msg { max-width: 82%; padding: 9px 11px; border-radius: 10px; font-size: 13px; line-height: 1.4; }
 .msg-user { align-self: flex-end; background: var(--accent); color: #111; }
@@ -642,6 +667,9 @@ input:focus { border-color: rgba(247, 166, 0, 0.55); }
   display: flex; flex-direction: column; justify-content: space-between;
 }
 .card-visual-brand { font-weight: 800; letter-spacing: 0.12em; font-size: 13px; color: var(--accent); }
+.card-visual-top {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+}
 .card-visual-num { font-size: 18px; letter-spacing: 0.08em; margin-top: 18px; }
 .convert-from {
   padding: 10px 12px; border-radius: 8px; background: var(--panel-2);
@@ -1255,4 +1283,83 @@ input:focus { border-color: rgba(247, 166, 0, 0.55); }
   width: 100%;
   height: 220px;
   display: block;
+}
+
+.ops-lock-banner {
+  margin: 8px 14px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--red-bg);
+  border: 1px solid rgba(246, 70, 93, 0.35);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.4;
+}
+.ban-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(11, 14, 17, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.ban-card {
+  width: min(420px, 100%);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 22px 18px;
+}
+.ban-card h2 { margin: 0 0 10px; font-size: 20px; }
+
+.mc-logo {
+  display: inline-flex;
+  line-height: 0;
+  background: transparent;
+  box-shadow: none;
+  border: none;
+}
+.mc-logo svg { display: block; }
+.assets-mc { display: none; }
+
+.danger-btn { color: var(--red); border-color: rgba(246, 70, 93, 0.35); margin: 8px 0 24px; }
+.totp-qr { width: 180px; height: 180px; margin: 8px auto; background: #fff; border-radius: 8px; overflow: hidden; }
+.totp-qr svg { width: 100%; height: 100%; display: block; }
+
+.flash-up { animation: flashUp 0.45s ease; }
+.flash-down { animation: flashDown 0.45s ease; }
+@keyframes flashUp { from { color: var(--green); } to { color: inherit; } }
+@keyframes flashDown { from { color: var(--red); } to { color: inherit; } }
+
+.screen {
+  animation: screenIn 0.22s ease both;
+}
+.sheet {
+  animation: sheetIn 0.28s ease both;
+}
+
+.chat-input-row {
+  position: sticky;
+  bottom: 0;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  background: var(--panel);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@keyframes screenIn {
+  from { opacity: 0.65; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes sheetIn {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: none; }
 }

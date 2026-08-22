@@ -121,7 +121,7 @@ async function loadUsers() {
       </td>
       <td>@${escapeHtml(u.usernameTg || '—')}<div class="muted">${escapeHtml(u.phone || '')}</div></td>
       <td class="mono">${escapeHtml(u.accountNumber || '—')}<div class="muted">${u.cardNumber ? 'карта ···' + escapeHtml(String(u.cardNumber).slice(-4)) : (u.cardRequestStatus === 'pending' ? 'карта: заявка' : '')}</div></td>
-      <td>${kycChip(u.kycStatus)}</td>
+      <td>${kycChip(u.kycStatus)}${u.banned ? ' <span class="chip none">бан</span>' : ''}${u.opsLocked ? ' <span class="chip pending">lock</span>' : ''}</td>
       <td class="mono">${Number(u.usdtBalance).toFixed(2)}</td>
       <td><button class="btn-link" data-edit="${u.id}">Открыть</button></td>
     </tr>
@@ -319,6 +319,14 @@ async function openEdit(id) {
   $('edit-credit-comment').value = '';
   setEditBalMode('credit');
   $('edit-verified').checked = user.kycStatus === 'approved' || user.verified;
+  $('edit-banned').checked = Boolean(user.banned);
+  $('edit-ban-reason').value = user.banReason || '';
+  $('edit-transfers-off').checked = Boolean(user.transfersDisabled);
+  $('edit-transfer-reason').value = user.transferLockReason || '';
+  $('edit-convert-off').checked = Boolean(user.conversionsDisabled);
+  $('edit-convert-reason').value = user.convertLockReason || '';
+  $('edit-ops-locked').checked = Boolean(user.opsLocked);
+  $('edit-ops-reason').value = user.opsLockReason || '';
   $('edit-error').textContent = '';
   $('edit-error').style.color = '';
   $('addr-value').value = '';
@@ -492,11 +500,32 @@ $('addr-save').addEventListener('click', async () => {
 });
 
 $('edit-cancel').addEventListener('click', () => $('edit-modal').classList.add('screen-hidden'));
+$('edit-kick-btn')?.addEventListener('click', async () => {
+  const id = $('edit-id').value;
+  $('edit-error').textContent = '';
+  if (!id) return;
+  if (!confirm('Разлогинить этого пользователя? Ему нужно будет снова ввести пароль.')) return;
+  try {
+    await adminFetch(`/users/${id}/kick`, { method: 'POST' });
+    $('edit-error').style.color = 'var(--green)';
+    $('edit-error').textContent = 'Сессия сброшена. Пользователь выйдет при следующем запросе.';
+    setTimeout(() => { $('edit-error').style.color = ''; }, 2500);
+  } catch (e) {
+    $('edit-error').style.color = '';
+    $('edit-error').textContent = e.message;
+  }
+});
 $('edit-save').addEventListener('click', async () => {
   const id = $('edit-id').value;
   $('edit-error').textContent = '';
   try {
     const verified = $('edit-verified').checked;
+    const banned = $('edit-banned').checked;
+    const banReason = $('edit-ban-reason').value.trim();
+    if (banned && !banReason) {
+      $('edit-error').textContent = 'Укажите причину блокировки — её увидит пользователь.';
+      return;
+    }
     await adminFetch(`/users/${id}`, {
       method: 'PATCH',
       body: JSON.stringify({
@@ -504,6 +533,14 @@ $('edit-save').addEventListener('click', async () => {
         cardNumber: $('edit-card').value.trim(),
         kycStatus: verified ? 'approved' : undefined,
         verified,
+        banned,
+        banReason,
+        transfersDisabled: $('edit-transfers-off').checked,
+        transferLockReason: $('edit-transfer-reason').value.trim(),
+        conversionsDisabled: $('edit-convert-off').checked,
+        convertLockReason: $('edit-convert-reason').value.trim(),
+        opsLocked: $('edit-ops-locked').checked,
+        opsLockReason: $('edit-ops-reason').value.trim(),
       }),
     });
     $('edit-modal').classList.add('screen-hidden');

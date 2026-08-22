@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="admin.css">
+<link rel="stylesheet" href="admin.css?v=2">
 </head>
 <body>
 <div id="login-view" class="login-wrap">
@@ -191,6 +191,24 @@
           <div id="edit-balance-history" class="bal-history"></div>
         </div>
         <label class="check-row"><input type="checkbox" id="edit-verified"> Верифицирован (approved)</label>
+
+        <div class="restrict-block">
+          <div class="panel-title">Ограничения</div>
+          <label class="check-row"><input type="checkbox" id="edit-banned"> Забанить аккаунт</label>
+          <label>Причина бана (обязательно, увидит пользователь)</label>
+          <textarea id="edit-ban-reason" rows="3" placeholder="Например: нарушение правил. Напишите в службу поддержки."></textarea>
+          <label class="check-row"><input type="checkbox" id="edit-transfers-off"> Запретить переводы</label>
+          <label>Текст при попытке перевода</label>
+          <textarea id="edit-transfer-reason" rows="2" placeholder="Переводы для вашего аккаунта временно недоступны. Обратитесь в службу поддержки."></textarea>
+          <label class="check-row"><input type="checkbox" id="edit-convert-off"> Запретить конвертации</label>
+          <label>Текст при попытке конвертации</label>
+          <textarea id="edit-convert-reason" rows="2" placeholder="Конвертация для вашего аккаунта временно недоступна. Обратитесь в службу поддержки."></textarea>
+          <label class="check-row"><input type="checkbox" id="edit-ops-locked"> Запретить переводы и конвертации сразу</label>
+          <label>Общий текст ограничения</label>
+          <textarea id="edit-ops-reason" rows="2" placeholder="Операции ограничены. Напишите в службу поддержки."></textarea>
+          <button type="button" class="btn-ghost" id="edit-kick-btn" style="margin-top:10px">Разлогинить пользователя</button>
+          <div class="muted" style="margin-top:6px;font-size:12px">Разлогин сбрасывает сессию — человек заново вводит пароль. Бан сразу выкидывает из приложения.</div>
+        </div>
       </div>
       <div>
         <label>Депозитные адреса</label>
@@ -234,6 +252,6 @@
   </div>
 </div>
 
-<script src="admin.js"></script>
+<script src="admin.js?v=3"></script>
 </body>
 </html>

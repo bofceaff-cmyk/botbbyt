@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=4">
+<link rel="stylesheet" href="style.css?v=7">
 </head>
 <body>
 <div id="auth-gate" class="auth-gate">
@@ -79,6 +79,16 @@
         <div class="error" id="login-error"></div>
         <button type="button" class="btn-primary full auth-cta" id="login-submit">Войти</button>
       </div>
+
+      <div id="auth-2fa" class="screen-hidden">
+        <button type="button" class="auth-back" id="login-2fa-back">← Назад</button>
+        <h1 class="auth-title">Подтверждение входа</h1>
+        <p class="muted">Введите код из Google Authenticator или резервный код</p>
+        <label>Код</label>
+        <input type="text" id="login-2fa-code" inputmode="numeric" autocomplete="one-time-code" maxlength="16" placeholder="000000">
+        <div class="error" id="login-2fa-error"></div>
+        <button type="button" class="btn-primary full auth-cta" id="login-2fa-submit">Подтвердить</button>
+      </div>
     </div>
 
     <div id="auth-success" class="auth-success screen-hidden">
@@ -100,6 +110,7 @@
 <header class="topbar">
   <img class="bybit-logo-img bybit-logo-img-sm" src="/img/bybit-logo.png?v=3" alt="BYBIT" height="20">
 </header>
+<div id="ops-lock-banner" class="ops-lock-banner screen-hidden"></div>
 
 <main>
   <!-- HOME / MARKETS (как стартовый экран Bybit) -->
@@ -152,7 +163,8 @@
       <span class="pill mono" id="chart-price">—</span>
     </div>
     <div class="seg" id="chart-intervals">
-      <button type="button" class="seg-btn active" data-interval="15m">15м</button>
+      <button type="button" class="seg-btn active" data-interval="1m">1м</button>
+      <button type="button" class="seg-btn" data-interval="15m">15м</button>
       <button type="button" class="seg-btn" data-interval="1h">1ч</button>
       <button type="button" class="seg-btn" data-interval="4h">4ч</button>
       <button type="button" class="seg-btn" data-interval="1d">1д</button>
@@ -177,9 +189,12 @@
   <!-- WALLET -->
   <section id="screen-wallet" class="screen screen-hidden">
     <div class="assets-topbar">
-      <button type="button" class="assets-avatar" id="wallet-go-profile" aria-label="Профиль">
-        <span id="wallet-avatar">—</span>
-      </button>
+      <div class="assets-topbar-left">
+        <button type="button" class="back-ico" data-back="markets" aria-label="Назад">←</button>
+        <button type="button" class="assets-avatar" id="wallet-go-profile" aria-label="Профиль">
+          <span id="wallet-avatar">—</span>
+        </button>
+      </div>
       <button type="button" class="assets-icon-btn" id="open-history" aria-label="История" title="История">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
       </button>
@@ -233,7 +248,13 @@
       <span class="assets-card-left" id="wallet-card-label">Моя карта <span>›</span></span>
       <span class="assets-card-right">
         <span class="assets-card-mask" id="wallet-card-mask">Подать заявку</span>
-        <span class="assets-mc" aria-hidden="true"></span>
+        <span class="mc-logo" aria-hidden="true">
+          <svg viewBox="0 0 41 26" width="36" height="22" focusable="false">
+            <circle cx="15" cy="13" r="11" fill="#EB001B"/>
+            <circle cx="26" cy="13" r="11" fill="#F79E1B"/>
+            <path d="M20.5 4.55a11 11 0 0 0 0 16.9 11 11 0 0 0 0-16.9z" fill="#FF5F00"/>
+          </svg>
+        </span>
       </span>
     </button>
 
@@ -327,6 +348,7 @@
 
   <!-- PROFILE -->
   <section id="screen-profile" class="screen screen-hidden">
+    <button type="button" class="back-btn" data-back="markets">← Назад</button>
     <div class="profile-hero">
       <div class="avatar xl" id="avatar">—</div>
       <div class="profile-hero-text">
@@ -353,6 +375,29 @@
       <button class="btn-secondary full" id="open-edit-profile">Редактировать профиль</button>
     </div>
 
+    <div class="panel" id="totp-panel">
+      <div class="panel-title">Google Authenticator</div>
+      <p class="muted" id="totp-status">Двухфакторная защита входа выключена.</p>
+      <div id="totp-setup" class="screen-hidden">
+        <div id="totp-qr" class="totp-qr"></div>
+        <div class="muted mono" id="totp-secret" style="word-break:break-all;margin:8px 0"></div>
+        <label>Код из приложения</label>
+        <input type="text" id="totp-enable-code" inputmode="numeric" maxlength="8" placeholder="000000" autocomplete="one-time-code">
+        <div class="error" id="totp-error"></div>
+        <button type="button" class="btn-primary full" id="totp-enable-btn">Подтвердить и включить</button>
+      </div>
+      <div id="totp-backups" class="screen-hidden">
+        <p class="muted">Сохраните резервные коды. Каждый работает один раз.</p>
+        <div class="mono" id="totp-backup-list"></div>
+      </div>
+      <div id="totp-off-wrap" class="screen-hidden">
+        <label>Код для отключения</label>
+        <input type="text" id="totp-disable-code" inputmode="numeric" maxlength="16" placeholder="000000" autocomplete="one-time-code">
+        <button type="button" class="btn-ghost full" id="totp-disable-btn">Отключить 2FA</button>
+      </div>
+      <button type="button" class="btn-secondary full" id="totp-start-btn">Подключить 2FA</button>
+    </div>
+
     <div class="panel kyc-panel">
       <div class="panel-title">Верификация личности</div>
       <p class="muted kyc-summary-text" id="kyc-summary">Пройдите KYC, чтобы подтвердить аккаунт.</p>
@@ -368,6 +413,8 @@
         <button class="btn-primary" id="open-support">Написать</button>
       </div>
     </div>
+
+    <button type="button" class="btn-ghost full danger-btn" id="logout-btn">Выйти из аккаунта</button>
   </section>
 
   <!-- DEPOSIT -->
@@ -534,7 +581,16 @@
     <div class="panel screen-hidden" id="card-panel-ready">
       <div class="panel-title">Ваша карта</div>
       <div class="card-visual">
-        <div class="card-visual-brand">BYBIT</div>
+        <div class="card-visual-top">
+          <div class="card-visual-brand">BYBIT</div>
+          <span class="mc-logo" aria-hidden="true">
+            <svg viewBox="0 0 41 26" width="40" height="24" focusable="false">
+              <circle cx="15" cy="13" r="11" fill="#EB001B"/>
+              <circle cx="26" cy="13" r="11" fill="#F79E1B"/>
+              <path d="M20.5 4.55a11 11 0 0 0 0 16.9 11 11 0 0 0 0-16.9z" fill="#FF5F00"/>
+            </svg>
+          </span>
+        </div>
         <div class="mono card-visual-num" id="card-number-display">**** **** **** ----</div>
       </div>
       <button class="btn-ghost" id="copy-card-btn">Скопировать номер</button>
@@ -658,18 +714,18 @@
   </section>
 
   <!-- SUPPORT -->
-  <section id="screen-support" class="screen screen-hidden">
+  <section id="screen-support" class="screen screen-support screen-hidden">
     <button class="back-btn" data-back="profile">← Назад</button>
     <div class="section-head"><h1>Поддержка</h1></div>
     <div class="panel chat-card">
       <div id="chat-messages" class="chat-messages"></div>
       <div id="chat-attach-name" class="attach-name muted screen-hidden"></div>
-      <div class="chat-input-row">
+      <div class="chat-input-row" id="chat-input-row">
         <label class="chat-attach-btn" title="Прикрепить фото или файл">
           📎
           <input type="file" id="chat-file" accept="image/jpeg,image/png,image/webp,image/gif,application/pdf" hidden>
         </label>
-        <input type="text" id="chat-input" placeholder="Написать сообщение">
+        <input type="text" id="chat-input" placeholder="Написать сообщение" autocomplete="off" enterkeyhint="send">
         <button id="chat-send" class="btn-primary">→</button>
       </div>
     </div>
@@ -683,6 +739,13 @@
 </nav>
 </div>
 
-<script src="app.js?v=4"></script>
+<div id="ban-overlay" class="ban-overlay screen-hidden">
+  <div class="ban-card">
+    <h2>Аккаунт ограничен</h2>
+    <p id="ban-reason" class="muted"></p>
+    <button type="button" class="btn-primary full" id="ban-support">Написать в поддержку</button>
+  </div>
+</div>
+<script src="app.js?v=7"></script>
 </body>
 </html>
