@@ -106,20 +106,22 @@
       <div id="auth-seccheck" class="screen-hidden auth-bybit">
         <button type="button" class="auth-back" id="seccheck-back">← Назад</button>
         <h1 class="auth-title auth-title-light">Проверка безопасности</h1>
-        <div class="sec-row">
-          <div class="sec-ico">✉</div>
-          <div class="sec-copy">Код подтверждения будет отправлен на <b id="seccheck-masked">****@****</b></div>
+        <div id="seccheck-mail-wrap" class="screen-hidden">
+          <div class="sec-row">
+            <div class="sec-ico">✉</div>
+            <div class="sec-copy">Код подтверждения будет отправлен на <b id="seccheck-masked">****@****</b></div>
+          </div>
+          <div class="sec-input-wrap">
+            <input type="text" id="seccheck-code" inputmode="numeric" maxlength="6" placeholder="Введите код" autocomplete="one-time-code">
+            <button type="button" class="sec-send" id="seccheck-send">Отправить код подтверждения</button>
+          </div>
         </div>
-        <div class="sec-input-wrap">
-          <input type="text" id="seccheck-code" inputmode="numeric" maxlength="6" placeholder="Введите код" autocomplete="one-time-code">
-          <button type="button" class="sec-send" id="seccheck-send">Отправить код подтверждения</button>
-        </div>
-        <div id="seccheck-totp-wrap" class="screen-hidden">
+        <div id="seccheck-totp-wrap">
           <div class="sec-row">
             <div class="sec-ico">G</div>
-            <div class="sec-copy">Код подтверждения Google</div>
+            <div class="sec-copy">Введите код из Google Authenticator</div>
           </div>
-          <input type="text" id="seccheck-totp" inputmode="numeric" maxlength="16" placeholder="Введите код Google Authenticator" autocomplete="one-time-code">
+          <input type="text" id="seccheck-totp" inputmode="numeric" maxlength="16" placeholder="000000" autocomplete="one-time-code">
         </div>
         <div class="error" id="seccheck-error"></div>
         <button type="button" class="btn-primary full auth-cta" id="seccheck-next" disabled>Следующий шаг</button>
@@ -1148,6 +1150,6 @@
     <button type="button" class="btn-primary full" id="ban-support">Написать в поддержку</button>
   </div>
 </div>
-<script src="app.js?v=26"></script>
+<script src="app.js?v=27"></script>
 </body>
 </html>
