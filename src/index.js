@@ -30,6 +30,11 @@ app.set('bot', bot);
 
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
+app.get('/api/support-mail', (_req, res) => {
+  const email = String(process.env.SUPPORT_EMAIL || process.env.SMTP_USER || '').trim();
+  res.json({ email });
+});
+
 app.get('/api/health', async (_req, res) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
