@@ -52,6 +52,12 @@ model User {
   resetCodeHash        String?
   resetExpires         DateTime?
   passwordHoldUntil    DateTime?
+  emailVerified        Boolean   @default(false)
+  emailVerifyHash      String?
+  emailVerifyExpires   DateTime?
+  avatarId             String?
+  antiPhishCode        String?
+  lastLoginAt          DateTime?
   createdAt            DateTime  @default(now())
 
   transfersSent     Transfer[]       @relation("TransfersSent")
