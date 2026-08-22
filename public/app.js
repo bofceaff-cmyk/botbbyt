@@ -1496,7 +1496,7 @@ function enterApp(me, { startScreen = 'markets' } = {}) {
     appReady = true;
     loadQuotes().finally(() => { if (appReady) startQuotesLive(); });
     loadNews();
-    newsTimer = setInterval(loadNews, 7 * 60 * 1000);
+    newsTimer = setInterval(loadNews, 90 * 1000);
     profileTimer = setInterval(() => loadProfile().catch(() => {}), 12_000);
   }
 }
@@ -3852,6 +3852,18 @@ async function loadNews() {
     lastNewsItems = news;
     const tick = document.getElementById('trade-ticker-text');
     if (tick && news[0]?.title) tick.textContent = news[0].title;
+    list.querySelectorAll('a.news-item').forEach((a) => {
+      a.addEventListener('click', (e) => {
+        e.preventDefault();
+        const url = a.href;
+        try {
+          if (tg.openLink) tg.openLink(url);
+          else window.open(url, '_blank');
+        } catch {
+          window.open(url, '_blank');
+        }
+      });
+    });
     renderTradeNews();
   } catch {
     if (!hadItems) {
@@ -4042,8 +4054,10 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
   let open = false;
   try { open = sessionStorage.getItem('totp_setup') === '1'; } catch { /* ignore */ }
-  if (!open || profile?.totpEnabled) return;
-  document.getElementById('totp-setup')?.classList.remove('screen-hidden');
-  if (!document.getElementById('totp-secret')?.value) restoreTotpSetup();
+  if (open && !profile?.totpEnabled) {
+    document.getElementById('totp-setup')?.classList.remove('screen-hidden');
+    if (!document.getElementById('totp-secret')?.value) restoreTotpSetup();
+  }
+  if (appReady) loadNews();
 });
 boot();
