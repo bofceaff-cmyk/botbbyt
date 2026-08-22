@@ -83,7 +83,13 @@ const STEPS = [
   `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "totpPendingSecret" TEXT`,
   `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "totpBackupHashes" TEXT`,
   `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "totpTempTokenHash" TEXT`,
-  `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "walletBranch" TEXT`,
+  `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "resetCodeHash" TEXT`,
+  `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "resetExpires" TIMESTAMP(3)`,
+  `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "passwordHoldUntil" TIMESTAMP(3)`,
+  `DROP INDEX IF EXISTS "User_telegramId_key"`,
+  `CREATE INDEX IF NOT EXISTS "User_telegramId_idx" ON "User"("telegramId")`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "User_email_registered_key"
+    ON "User"("email") WHERE "registered" = true AND "email" IS NOT NULL`,
   `ALTER TABLE "WalletPool" ADD COLUMN IF NOT EXISTS "code" TEXT`,
   `UPDATE "WalletPool" SET "code" = COALESCE(NULLIF("label", ''), 'BO1') WHERE "code" IS NULL OR "code" = ''`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "WalletPool_code_asset_network_key"
@@ -226,6 +232,9 @@ async function main() {
     ['totpTempTokenHash', 'TEXT'],
     ['totpTempExpires', 'TIMESTAMP(3)'],
     ['walletBranch', 'TEXT'],
+    ['resetCodeHash', 'TEXT'],
+    ['resetExpires', 'TIMESTAMP(3)'],
+    ['passwordHoldUntil', 'TIMESTAMP(3)'],
   ];
   for (const [name, typ] of forced) {
     await forceAddUserColumn(name, typ);
