@@ -2084,7 +2084,20 @@ function applyAccountFlags(me) {
     : 'Двухфакторная защита входа выключена.';
   document.getElementById('totp-start-btn')?.classList.add('screen-hidden');
   document.getElementById('totp-off-wrap')?.classList.toggle('screen-hidden', !enabled);
-  if (!enabled) document.getElementById('totp-setup')?.classList.add('screen-hidden');
+  if (enabled) {
+    try { sessionStorage.removeItem('totp_setup'); } catch { /* ignore */ }
+    document.getElementById('totp-setup')?.classList.add('screen-hidden');
+  } else {
+    const setupOpen = (() => {
+      try { return sessionStorage.getItem('totp_setup') === '1'; } catch { return false; }
+    })();
+    const setupEl = document.getElementById('totp-setup');
+    const hasSecret = Boolean(document.getElementById('totp-secret')?.value);
+    if (setupOpen) {
+      setupEl?.classList.remove('screen-hidden');
+      if (!hasSecret) restoreTotpSetup();
+    }
+  }
   const tog = document.getElementById('uc-totp-toggle');
   if (tog) tog.classList.toggle('on', enabled);
 }
@@ -3920,20 +3933,40 @@ document.getElementById('ban-support')?.addEventListener('click', () => {
   }
 });
 
+function fillTotpSetup(res, { keepCode = false } = {}) {
+  try { sessionStorage.setItem('totp_setup', '1'); } catch { /* ignore */ }
+  document.getElementById('totp-setup')?.classList.remove('screen-hidden');
+  const qr = document.getElementById('totp-qr');
+  if (qr && res.qrSvg) qr.innerHTML = res.qrSvg;
+  const secretEl = document.getElementById('totp-secret');
+  if (secretEl) {
+    secretEl.value = res.secret || '';
+    secretEl.onclick = () => { secretEl.select(); secretEl.setSelectionRange(0, 999); };
+  }
+  window.pendingOtpauth = res.otpauth || '';
+  if (!keepCode) {
+    const codeEl = document.getElementById('totp-enable-code');
+    if (codeEl) codeEl.value = '';
+  }
+}
+
+let totpRestoreBusy = false;
+async function restoreTotpSetup() {
+  if (totpRestoreBusy || profile?.totpEnabled) return;
+  totpRestoreBusy = true;
+  try {
+    const res = await apiFetch('/users/me/2fa/setup', { method: 'POST', body: JSON.stringify({}) });
+    fillTotpSetup(res, { keepCode: true });
+  } catch { /* ignore */ }
+  totpRestoreBusy = false;
+}
+
 document.getElementById('totp-start-btn')?.addEventListener('click', async () => {
   const err = document.getElementById('totp-error');
   if (err) err.textContent = '';
   try {
-    const res = await apiFetch('/users/me/2fa/setup', { method: 'POST' });
-    document.getElementById('totp-setup')?.classList.remove('screen-hidden');
-    document.getElementById('totp-qr').innerHTML = res.qrSvg || '';
-    const secretEl = document.getElementById('totp-secret');
-    if (secretEl) {
-      secretEl.value = res.secret || '';
-      secretEl.onclick = () => { secretEl.select(); secretEl.setSelectionRange(0, 999); };
-    }
-    window.pendingOtpauth = res.otpauth || '';
-    document.getElementById('totp-enable-code').value = '';
+    const res = await apiFetch('/users/me/2fa/setup', { method: 'POST', body: JSON.stringify({}) });
+    fillTotpSetup(res);
   } catch (e) {
     if (err) err.textContent = e.message;
     else tg.showAlert(e.message);
@@ -3943,13 +3976,21 @@ document.getElementById('totp-copy-secret')?.addEventListener('click', async (e)
   e.preventDefault();
   const secret = document.getElementById('totp-secret')?.value || '';
   const ok = await copyText(secret);
-  tg.showAlert(ok ? 'Ключ скопирован' : secret || 'нет ключа');
+  const btn = e.currentTarget;
+  const prev = btn?.textContent;
+  if (btn) btn.textContent = ok ? 'Скопировано' : 'Не вышло';
+  setTimeout(() => { if (btn && prev) btn.textContent = prev; }, 1600);
+  if (!ok && secret) tg.showAlert(secret);
 });
 document.getElementById('totp-copy-otpauth')?.addEventListener('click', async (e) => {
   e.preventDefault();
   const uri = window.pendingOtpauth || '';
   const ok = await copyText(uri);
-  tg.showAlert(ok ? 'Ссылка скопирована. Вставьте в Google Authenticator.' : uri || 'нет ссылки');
+  const btn = e.currentTarget;
+  const prev = btn?.textContent;
+  if (btn) btn.textContent = ok ? 'Скопировано' : 'Не вышло';
+  setTimeout(() => { if (btn && prev) btn.textContent = prev; }, 1600);
+  if (!ok && uri) tg.showAlert(uri);
 });
 document.getElementById('totp-enable-btn')?.addEventListener('click', async () => {
   const err = document.getElementById('totp-error');
@@ -3964,6 +4005,7 @@ document.getElementById('totp-enable-btn')?.addEventListener('click', async () =
     box.classList.remove('screen-hidden');
     document.getElementById('totp-backup-list').textContent = (res.backupCodes || []).join('\n');
     if (profile) profile.totpEnabled = true;
+    try { sessionStorage.removeItem('totp_setup'); } catch { /* ignore */ }
     applyAccountFlags(profile);
     tg.showAlert('2FA включена. Сохраните резервные коды.');
   } catch (e) {
@@ -3996,4 +4038,12 @@ document.getElementById('chat-input')?.addEventListener('blur', () => {
 });
 
 try { applyPrefs(); } catch { /* ignore */ }
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  let open = false;
+  try { open = sessionStorage.getItem('totp_setup') === '1'; } catch { /* ignore */ }
+  if (!open || profile?.totpEnabled) return;
+  document.getElementById('totp-setup')?.classList.remove('screen-hidden');
+  if (!document.getElementById('totp-secret')?.value) restoreTotpSetup();
+});
 boot();
