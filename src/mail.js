@@ -1,5 +1,12 @@
+function smtpHost() {
+  if (process.env.SMTP_HOST) return process.env.SMTP_HOST;
+  const u = String(process.env.SMTP_USER || '');
+  if (/@gmail\.com$/i.test(u)) return 'smtp.gmail.com';
+  return '';
+}
+
 function smtpReady() {
-  return Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+  return Boolean(smtpHost() && process.env.SMTP_USER && process.env.SMTP_PASS);
 }
 
 function fromHeader() {
@@ -51,24 +58,46 @@ async function sendMail({ to, subject, html, text }) {
     err.code = 'smtp_missing';
     throw err;
   }
-  const port = Number(process.env.SMTP_PORT || 587);
-  const secure = process.env.SMTP_SECURE === '1' || port === 465;
-  const transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port,
-    secure,
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
-  });
-  await transporter.sendMail({
-    from: fromHeader(),
-    to,
-    subject,
-    html,
-    text,
-  });
+
+  const host = smtpHost();
+  const userPort = Number(process.env.SMTP_PORT || 587);
+  const attempts = [];
+  const push = (port, secure, requireTLS) => {
+    attempts.push({
+      host,
+      port,
+      secure,
+      requireTLS: Boolean(requireTLS),
+      family: 4,
+      connectionTimeout: 12000,
+      greetingTimeout: 12000,
+      socketTimeout: 20000,
+      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+      tls: { servername: host, minVersion: 'TLSv1.2' },
+    });
+  };
+  // Railway часто блокирует 465 — сначала STARTTLS 587
+  if (userPort === 465 || process.env.SMTP_SECURE === '1') {
+    push(587, false, true);
+    push(465, true, false);
+  } else {
+    push(userPort || 587, false, true);
+    if (userPort !== 587) push(587, false, true);
+    push(465, true, false);
+  }
+
+  let lastErr;
+  for (const opts of attempts) {
+    try {
+      const transporter = nodemailer.createTransport(opts);
+      await transporter.sendMail({ from: fromHeader(), to, subject, html, text });
+      return;
+    } catch (e) {
+      lastErr = e;
+      console.error('[mail]', opts.port, e.message || e);
+    }
+  }
+  throw lastErr || new Error('не удалось отправить письмо');
 }
 
 function utcStamp(d = new Date()) {
@@ -152,6 +181,24 @@ async function sendResetCode(to, code) {
   });
 }
 
+async function sendEmailVerify(to, code) {
+  const html = wrapBybit(`
+    <p style="margin:0 0 12px;font-size:15px">Уважаемый клиент,</p>
+    <p style="margin:0 0 12px;font-size:15px">Подтверждение электронной почты.</p>
+    <p style="margin:0 0 16px;font-size:15px;line-height:1.6">Ваш код подтверждения —
+      <b style="color:#f7a600;font-size:18px">${escapeHtml(code)}</b>
+      (действителен в течение 5 минут).</p>
+    <p style="margin:0 0 16px;font-size:14px">В целях безопасности не сообщайте код никому.</p>
+    <p style="margin:0;font-size:15px">С уважением,<br>Команда Bybit</p>
+  `);
+  await sendMail({
+    to,
+    subject: '[Bybit]подтверждение электронной почты',
+    html,
+    text: `Код подтверждения почты Bybit: ${code}. Действует 5 минут.`,
+  });
+}
+
 async function sendTempPassword(to, password) {
   const html = wrapBybit(`
     <p style="margin:0 0 12px;font-size:15px">Уважаемый клиент,</p>
@@ -168,5 +215,5 @@ async function sendTempPassword(to, password) {
 }
 
 module.exports = {
-  smtpReady, sendMail, sendResetCode, sendTempPassword, sendLoginNotice, notifyLogin, loginMetaFromReq,
+  smtpReady, sendMail, sendResetCode, sendEmailVerify, sendTempPassword, sendLoginNotice, notifyLogin, loginMetaFromReq,
 };
