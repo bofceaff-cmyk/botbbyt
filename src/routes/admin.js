@@ -220,35 +220,6 @@ router.patch('/users/:id', async (req, res) => {
     return u;
   });
 
-  const bot = req.app.get('bot');
-  if (bot) {
-    if (data.accountNumber && data.accountNumber !== user.accountNumber) {
-      bot.telegram.sendMessage(
-        updated.telegramId.toString(),
-        `Вам назначен номер счёта: ${data.accountNumber}`
-      ).catch(() => {});
-    }
-    if (data.cardNumber && data.cardNumber !== user.cardNumber) {
-      const tail = String(data.cardNumber).slice(-4);
-      bot.telegram.sendMessage(
-        updated.telegramId.toString(),
-        `Ваша заявка на карту одобрена. Карта **** ${tail} доступна в приложении → Активы → Моя карта.`
-      ).catch(() => {});
-    }
-    if (data.kycStatus === 'approved' && user.kycStatus !== 'approved') {
-      bot.telegram.sendMessage(
-        updated.telegramId.toString(),
-        'Верификация одобрена. Ваш профиль подтверждён.'
-      ).catch(() => {});
-    }
-    if (data.kycStatus === 'rejected' && user.kycStatus !== 'rejected') {
-      bot.telegram.sendMessage(
-        updated.telegramId.toString(),
-        `Верификация отклонена.\n${updated.kycRejectReason || ''}`
-      ).catch(() => {});
-    }
-  }
-
   res.json(serializeUser(updated));
 });
 
@@ -285,13 +256,11 @@ router.post('/users/:id/credit', async (req, res) => {
   let next;
   let delta;
   let type;
-  let notifyText;
 
   if (mode === 'credit') {
     delta = Math.round(amount * 1e6) / 1e6;
     next = Math.round((current + delta) * 1e6) / 1e6;
     type = 'deposit';
-    notifyText = `На ваш баланс зачислено +${delta} USDT.\n${comment}`;
   } else if (mode === 'debit') {
     delta = -Math.round(amount * 1e6) / 1e6;
     next = Math.round((current + delta) * 1e6) / 1e6;
@@ -300,13 +269,11 @@ router.post('/users/:id/credit', async (req, res) => {
     }
     if (next < 0) next = 0;
     type = 'withdraw_admin';
-    notifyText = `С баланса списано ${Math.abs(delta)} USDT.\n${comment}`;
   } else {
     next = Math.round(amount * 1e6) / 1e6;
     delta = Math.round((next - current) * 1e6) / 1e6;
     if (delta === 0) return res.status(400).json({ error: 'баланс уже такой' });
     type = 'admin_adjust';
-    notifyText = `Баланс обновлён: ${next} USDT (${delta > 0 ? '+' : ''}${delta}).\n${comment}`;
   }
 
   const updated = await prisma.$transaction(async (tx) => {
@@ -325,11 +292,6 @@ router.post('/users/:id/credit', async (req, res) => {
     });
     return u;
   });
-
-  const bot = req.app.get('bot');
-  if (bot) {
-    bot.telegram.sendMessage(updated.telegramId.toString(), notifyText).catch(() => {});
-  }
 
   res.json({ ...serializeUser(updated), appliedMode: mode, appliedDelta: delta });
 });
@@ -378,14 +340,6 @@ router.put('/users/:id/deposit-addresses', async (req, res) => {
     create: { userId: id, asset: a, network: n, address: addr, label: label || null },
     update: { address: addr, label: label || null },
   });
-
-  const bot = req.app.get('bot');
-  if (bot) {
-    bot.telegram.sendMessage(
-      user.telegramId.toString(),
-      `Вам выдан депозитный адрес\n${a} · ${n}\n${addr}`
-    ).catch(() => {});
-  }
 
   res.json(row);
 });
@@ -527,14 +481,6 @@ router.post('/support/threads/:id/reply', (req, res) => {
         where: { id },
         data: { adminReadAt: new Date() },
       }).catch(() => {});
-
-      const bot = req.app.get('bot');
-      if (bot) {
-        bot.telegram.sendMessage(
-          thread.user.telegramId.toString(),
-          'Вы получили ответ от поддержки.\nОткройте приложение → Профиль → Поддержка.'
-        ).catch(() => {});
-      }
 
       res.json(message);
     } catch (e) {
@@ -682,33 +628,6 @@ router.post('/finance/requests/:id/review', async (req, res) => {
     });
   } catch (e) {
     return res.status(400).json({ error: e.message || 'ошибка обработки' });
-  }
-
-  const bot = req.app.get('bot');
-  if (bot && updated.user) {
-    const labels = {
-      withdraw_onchain: 'вывод on-chain',
-      withdraw_card: 'вывод на карту',
-      convert: 'конвертация',
-      earn: 'Earn',
-    };
-    const label = labels[updated.type] || updated.type;
-    let msg;
-    if (action === 'approve') {
-      if (updated.type === 'earn') {
-        msg = `Заявка Earn одобрена. ${Number(updated.amount)} USDT работают в продукте.`;
-      } else if (updated.type === 'convert') {
-        msg = `Конвертация подтверждена: ${updated.meta || ''}`;
-      } else {
-        msg = `Заявка «${label}» одобрена.${updated.amount ? ` Сумма: ${Number(updated.amount)} USDT.` : ''}`;
-      }
-    } else {
-      msg = `Заявка «${label}» отклонена.`;
-      if (updated.type === 'earn') msg += ' Средства возвращены на доступный баланс.';
-      if (updated.type === 'convert') msg += ' Конвертация отменена, балансы восстановлены.';
-      if (adminNote) msg += `\n${adminNote}`;
-    }
-    bot.telegram.sendMessage(updated.user.telegramId.toString(), msg).catch(() => {});
   }
 
   res.json(serializeFinance(updated));

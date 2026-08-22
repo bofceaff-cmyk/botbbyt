@@ -13,6 +13,7 @@ const COINS = [
   { id: 'the-open-network', symbol: 'TON', name: 'Toncoin', binance: 'TONUSDT' },
   { id: 'avalanche-2', symbol: 'AVAX', name: 'Avalanche', binance: 'AVAXUSDT' },
   { id: 'chainlink', symbol: 'LINK', name: 'Chainlink', binance: 'LINKUSDT' },
+  { id: 'tron', symbol: 'TRX', name: 'TRON', binance: 'TRXUSDT' },
 ];
 
 const FALLBACK_QUOTES = [
@@ -26,6 +27,7 @@ const FALLBACK_QUOTES = [
   { id: 'the-open-network', symbol: 'TON', name: 'Toncoin', price: 5.2, change24h: 0.6, marketCap: null, image: null },
   { id: 'avalanche-2', symbol: 'AVAX', name: 'Avalanche', price: 28, change24h: -1.0, marketCap: null, image: null },
   { id: 'chainlink', symbol: 'LINK', name: 'Chainlink', price: 18, change24h: 0.9, marketCap: null, image: null },
+  { id: 'tron', symbol: 'TRX', name: 'TRON', price: 0.25, change24h: 0.3, marketCap: null, image: null },
 ];
 
 const FALLBACK_NEWS = [
