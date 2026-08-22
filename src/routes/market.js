@@ -30,55 +30,174 @@ const FALLBACK_QUOTES = [
   { id: 'tron', symbol: 'TRX', name: 'TRON', price: 0.25, change24h: 0.3, marketCap: null, image: null },
 ];
 
-const FALLBACK_NEWS = [
-  {
-    id: 'fb1',
-    title: 'Bitcoin удерживает внимание рынка на фоне волатильности',
-    url: 'https://www.coindesk.com/',
-    source: 'Market',
-    image: null,
-    publishedAt: new Date().toISOString(),
-    body: 'Следите за динамикой BTC/USDT и новостями по регуляции.',
-  },
-  {
-    id: 'fb2',
-    title: 'Ethereum и альткоины: что смотреть инвесторам сегодня',
-    url: 'https://cointelegraph.com/',
-    source: 'Market',
-    image: null,
-    publishedAt: new Date().toISOString(),
-    body: 'ETH, SOL и другие ликвидные активы остаются в фокусе трейдеров.',
-  },
-  {
-    id: 'fb3',
-    title: 'USDT остаётся основной стейблкойн-парой на споте',
-    url: 'https://www.bybit.com/',
-    source: 'Market',
-    image: null,
-    publishedAt: new Date().toISOString(),
-    body: 'Большинство пар в приложении котируются к USDT.',
-  },
-];
-
 let quotesCache = { at: 0, data: null };
 let newsCache = { at: 0, data: null };
 
 const QUOTES_TTL = 45 * 1000;
-const NEWS_TTL = 5 * 60 * 1000;
+const NEWS_TTL = 6 * 60 * 1000;
+const NEWS_MAX_AGE_MS = 36 * 60 * 60 * 1000;
+
+const FETCH_HEADERS = {
+  Accept: 'application/json, application/rss+xml, application/xml, text/xml, */*',
+  'User-Agent': 'Mozilla/5.0 (compatible; BybitWallet/1.0)',
+};
 
 async function fetchJson(url, timeoutMs = 8000) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const res = await fetch(url, {
-      headers: { Accept: 'application/json', 'User-Agent': 'bybit-wallet-miniapp' },
-      signal: ctrl.signal,
-    });
+    const res = await fetch(url, { headers: FETCH_HEADERS, signal: ctrl.signal });
     if (!res.ok) throw new Error(`upstream ${res.status}`);
     return res.json();
   } finally {
     clearTimeout(t);
   }
+}
+
+async function fetchText(url, timeoutMs = 8000) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { headers: FETCH_HEADERS, signal: ctrl.signal });
+    if (!res.ok) throw new Error(`upstream ${res.status}`);
+    return res.text();
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+function stripHtml(s) {
+  return String(s || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function decodeXml(s) {
+  return String(s || '')
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'");
+}
+
+function rssTag(block, name) {
+  const re = new RegExp(`<${name}[^>]*>([\\s\\S]*?)</${name}>`, 'i');
+  const m = block.match(re);
+  return m ? decodeXml(m[1]).trim() : '';
+}
+
+function toIso(value) {
+  if (value == null || value === '') return null;
+  const n = Number(value);
+  if (Number.isFinite(n) && String(value).trim() !== '') {
+    const ms = n < 1e12 ? n * 1000 : n;
+    const d = new Date(ms);
+    return Number.isNaN(d.getTime()) ? null : d.toISOString();
+  }
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+function normalizeItem({ id, title, url, source, image, publishedAt, body }) {
+  const titleClean = stripHtml(decodeXml(title)).trim();
+  const href = String(url || '').trim();
+  if (!titleClean || !href || !/^https?:\/\//i.test(href)) return null;
+  return {
+    id: String(id || href),
+    title: titleClean.slice(0, 180),
+    url: href,
+    source: source || 'News',
+    image: image || null,
+    publishedAt: toIso(publishedAt),
+    body: stripHtml(decodeXml(body)).slice(0, 180),
+  };
+}
+
+function parseRss(xml, source) {
+  const blocks = String(xml || '').match(/<item[\s\S]*?<\/item>/gi) || [];
+  return blocks.map((block, i) => {
+    const enclosure = block.match(/<enclosure[^>]+url=["']([^"']+)["']/i);
+    const media = block.match(/<(?:media:content|media:thumbnail)[^>]+url=["']([^"']+)["']/i);
+    return normalizeItem({
+      id: rssTag(block, 'guid') || rssTag(block, 'link') || `${source}-${i}`,
+      title: rssTag(block, 'title'),
+      url: rssTag(block, 'link'),
+      source,
+      image: (enclosure && enclosure[1]) || (media && media[1]) || null,
+      publishedAt: rssTag(block, 'pubDate') || rssTag(block, 'published'),
+      body: rssTag(block, 'description'),
+    });
+  }).filter(Boolean);
+}
+
+async function newsFromRss(url, source) {
+  const xml = await fetchText(url);
+  return parseRss(xml, source);
+}
+
+async function newsFromBybit() {
+  const raw = await fetchJson('https://api.bybit.com/v5/announcements/index?locale=en-US&limit=20');
+  const list = raw?.result?.list || [];
+  return list.map((n, i) => normalizeItem({
+    id: n.url || `bybit-${i}`,
+    title: n.title,
+    url: n.url,
+    source: 'Bybit',
+    image: null,
+    publishedAt: n.dateTimestamp || n.publishTime,
+    body: n.description,
+  })).filter(Boolean);
+}
+
+async function newsFromCryptoCompare() {
+  const raw = await fetchJson('https://min-api.cryptocompare.com/data/v2/news/?lang=EN');
+  const list = raw?.Data || [];
+  return list.slice(0, 20).map((n, i) => normalizeItem({
+    id: n.id || n.guid || `cc-${i}`,
+    title: n.title,
+    url: n.url || n.guid,
+    source: n.source_info?.name || n.source || 'CryptoCompare',
+    image: n.imageurl || null,
+    publishedAt: n.published_on,
+    body: n.body,
+  })).filter(Boolean);
+}
+
+function mergeNews(lists) {
+  const seen = new Set();
+  const out = [];
+  for (const item of lists.flat()) {
+    if (!item) continue;
+    const titleKey = item.title.toLowerCase().replace(/\s+/g, ' ').slice(0, 90);
+    if (seen.has(titleKey) || seen.has(item.url)) continue;
+    seen.add(titleKey);
+    seen.add(item.url);
+    out.push(item);
+  }
+  out.sort((a, b) => {
+    const ta = a.publishedAt ? Date.parse(a.publishedAt) : 0;
+    const tb = b.publishedAt ? Date.parse(b.publishedAt) : 0;
+    return tb - ta;
+  });
+  const now = Date.now();
+  const fresh = out.filter((n) => n.publishedAt && now - Date.parse(n.publishedAt) <= NEWS_MAX_AGE_MS);
+  return (fresh.length >= 6 ? fresh : out).slice(0, 16);
+}
+
+async function loadFreshNews() {
+  const jobs = [
+    newsFromBybit(),
+    newsFromCryptoCompare(),
+    newsFromRss('https://www.investing.com/rss/news_301.rss', 'Investing.com'),
+    newsFromRss('https://cointelegraph.com/rss', 'Cointelegraph'),
+    newsFromRss('https://www.coindesk.com/arc/outboundfeeds/rss/', 'CoinDesk'),
+  ];
+  const settled = await Promise.allSettled(jobs);
+  const lists = settled
+    .filter((r) => r.status === 'fulfilled' && Array.isArray(r.value) && r.value.length)
+    .map((r) => r.value);
+  return mergeNews(lists);
 }
 
 async function quotesFromCoinGecko() {
@@ -156,37 +275,22 @@ router.get('/quotes', async (_req, res) => {
 });
 
 router.get('/news', async (_req, res) => {
+  res.set('Cache-Control', 'no-store');
   try {
     if (newsCache.data && Date.now() - newsCache.at < NEWS_TTL) {
       return res.json(newsCache.data);
     }
 
-    let items = null;
-    try {
-      const raw = await fetchJson(
-        'https://api.rss2json.com/v1/api.json?rss_url=' +
-        encodeURIComponent('https://www.coindesk.com/arc/outboundfeeds/rss/')
-      );
-      if (raw.status !== 'ok' || !Array.isArray(raw.items)) throw new Error('rss bad');
-      items = raw.items.slice(0, 12).map((n, i) => ({
-        id: n.guid || n.link || `rss-${i}`,
-        title: n.title,
-        url: n.link,
-        source: raw.feed?.title || 'CoinDesk',
-        image: n.thumbnail || (n.enclosure && n.enclosure.link) || null,
-        publishedAt: n.pubDate ? new Date(n.pubDate).toISOString() : null,
-        body: n.description ? String(n.description).replace(/<[^>]+>/g, '').slice(0, 180) : '',
-      }));
-    } catch {
-      items = FALLBACK_NEWS;
+    const items = await loadFreshNews();
+    if (items.length) {
+      newsCache = { at: Date.now(), data: items };
+      return res.json(items);
     }
-
-    if (!items.length) items = FALLBACK_NEWS;
-    newsCache = { at: Date.now(), data: items };
-    res.json(items);
+    if (newsCache.data) return res.json(newsCache.data);
+    res.json([]);
   } catch (e) {
     if (newsCache.data) return res.json(newsCache.data);
-    res.json(FALLBACK_NEWS);
+    res.json([]);
   }
 });
 
