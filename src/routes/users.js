@@ -320,8 +320,8 @@ router.post('/me/email/send', async (req, res) => {
 
 router.post('/me/email/confirm', async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'войдите в аккаунт' });
-  const code = String(req.body.code || '').trim();
-  if (!code) return res.status(400).json({ error: 'введите код из письма' });
+  const code = normalizeResetCode(req.body.code);
+  if (code.length !== 6) return res.status(400).json({ error: 'введите 6-значный код из письма' });
   const u = await prisma.user.findUnique({ where: { id: req.user.id } });
   if (!u?.emailVerifyHash || !u.emailVerifyExpires) {
     return res.status(400).json({ error: 'сначала запросите код' });
@@ -329,7 +329,7 @@ router.post('/me/email/confirm', async (req, res) => {
   if (Date.now() > new Date(u.emailVerifyExpires).getTime()) {
     return res.status(400).json({ error: 'код истёк' });
   }
-  if (hashToken(code) !== u.emailVerifyHash) {
+  if (!hashesEqual(hashToken(code), u.emailVerifyHash)) {
     return res.status(400).json({ error: 'неверный код' });
   }
   const fresh = await prisma.user.update({
@@ -399,6 +399,17 @@ function forgotMark(key) {
     row.n = 0;
   }
   forgotHits.set(key, row);
+}
+
+function hashesEqual(a, b) {
+  const x = Buffer.from(String(a || ''));
+  const y = Buffer.from(String(b || ''));
+  if (x.length !== y.length || x.length === 0) return false;
+  return crypto.timingSafeEqual(x, y);
+}
+
+function normalizeResetCode(raw) {
+  return String(raw || '').replace(/\D/g, '').slice(0, 6);
 }
 
 function maskEmail(email) {
@@ -484,12 +495,43 @@ router.post('/me/forgot', async (req, res) => {
   }
 });
 
+router.post('/me/forgot/verify', async (req, res) => {
+  const contact = String(req.body.email || req.body.contact || '').trim();
+  const code = normalizeResetCode(req.body.code);
+  const totpCode = String(req.body.totpCode || '').trim();
+  if (code.length !== 6) {
+    return res.status(400).json({ error: 'введите 6-значный код из письма' });
+  }
+  const user = await findRegisteredByContact(contact);
+  if (!user?.resetCodeHash || !user.resetExpires) {
+    return res.status(400).json({ error: 'код неверный или истёк. Сначала нажмите «Отправить код».' });
+  }
+  if (Date.now() > new Date(user.resetExpires).getTime()) {
+    return res.status(400).json({ error: 'код истёк, запросите новый' });
+  }
+  if (!hashesEqual(hashToken(code), user.resetCodeHash)) {
+    return res.status(400).json({ error: 'неверный код из письма' });
+  }
+  if (user.totpEnabled) {
+    if (!totpCode) return res.status(400).json({ error: 'введите код Google Authenticator' });
+    const secret = decryptSecret(user.totpSecret);
+    if (!secret || !verifyTotp(secret, totpCode)) {
+      return res.status(400).json({ error: MSG.TOTP_INVALID, code: 'totp_invalid' });
+    }
+  }
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { resetExpires: new Date(Date.now() + 10 * 60 * 1000) },
+  });
+  res.json({ ok: true, email: user.email });
+});
+
 router.post('/me/reset', async (req, res) => {
   const email = String(req.body.email || '').trim().toLowerCase();
-  const code = String(req.body.code || '').trim();
+  const code = normalizeResetCode(req.body.code);
   const totpCode = String(req.body.totpCode || '').trim();
   const password = String(req.body.password || '');
-  if (!email || !code) return res.status(400).json({ error: 'укажите email и код из письма' });
+  if (!email || code.length !== 6) return res.status(400).json({ error: 'укажите email и 6-значный код из письма' });
   if (password.length < 6 || password.length > 64) {
     return res.status(400).json({ error: 'пароль от 6 до 64 символов' });
   }
@@ -500,8 +542,8 @@ router.post('/me/reset', async (req, res) => {
   if (Date.now() > new Date(user.resetExpires).getTime()) {
     return res.status(400).json({ error: 'код истёк, запросите новый' });
   }
-  if (hashToken(code) !== user.resetCodeHash) {
-    return res.status(400).json({ error: 'код неверный или истёк' });
+  if (!hashesEqual(hashToken(code), user.resetCodeHash)) {
+    return res.status(400).json({ error: 'неверный код из письма' });
   }
   if (user.totpEnabled) {
     if (!totpCode) return res.status(400).json({ error: 'введите код Google Authenticator' });
