@@ -868,7 +868,7 @@ input[data-amount] {
   background: rgba(247,166,0,0.1);
 }
 .sheet {
-  position: fixed; inset: 0; z-index: 40;
+  position: fixed; inset: 0; z-index: 60;
   display: flex; align-items: flex-end; justify-content: center;
 }
 .sheet-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.55); }

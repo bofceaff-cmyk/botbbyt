@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=20">
+<link rel="stylesheet" href="style.css?v=21">
 </head>
 <body>
 <div id="auth-gate" class="auth-gate">
@@ -1051,14 +1051,6 @@
       <button class="btn-primary full" id="convert-submit">Конвертировать</button>
       <p class="muted" style="margin-top:10px;font-size:12px">Средства зачисляются на баланс в приложении. Можно конвертировать обратно в любой момент.</p>
     </div>
-
-    <div id="convert-asset-sheet" class="sheet screen-hidden">
-      <div class="sheet-backdrop" id="convert-sheet-close"></div>
-      <div class="sheet-card">
-        <div class="sheet-title" id="convert-sheet-title">Выберите актив</div>
-        <div id="convert-asset-list" class="sheet-list"></div>
-      </div>
-    </div>
   </section>
 
   <!-- EARN -->
@@ -1102,6 +1094,14 @@
   </section>
 </main>
 
+<div id="convert-asset-sheet" class="sheet screen-hidden">
+  <div class="sheet-backdrop" id="convert-sheet-close"></div>
+  <div class="sheet-card">
+    <div class="sheet-title" id="convert-sheet-title">Выберите актив</div>
+    <div id="convert-asset-list" class="sheet-list"></div>
+  </div>
+</div>
+
 <nav class="tabbar">
   <button class="tab active" data-tab="markets">
     <span class="tab-ico" aria-hidden="true">
@@ -1143,6 +1143,6 @@
     <button type="button" class="btn-primary full" id="ban-support">Написать в поддержку</button>
   </div>
 </div>
-<script src="app.js?v=20"></script>
+<script src="app.js?v=21"></script>
 </body>
 </html>

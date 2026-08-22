@@ -910,35 +910,71 @@ function quoteIconFor(id, fallback) {
 }
 
 function setConvertFromAsset(id) {
-  if (id === convertToAsset) convertToAsset = convertFromAsset;
+  if (id === convertToAsset || id === cvTo) {
+    convertToAsset = convertFromAsset;
+    cvTo = convertFromAsset;
+  }
   convertFromAsset = id;
   cvFrom = id;
   const meta = convertAssetMeta(id);
-  document.getElementById('convert-from-asset').value = id;
-  document.getElementById('convert-from-label').textContent = id;
+  const fromVal = document.getElementById('convert-from-asset');
+  if (fromVal) fromVal.value = id;
+  const fromLab = document.getElementById('convert-from-label');
+  if (fromLab) fromLab.textContent = id;
   const ico = document.getElementById('convert-from-icon');
   if (ico) { ico.src = quoteIconFor(id, meta.icon); ico.alt = id; }
-  const bal = getBalancesMap()[id] || 0;
-  document.getElementById('convert-hint').textContent = fmtAssetAmt(id, bal);
+  const hint = document.getElementById('convert-hint');
+  if (hint) hint.textContent = fmtAssetAmt(id, getBalancesMap()[id] || 0);
   setConvertToAsset(convertToAsset, false);
   updateConvertEstimate();
   if (typeof refreshConvertPane === 'function') refreshConvertPane();
 }
 
 function setConvertToAsset(id, closeSheet = true) {
-  if (id === convertFromAsset) {
+  if (id === convertFromAsset || id === cvFrom) {
     const alt = CONVERT_ASSETS.find((a) => a.id !== id);
     id = alt ? alt.id : id;
   }
   convertToAsset = id;
   cvTo = id;
   const meta = convertAssetMeta(id);
-  document.getElementById('convert-asset').value = id;
-  document.getElementById('convert-to-label').textContent = id;
+  const hid = document.getElementById('convert-asset');
+  if (hid) hid.value = id;
+  const lab = document.getElementById('convert-to-label');
+  if (lab) lab.textContent = id;
   const ico = document.getElementById('convert-to-icon');
   if (ico) { ico.src = quoteIconFor(id, meta.icon); ico.alt = id; }
   if (closeSheet) document.getElementById('convert-asset-sheet')?.classList.add('screen-hidden');
   updateConvertEstimate();
+  if (typeof refreshConvertPane === 'function') refreshConvertPane();
+}
+
+function openConvertAssetSheet(side) {
+  convertPickSide = side;
+  const current = side === 'from' ? (cvFrom || convertFromAsset) : (cvTo || convertToAsset);
+  const title = document.getElementById('convert-sheet-title');
+  if (title) title.textContent = side === 'from' ? 'Списать с' : 'Получить';
+  const list = document.getElementById('convert-asset-list');
+  if (!list) return;
+  const bals = getBalancesMap();
+  list.innerHTML = CONVERT_ASSETS.map((a) => `
+    <button type="button" class="sheet-item ${a.id === current ? 'active' : ''}" data-pick="${a.id}">
+      ${coinIconHtml(a, 28)}
+      <span style="flex:1">
+        <div class="sheet-item-title">${a.id}</div>
+        <div class="muted" style="font-size:12px">${escapeHtml(a.name)}</div>
+      </span>
+      <span class="mono muted" style="font-size:12px">${fmtAssetAmt(a.id, bals[a.id] || 0)}</span>
+    </button>
+  `).join('');
+  list.querySelectorAll('[data-pick]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (convertPickSide === 'from') setConvertFromAsset(btn.dataset.pick);
+      else setConvertToAsset(btn.dataset.pick);
+      document.getElementById('convert-asset-sheet')?.classList.add('screen-hidden');
+    });
+  });
+  document.getElementById('convert-asset-sheet')?.classList.remove('screen-hidden');
 }
 
 function openConvertAssetSheet(side) {
