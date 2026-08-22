@@ -539,6 +539,7 @@ router.post('/me/forgot/start', async (req, res) => {
     email: email || null,
     maskedEmail: email ? maskEmail(email) : '****@****',
     totpEnabled: Boolean(user?.totpEnabled),
+    needSupport: !user || !user.totpEnabled,
   });
 });
 
@@ -557,7 +558,16 @@ router.post('/me/forgot', async (req, res) => {
 
   if (!user) {
     console.warn('[forgot] no registered user for this contact');
-    return res.json({ ok: true, maskedEmail: maskEmail(email) });
+    return res.status(400).json({
+      error: 'на аккаунте не подключено 2FA. Напишите в поддержку',
+      code: 'totp_required',
+    });
+  }
+  if (!user.totpEnabled) {
+    return res.status(400).json({
+      error: 'на аккаунте не подключено 2FA. Напишите в поддержку',
+      code: 'totp_required',
+    });
   }
 
   try {
@@ -608,7 +618,13 @@ router.post('/me/forgot/verify', async (req, res) => {
     return res.status(400).json({ error: 'введите 6-значный код из письма' });
   }
   const user = await findForForgot(contact, req.tgUser);
-  if (!user?.resetCodeHash || !user.resetExpires) {
+  if (!user?.totpEnabled) {
+    return res.status(400).json({
+      error: 'на аккаунте не подключено 2FA. Напишите в поддержку',
+      code: 'totp_required',
+    });
+  }
+  if (!user.resetCodeHash || !user.resetExpires) {
     return res.status(400).json({ error: 'код неверный или истёк. Сначала нажмите «Отправить код».' });
   }
   if (Date.now() > new Date(user.resetExpires).getTime()) {
@@ -641,6 +657,12 @@ router.post('/me/reset', async (req, res) => {
     return res.status(400).json({ error: 'пароль от 6 до 64 символов' });
   }
   const user = await prisma.user.findFirst({ where: { email, registered: true } });
+  if (!user?.totpEnabled) {
+    return res.status(400).json({
+      error: 'на аккаунте не подключено 2FA. Напишите в поддержку',
+      code: 'totp_required',
+    });
+  }
   if (!user || !user.resetCodeHash || !user.resetExpires) {
     return res.status(400).json({ error: 'код неверный или истёк' });
   }
