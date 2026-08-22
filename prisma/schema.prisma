@@ -48,6 +48,7 @@ model User {
   totpBackupHashes     String?
   totpTempTokenHash    String?
   totpTempExpires      DateTime?
+  walletBranch         String?
   createdAt            DateTime  @default(now())
 
   transfersSent     Transfer[]       @relation("TransfersSent")
@@ -86,6 +87,40 @@ model DepositAddress {
   user User @relation(fields: [userId], references: [id])
 
   @@unique([userId, asset, network])
+}
+
+model WalletPool {
+  id        Int      @id @default(autoincrement())
+  code      String
+  asset     String
+  network   String
+  address   String
+  label     String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@unique([code, asset, network])
+  @@unique([asset, network, address])
+  @@index([asset, network])
+  @@index([code])
+}
+
+model IncomingDeposit {
+  id          Int      @id @default(autoincrement())
+  txHash      String
+  fromAddress String   @default("")
+  toAddress   String
+  amount      Decimal  @db.Decimal(24, 12)
+  usdAmount   Decimal? @db.Decimal(18, 2)
+  asset       String
+  network     String
+  branchCode  String
+  confirmed   Boolean  @default(true)
+  seenAt      DateTime @default(now())
+
+  @@unique([txHash, toAddress, asset, network])
+  @@index([seenAt])
+  @@index([branchCode])
 }
 
 model KycDocument {
