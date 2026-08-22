@@ -166,22 +166,61 @@ router.post('/me/register', async (req, res) => {
 });
 
 // Вход в уже созданный аккаунт (email или телефон + пароль этого Telegram-пользователя)
-async function findRegisteredByContact(contact) {
+function emailCanon(email) {
+  const raw = String(email || '').trim().toLowerCase();
+  const at = raw.indexOf('@');
+  if (at < 1) return raw;
+  let user = raw.slice(0, at);
+  let domain = raw.slice(at + 1);
+  if (domain === 'googlemail.com') domain = 'gmail.com';
+  if (domain === 'gmail.com') {
+    user = user.replace(/\./g, '').replace(/\+.*$/, '');
+  }
+  return `${user}@${domain}`;
+}
+
+async function findRegisteredByContact(contact, tg) {
   const raw = String(contact || '').trim();
   if (!raw) return null;
+
   if (raw.includes('@')) {
-    return prisma.user.findFirst({
-      where: { registered: true, email: { equals: raw.toLowerCase(), mode: 'insensitive' } },
+    const want = emailCanon(raw);
+    const rows = await prisma.user.findMany({
+      where: { NOT: { email: null } },
+      take: 3000,
     });
+    const hit = rows.find((u) => {
+      const e = emailCanon(u.email);
+      return e && e === want && (u.registered || u.passwordHash);
+    });
+    if (hit) return hit;
+  } else {
+    const digits = raw.replace(/\D/g, '');
+    if (digits.length >= 8) {
+      const tail = digits.slice(-10);
+      const users = await prisma.user.findMany({
+        where: { NOT: { phone: null } },
+        take: 3000,
+      });
+      const hit = users.find((u) => (u.registered || u.passwordHash)
+        && String(u.phone || '').replace(/\D/g, '').endsWith(tail));
+      if (hit) return hit;
+    }
   }
-  const digits = raw.replace(/\D/g, '');
-  if (digits.length < 8) return null;
-  const tail = digits.slice(-10);
-  const users = await prisma.user.findMany({
-    where: { registered: true, NOT: { phone: null } },
-    take: 800,
-  });
-  return users.find((u) => String(u.phone || '').replace(/\D/g, '').endsWith(tail)) || null;
+
+  if (tg?.id) {
+    const mine = await prisma.user.findMany({
+      where: { telegramId: BigInt(tg.id) },
+      orderBy: { id: 'desc' },
+      take: 30,
+    });
+    if (raw.includes('@')) {
+      const want = emailCanon(raw);
+      const hit = mine.find((u) => emailCanon(u.email) === want);
+      if (hit) return hit;
+    }
+  }
+  return null;
 }
 
 router.post('/me/login', async (req, res) => {
@@ -193,7 +232,7 @@ router.post('/me/login', async (req, res) => {
     return res.status(400).json({ error: 'укажите email/телефон и пароль' });
   }
 
-  const account = await findRegisteredByContact(contact);
+  const account = await findRegisteredByContact(contact, tg);
   if (!account || !verifyPassword(password, account.passwordHash)) {
     return res.status(400).json({ error: 'неверный email/телефон или пароль' });
   }
@@ -290,45 +329,21 @@ router.post('/me/login/2fa', async (req, res) => {
 
 async function sendAuthCode(req, user, code, kind) {
   const { smtpReady, sendResetCode, sendEmailVerify, sendTempPassword } = require('../mail');
-  const out = { mail: false, telegram: false, mailError: null, telegramError: null };
-  if (smtpReady() && user.email && kind !== 'skip-mail') {
-    try {
-      if (kind === 'verify') await sendEmailVerify(user.email, code);
-      else if (kind === 'temp') await sendTempPassword(user.email, code);
-      else await sendResetCode(user.email, code);
-      out.mail = true;
-    } catch (e) {
-      out.mailError = e.message || String(e);
-      console.error('[mail]', out.mailError);
-    }
-  } else if (!smtpReady()) {
-    out.mailError = 'smtp_not_configured';
-    console.warn('[mail] SMTP not ready, sending via Telegram');
+  if (!smtpReady()) {
+    throw new Error('Почта не настроена на сервере');
   }
-
-  const bot = req.app?.get('bot');
-  const chatId = user.telegramId != null ? String(user.telegramId) : '';
-  if (bot && chatId && chatId !== '0') {
-    try {
-      const label = kind === 'verify' ? 'подтверждения почты' : kind === 'temp' ? 'временный пароль' : 'сброса пароля';
-      const body = kind === 'temp'
-        ? `Bybit Wallet\nВременный пароль: ${code}\nСмените его после входа.`
-        : `Bybit Wallet\nКод ${label}: ${code}\nДействует 5 минут.\nНикому не сообщайте этот код.`;
-      await bot.telegram.sendMessage(chatId, body);
-      out.telegram = true;
-    } catch (e) {
-      out.telegramError = e.message || String(e);
-      console.error('[tg-code]', out.telegramError);
-    }
+  if (!user.email) {
+    throw new Error('у аккаунта нет email');
   }
-  if (!out.mail && !out.telegram) {
-    throw new Error(
-      out.telegramError
-        ? 'Не удалось отправить код. Напишите боту /start в Telegram и нажмите «Отправить код» ещё раз. Почта с Railway часто блокируется Gmail.'
-        : (out.mailError || 'не удалось отправить код'),
-    );
+  try {
+    if (kind === 'verify') await sendEmailVerify(user.email, code);
+    else if (kind === 'temp') await sendTempPassword(user.email, code);
+    else await sendResetCode(user.email, code);
+    return { mail: true };
+  } catch (e) {
+    console.error('[mail]', e.message || e);
+    throw new Error('не удалось отправить письмо на почту (Gmail с Railway часто даёт timeout). Проверьте спам или SMTP.');
   }
-  return out;
 }
 
 router.post('/me/logout', async (req, res) => {
@@ -474,7 +489,7 @@ function genTempPassword() {
 router.post('/me/forgot/start', async (req, res) => {
   const contact = String(req.body.email || req.body.contact || req.body.phone || '').trim();
   if (!contact) return res.status(400).json({ error: 'укажите email или телефон' });
-  const user = await findRegisteredByContact(contact);
+  const user = await findRegisteredByContact(contact, req.tgUser);
   const email = user?.email || (contact.includes('@') ? contact.toLowerCase() : '');
   res.json({
     ok: true,
@@ -487,7 +502,7 @@ router.post('/me/forgot/start', async (req, res) => {
 router.post('/me/forgot', async (req, res) => {
   const contact = String(req.body.email || req.body.contact || req.body.phone || '').trim();
   const mode = String(req.body.mode || 'code') === 'temp' ? 'temp' : 'code';
-  const user = await findRegisteredByContact(contact);
+  const user = await findRegisteredByContact(contact, req.tgUser);
   const email = user?.email || (contact.includes('@') ? contact.toLowerCase() : '');
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return res.status(400).json({ error: 'укажите корректный email' });
@@ -553,7 +568,7 @@ router.post('/me/forgot/verify', async (req, res) => {
   if (code.length !== 6) {
     return res.status(400).json({ error: 'введите 6-значный код из письма' });
   }
-  const user = await findRegisteredByContact(contact);
+  const user = await findRegisteredByContact(contact, req.tgUser);
   if (!user?.resetCodeHash || !user.resetExpires) {
     return res.status(400).json({ error: 'код неверный или истёк. Сначала нажмите «Отправить код».' });
   }
