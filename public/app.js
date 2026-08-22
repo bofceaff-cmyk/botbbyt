@@ -473,7 +473,7 @@ function renderWalletAmounts(available, earn) {
       return `
           <button type="button" class="assets-coin-row" data-asset-open="${a.id}">
             <div class="assets-coin-left">
-              <img class="assets-coin-logo" src="${a.icon}" alt="${a.id}" width="36" height="36">
+              <img class="assets-coin-logo" src="${coinSrc(a.id)}" alt="${a.id}" width="36" height="36">
               <div>
                 <div class="assets-coin-sym">${a.id}</div>
                 <div class="assets-coin-chg ${chgUp ? 'chg-up' : 'chg-down'}">${maskBal(chgTxt)}</div>
@@ -701,10 +701,26 @@ function convertAssetMeta(id) {
   return CONVERT_ASSETS.find((a) => a.id === id) || CONVERT_ASSETS[0];
 }
 
+function coinSrc(symbol) {
+  const s = String(symbol || '').toUpperCase().replace(/[-_]?USDT$/i, '');
+  const local = {
+    BTC: '/img/btc.svg', ETH: '/img/eth.svg', BNB: '/img/bnb.svg', SOL: '/img/sol.svg',
+    XRP: '/img/xrp.svg', DOGE: '/img/doge.svg', ADA: '/img/ada.svg', TON: '/img/ton.svg',
+    AVAX: '/img/avax.svg', LINK: '/img/link.svg', TRX: '/img/trx.svg', USDT: '/img/usdt.svg',
+  };
+  if (local[s]) return local[s];
+  return `https://bin.bnbstatic.com/static/assets/logos/${s}.png`;
+}
+
+function coinLogoHtml(symbol, size = 32) {
+  const src = coinSrc(symbol);
+  const raw = String(symbol || 'BTC').toUpperCase().replace(/[-_]?USDT$/i, '');
+  const cdn = `https://bin.bnbstatic.com/static/assets/logos/${raw}.png`;
+  return `<img class="coin-logo quote-logo" src="${src}" alt="" width="${size}" height="${size}" loading="lazy" onerror="this.onerror=null;this.src='${cdn}'">`;
+}
+
 function coinIconHtml(a, size = 22) {
-  const q = lastQuotes.find((x) => String(x.symbol).toUpperCase() === a.id);
-  const src = (q && q.image) ? q.image : a.icon;
-  return `<img class="coin-logo" src="${src}" alt="" width="${size}" height="${size}" onerror="this.style.display='none'">`;
+  return coinLogoHtml(a.id || a, size);
 }
 
 function getBalancesMap() {
@@ -724,8 +740,7 @@ function fmtAssetAmt(asset, n) {
 }
 
 function quoteIconFor(id, fallback) {
-  const q = lastQuotes.find((x) => String(x.symbol).toUpperCase() === id);
-  return (q && q.image) || fallback;
+  return coinSrc(id) || fallback;
 }
 
 function setConvertFromAsset(id) {
@@ -1068,14 +1083,18 @@ document.getElementById('uc-totp-toggle')?.addEventListener('click', () => {
   }
 });
 
-let pendingAvatarId = '01';
+let pendingAvatarId = '00';
 function openAvatarPicker() {
-  pendingAvatarId = String(profile?.avatarId || '01').padStart(2, '0').slice(-2);
+  pendingAvatarId = String(profile?.avatarId || '00').replace(/\D/g, '').padStart(2, '0').slice(-2);
   const grid = document.getElementById('avatar-grid');
-  grid.innerHTML = Array.from({ length: 8 }, (_, i) => {
-    const id = String(i + 1).padStart(2, '0');
-    return `<button type="button" data-av="${id}" class="${id === pendingAvatarId ? 'active' : ''}"><img src="${avatarUrl(id)}" alt=""></button>`;
-  }).join('');
+  const name = profile?.displayName || 'U';
+  const initials = String(name).replace(/[^a-zA-Zа-яА-ЯёЁ0-9]/g, '').slice(0, 2).toUpperCase() || 'U';
+  const cells = [`<button type="button" data-av="00" class="${pendingAvatarId === '00' ? 'active' : ''}"><span class="uc-initials">${initials}</span></button>`];
+  for (let i = 1; i <= 8; i++) {
+    const id = String(i).padStart(2, '0');
+    cells.push(`<button type="button" data-av="${id}" class="${id === pendingAvatarId ? 'active' : ''}"><img src="${avatarUrl(id)}" alt=""></button>`);
+  }
+  grid.innerHTML = cells.join('');
   grid.querySelectorAll('[data-av]').forEach((b) => {
     b.addEventListener('click', () => {
       pendingAvatarId = b.dataset.av;
@@ -1672,8 +1691,9 @@ function renderAccount(me) {
 }
 
 function avatarUrl(id) {
-  const n = String(id || '01').replace(/\D/g, '').padStart(2, '0').slice(-2);
-  const num = Math.min(8, Math.max(1, Number(n) || 1));
+  const n = Number(String(id || '0').replace(/\D/g, ''));
+  if (!n || n < 1) return '';
+  const num = Math.min(8, Math.max(1, n));
   return `/img/avatars/avatar-${String(num).padStart(2, '0')}.png`;
 }
 function maskEmail(v) {
@@ -1694,19 +1714,45 @@ function maskName(v) {
   return '****';
 }
 
-function setAvatarEls(id) {
+function setAvatarEls(id, name) {
   const src = avatarUrl(id);
+  const initials = String(name || profile?.displayName || 'U').replace(/[^a-zA-Zа-яА-ЯёЁ0-9]/g, '').slice(0, 2).toUpperCase() || 'U';
   ['avatar', 'wallet-avatar', 'uc-avatar-mini', 'avatar-picker-preview'].forEach((elId) => {
     const el = document.getElementById(elId);
-    if (el && el.tagName === 'IMG') el.src = src;
+    if (!el) return;
+    if (el.tagName === 'IMG') {
+      if (src) {
+        el.style.display = '';
+        el.src = src;
+      } else {
+        el.style.display = 'none';
+        el.removeAttribute('src');
+      }
+    }
   });
+  let badge = document.getElementById('avatar-initials');
+  const wrap = document.getElementById('open-avatar-picker');
+  if (wrap && !badge) {
+    badge = document.createElement('span');
+    badge.id = 'avatar-initials';
+    badge.className = 'uc-initials';
+    wrap.appendChild(badge);
+  }
+  if (badge) {
+    badge.textContent = initials;
+    badge.classList.toggle('screen-hidden', Boolean(src));
+  }
+  const wAv = document.getElementById('wallet-avatar');
+  if (wAv && wAv.tagName === 'IMG' && !src) {
+    wAv.style.display = 'none';
+  }
 }
 
 function renderProfile(me) {
   const name = me.displayName || me.fullName || 'Пользователь';
   document.getElementById('display-name').textContent = name;
   document.getElementById('profile-uid').textContent = me.uid || me.id || '—';
-  setAvatarEls(me.avatarId);
+  setAvatarEls(me.avatarId, name);
 
   if (me.balances) profile.balances = me.balances;
   lastWalletBalance = Number(me.usdtBalance) || 0;
@@ -2246,6 +2292,7 @@ let chartChange24h = null;
 let chartCandles = [];
 let chartLiveTimer = null;
 let quotesBuilt = false;
+let tickersBuilt = false;
 
 function openChart(symbol, change24h) {
   openTrade(symbol, change24h);
@@ -2273,7 +2320,7 @@ function openTrade(symbol, change24h) {
   tradeSymbol = String(symbol || tradeSymbol || 'LINK').toUpperCase().replace(/USDT$/, '');
   chartSymbol = tradeSymbol;
   if (change24h != null) chartChange24h = change24h;
-  document.getElementById('trade-pair-btn').innerHTML = `${tradeSymbol}/USDT <span>▾</span>`;
+  document.getElementById('trade-pair-btn').innerHTML = `${coinLogoHtml(tradeSymbol, 22)} <span>${tradeSymbol}/USDT</span> <span>▾</span>`;
   const qtyIn = document.getElementById('trade-qty-input');
   if (qtyIn) qtyIn.placeholder = `Кол-во ${tradeSymbol}`;
   document.querySelectorAll('.trade-tf').forEach((b) => {
@@ -2449,14 +2496,26 @@ function drawTradeChart(canvas, candles) {
 function renderTickersList(quotes) {
   const list = document.getElementById('tickers-list');
   if (!list || !quotes?.length) return;
+  const rows = list.querySelectorAll('.quote-row');
+  if (tickersBuilt && rows.length === quotes.length) {
+    quotes.forEach((q, i) => {
+      const row = rows[i];
+      const px = row.querySelector('.quote-price');
+      const pill = row.querySelector('.chg-pill');
+      const chg = fmtChange(q.change24h);
+      if (px) px.textContent = `$${fmtUsdPrice(q.price)}`;
+      if (pill) {
+        pill.textContent = chg.text;
+        pill.className = `chg-pill ${chg.up ? 'up' : 'down'}`;
+      }
+    });
+    return;
+  }
   list.innerHTML = quotes.map((q, i) => {
     const chg = fmtChange(q.change24h);
-    const img = q.image
-      ? `<img src="${escapeHtml(q.image)}" alt="" loading="lazy">`
-      : `<div class="quote-ico">${escapeHtml(q.symbol.slice(0, 2))}</div>`;
     return `
-      <button type="button" class="quote-row" data-symbol="${escapeHtml(q.symbol)}" data-change="${q.change24h ?? ''}" style="animation-delay:${i * 25}ms">
-        ${img}
+      <button type="button" class="quote-row" data-symbol="${escapeHtml(q.symbol)}" data-change="${q.change24h ?? ''}">
+        ${coinLogoHtml(q.symbol, 36)}
         <div>
           <div class="quote-name">${escapeHtml(q.symbol)}<span style="color:var(--text-3);font-weight:500"> / USDT</span></div>
           <div class="quote-full">${escapeHtml(q.name)}</div>
@@ -2470,6 +2529,7 @@ function renderTickersList(quotes) {
   list.querySelectorAll('[data-symbol]').forEach((row) => {
     row.onclick = () => openTrade(row.dataset.symbol, row.dataset.change);
   });
+  tickersBuilt = true;
 }
 
 function fillTradePairList() {
@@ -2479,7 +2539,7 @@ function fillTradePairList() {
   box.innerHTML = quotes.map((q) => {
     const chg = fmtChange(q.change24h);
     return `<button type="button" class="quote-row" data-symbol="${escapeHtml(q.symbol)}">
-      <div class="quote-ico">${escapeHtml(q.symbol.slice(0, 2))}</div>
+      ${coinLogoHtml(q.symbol, 28)}
       <div><div class="quote-name">${escapeHtml(q.symbol)}/USDT</div></div>
       <div class="quote-right"><div class="quote-price mono">${fmtUsdPrice(q.price)}</div>
       <span class="chg-pill ${chg.up ? 'up' : 'down'}">${chg.text}</span></div>
@@ -2536,7 +2596,11 @@ function setTradeProduct(prod) {
     document.getElementById(`trade-body-${p}`)?.classList.toggle('screen-hidden', p !== tradeProduct);
   });
   if (tradeProduct === 'convert') refreshConvertPane();
-  if (tradeProduct === 'spot') loadTradeChart();
+  if (tradeProduct === 'spot') {
+    const btn = document.getElementById('trade-pair-btn');
+    if (btn) btn.innerHTML = `${coinLogoHtml(tradeSymbol, 22)} <span>${tradeSymbol}/USDT</span> <span>▾</span>`;
+    loadTradeChart();
+  }
   if (tradeProduct === 'futures') { loadFutures(); loadPaper(); }
   if (tradeProduct === 'options') refreshOptions();
   if (tradeProduct === 'alpha') loadAlpha();
@@ -2554,8 +2618,10 @@ function pxOf(sym) {
 }
 
 function refreshConvertPane() {
-  document.getElementById('cv-from-btn').textContent = `${cvFrom} ▾`;
-  document.getElementById('cv-to-btn').textContent = `${cvTo} ▾`;
+  const fromBtn = document.getElementById('cv-from-btn');
+  const toBtn = document.getElementById('cv-to-btn');
+  if (fromBtn) fromBtn.innerHTML = `${coinLogoHtml(cvFrom, 22)} <span>${cvFrom}</span> ▾`;
+  if (toBtn) toBtn.innerHTML = `${coinLogoHtml(cvTo, 22)} <span>${cvTo}</span> ▾`;
   document.getElementById('cv-avail').textContent = fmtUsdPrice(walletAmt(cvFrom));
   const amt = Number(document.getElementById('cv-amount')?.value);
   const fp = cvFrom === 'USDT' ? 1 : pxOf(cvFrom);
@@ -3223,12 +3289,6 @@ function ingestQuotes(quotes) {
   renderQuotesUi(quotes);
   renderTickersList(quotes);
   tryLimitOrders().catch(() => {});
-  const onTrade = !document.getElementById('screen-trade')?.classList.contains('screen-hidden');
-  if (onTrade) {
-    if (tradeProduct === 'convert') refreshConvertPane();
-    if (tradeProduct === 'futures') loadFutures();
-    if (tradeProduct === 'options') refreshOptions();
-  }
   quotes.forEach((q) => applyLivePriceToChart(q.symbol, q.price, q.change24h));
   quotes.forEach((q) => applyLivePriceToTrade(q));
   const onConvert = !document.getElementById('screen-convert')?.classList.contains('screen-hidden');
@@ -3297,12 +3357,9 @@ function renderQuotesUi(quotes) {
 
   list.innerHTML = quotes.map((q, i) => {
     const chg = fmtChange(q.change24h);
-    const img = q.image
-      ? `<img src="${escapeHtml(q.image)}" alt="" loading="lazy">`
-      : `<div class="quote-ico">${escapeHtml(q.symbol.slice(0, 2))}</div>`;
     return `
-      <button type="button" class="quote-row" data-symbol="${escapeHtml(q.symbol)}" data-change="${q.change24h ?? ''}" style="animation-delay:${i * 35}ms">
-        ${img}
+      <button type="button" class="quote-row" data-symbol="${escapeHtml(q.symbol)}" data-change="${q.change24h ?? ''}">
+        ${coinLogoHtml(q.symbol, 36)}
         <div>
           <div class="quote-name">${escapeHtml(q.symbol)}<span style="color:var(--text-3);font-weight:500"> / USDT</span></div>
           <div class="quote-full">${escapeHtml(q.name)}</div>

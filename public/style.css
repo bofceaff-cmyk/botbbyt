@@ -1602,16 +1602,42 @@ body.auth-locked {
   background: var(--panel);
 }
 
+.quote-row img.quote-logo, .quote-row img.coin-logo {
+  width: 36px; height: 36px; border-radius: 50%; object-fit: cover; flex-shrink: 0;
+  background: #1a1a1a;
+}
+.quote-row { pointer-events: auto; min-height: 58px; }
+.uc-initials {
+  display: grid; place-items: center; width: 100%; height: 100%;
+  background: #f7a600; color: #111; font-weight: 800; font-size: 22px;
+  border-radius: 50%;
+}
+.uc-avatar { position: relative; }
+.uc-avatar .uc-initials { position: absolute; inset: 0; }
+.avatar-grid .uc-initials { position: static; width: 100%; aspect-ratio: 1; font-size: 16px; }
+.trade-pair-btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: none; border: none; color: #fff; font-size: 18px; font-weight: 800; padding: 0;
+}
+.trade-pair-btn img { width: 22px; height: 22px; border-radius: 50%; }
 .screen-trade {
-  padding: 6px 10px 8px !important;
+  padding: 0 0 8px !important;
   background: #000;
-  min-height: calc(100% - 8px);
+  min-height: 100%;
   display: flex;
   flex-direction: column;
 }
+#trade-canvas { width: 100%; flex: 1; min-height: 280px; height: 50vh; display: block; }
+.cv-asset {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: #1c1c1c; border: none; color: #fff; border-radius: 20px; padding: 6px 10px; font-weight: 700;
+}
+.cv-asset img { width: 22px; height: 22px; border-radius: 50%; }
+.cv-go { width: 100%; margin-top: 12px; background: #f7a600; color: #111; border: none; border-radius: 10px; padding: 14px; font-weight: 800; }
+.cv-box { background: #121212; border-radius: 12px; padding: 14px; width: 100%; box-sizing: border-box; }
+.trade-products { overflow-x: auto; white-space: nowrap; padding: 8px 12px 4px; }
 .trade-body { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .trade-spot-fill { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-#trade-canvas { width: 100%; flex: 1; min-height: 240px; height: 42vh; display: block; }
 .trade-scroll { flex: 1; overflow-y: auto; min-height: 0; padding-bottom: 8px; }
 .trade-actions {
   position: static;
@@ -1638,12 +1664,12 @@ body.auth-locked {
 .cv-row-label { font-size: 12px; color: #aaa; margin-bottom: 8px; }
 .linkish { background: none; border: none; color: #f7a600; font-weight: 700; }
 .cv-pair { display: flex; justify-content: space-between; align-items: center; color: #888; font-size: 13px; }
-.cv-asset { background: #1c1c1c; border: none; color: #fff; border-radius: 20px; padding: 6px 10px; font-weight: 700; }
+.cv-asset { }
 .cv-box input { width: 100%; background: #1a1a1a; border: none; color: #fff; font-size: 22px; padding: 8px 0; }
 .cv-swap { width: 36px; height: 36px; margin: 8px auto; display: block; border-radius: 50%; border: 1px solid #333; background: #1a1a1a; color: #fff; }
 .cv-out { font-size: 22px; font-weight: 700; min-height: 32px; }
 .cv-rate { font-size: 12px; color: #888; margin: 8px 0; }
-.cv-go { width: 100%; margin-top: 12px; background: #5c3d12; color: #f7a600; border: none; border-radius: 10px; padding: 14px; font-weight: 800; }
+.cv-go { }
 .cv-pct { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0; }
 .cv-pct button { background: #1c1c1c; border: none; color: #ccc; border-radius: 8px; padding: 6px 8px; font-size: 12px; }
 .cv-pct button.active { background: #fff; color: #111; }
