@@ -1461,12 +1461,12 @@ document.getElementById('forgot-tab-email')?.addEventListener('click', () => set
 document.getElementById('forgot-tab-phone')?.addEventListener('click', () => setForgotKind('phone'));
 
 function refreshSecNext() {
-  const code = document.getElementById('seccheck-code')?.value.trim() || '';
+  const code = (document.getElementById('seccheck-code')?.value || '').replace(/\D/g, '');
   const totpWrap = document.getElementById('seccheck-totp-wrap');
   const needTotp = totpWrap && !totpWrap.classList.contains('screen-hidden');
   const totp = document.getElementById('seccheck-totp')?.value.trim() || '';
   const btn = document.getElementById('seccheck-next');
-  if (btn) btn.disabled = !(code.length >= 4 && (!needTotp || totp.length >= 4));
+  if (btn) btn.disabled = !(code.length === 6 && (!needTotp || totp.length >= 6));
 }
 document.getElementById('seccheck-code')?.addEventListener('input', refreshSecNext);
 document.getElementById('seccheck-totp')?.addEventListener('input', refreshSecNext);
@@ -1491,6 +1491,7 @@ document.getElementById('forgot-next')?.addEventListener('click', async () => {
       email: res.email || (parsed.kind === 'email' ? parsed.value : ''),
       totpEnabled: Boolean(res.totpEnabled),
       contact: parsed.value,
+      codeOk: false,
     };
     document.getElementById('seccheck-masked').textContent = res.maskedEmail || '****@****';
     document.getElementById('seccheck-code').value = '';
@@ -1499,6 +1500,24 @@ document.getElementById('forgot-next')?.addEventListener('click', async () => {
     document.getElementById('seccheck-totp-wrap').classList.toggle('screen-hidden', !pendingReset.totpEnabled);
     refreshSecNext();
     showAuthGate('seccheck');
+    try {
+      await apiFetch('/users/me/forgot', {
+        method: 'POST',
+        body: JSON.stringify({ email: pendingReset.email || pendingReset.contact, contact: pendingReset.contact, mode: 'code' }),
+      }, { retries: 0 });
+      forgotSendUntil = Date.now() + 60_000;
+      const sendBtn = document.getElementById('seccheck-send');
+      if (sendBtn) {
+        sendBtn.textContent = 'Код отправлен';
+        sendBtn.disabled = true;
+        setTimeout(() => {
+          sendBtn.disabled = false;
+          sendBtn.textContent = 'Отправить код подтверждения';
+        }, 60_000);
+      }
+    } catch (mailErr) {
+      document.getElementById('seccheck-error').textContent = mailErr.message || 'Не удалось отправить письмо';
+    }
   } catch (e) {
     errorEl.textContent = e.message || 'Не удалось продолжить';
   } finally {
@@ -1523,7 +1542,7 @@ document.getElementById('seccheck-send')?.addEventListener('click', async () => 
     await apiFetch('/users/me/forgot', {
       method: 'POST',
       body: JSON.stringify({ email: pendingReset.email || pendingReset.contact, contact: pendingReset.contact, mode: 'code' }),
-    });
+    }, { retries: 0 });
     forgotSendUntil = Date.now() + 60_000;
     btn.textContent = 'Код отправлен';
     setTimeout(() => {
@@ -1537,22 +1556,45 @@ document.getElementById('seccheck-send')?.addEventListener('click', async () => 
   }
 });
 
-document.getElementById('seccheck-next')?.addEventListener('click', () => {
+document.getElementById('seccheck-next')?.addEventListener('click', async () => {
   const errorEl = document.getElementById('seccheck-error');
   errorEl.textContent = '';
-  const code = document.getElementById('seccheck-code').value.trim();
-  if (code.length < 4) {
-    errorEl.textContent = 'Введите код из письма';
+  const code = (document.getElementById('seccheck-code').value || '').replace(/\D/g, '');
+  const totpCode = document.getElementById('seccheck-totp')?.value.trim() || '';
+  if (code.length !== 6) {
+    errorEl.textContent = 'Введите 6-значный код из письма';
     return;
   }
-  if (pendingReset.totpEnabled && !document.getElementById('seccheck-totp').value.trim()) {
+  if (pendingReset.totpEnabled && totpCode.length < 6) {
     errorEl.textContent = 'Введите код Google Authenticator';
     return;
   }
-  document.getElementById('reset-password').value = '';
-  document.getElementById('reset-password2').value = '';
-  document.getElementById('reset-error').textContent = '';
-  showAuthGate('reset');
+  const btn = document.getElementById('seccheck-next');
+  btn.disabled = true;
+  const prev = btn.textContent;
+  btn.textContent = 'Проверка…';
+  try {
+    const res = await apiFetch('/users/me/forgot/verify', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: pendingReset.email || pendingReset.contact,
+        contact: pendingReset.contact,
+        code,
+        totpCode,
+      }),
+    }, { retries: 0 });
+    pendingReset.email = res.email || pendingReset.email;
+    pendingReset.codeOk = true;
+    document.getElementById('reset-password').value = '';
+    document.getElementById('reset-password2').value = '';
+    document.getElementById('reset-error').textContent = '';
+    showAuthGate('reset');
+  } catch (e) {
+    errorEl.textContent = e.message || 'Неверный код';
+  } finally {
+    btn.textContent = prev;
+    refreshSecNext();
+  }
 });
 
 document.getElementById('seccheck-help')?.addEventListener('click', () => {
@@ -1574,6 +1616,11 @@ document.getElementById('reset-submit')?.addEventListener('click', async () => {
     errorEl.textContent = 'Пароли не совпадают';
     return;
   }
+  if (!pendingReset.codeOk) {
+    errorEl.textContent = 'Сначала подтвердите код из письма';
+    showAuthGate('seccheck');
+    return;
+  }
   const btn = document.getElementById('reset-submit');
   btn.disabled = true;
   btn.textContent = 'Сохранение…';
@@ -1586,7 +1633,7 @@ document.getElementById('reset-submit')?.addEventListener('click', async () => {
         totpCode,
         password,
       }),
-    });
+    }, { retries: 0 });
     enterApp(me);
   } catch (e) {
     errorEl.textContent = e.message || 'Не удалось сбросить пароль';
