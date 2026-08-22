@@ -37,7 +37,7 @@ function pathOf(req) {
 
 function isOpenAuthRoute(req) {
   const url = pathOf(req);
-  if (req.method === 'POST' && /\/users\/me\/(login|register|login\/2fa|forgot|reset)$/.test(url)) return true;
+  if (req.method === 'POST' && /\/users\/me\/(login|register|login\/2fa|forgot|forgot\/start|reset)$/.test(url)) return true;
   if (req.method === 'GET' && /\/users\/me$/.test(url)) return true;
   return false;
 }

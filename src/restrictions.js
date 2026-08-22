@@ -4,19 +4,30 @@ function banMessage(user) {
   return String(user?.banReason || '').trim() || MSG.ACCOUNT_BANNED;
 }
 
+function passwordHoldActive(user) {
+  const t = user?.passwordHoldUntil;
+  return Boolean(t && new Date(t).getTime() > Date.now());
+}
+
 function transfersBlocked(user) {
-  return Boolean(user?.transfersDisabled || user?.opsLocked);
+  return Boolean(user?.transfersDisabled || user?.opsLocked || passwordHoldActive(user));
 }
 
 function conversionsBlocked(user) {
-  return Boolean(user?.conversionsDisabled || user?.opsLocked);
+  return Boolean(user?.conversionsDisabled || user?.opsLocked || passwordHoldActive(user));
 }
 
 function transferMessage(user) {
+  if (passwordHoldActive(user) && !user?.transfersDisabled && !user?.opsLocked) {
+    return MSG.PASSWORD_HOLD;
+  }
   return String(user?.transferLockReason || user?.opsLockReason || '').trim() || MSG.TRANSFERS_DISABLED;
 }
 
 function convertMessage(user) {
+  if (passwordHoldActive(user) && !user?.conversionsDisabled && !user?.opsLocked) {
+    return MSG.PASSWORD_HOLD;
+  }
   return String(user?.convertLockReason || user?.opsLockReason || '').trim() || MSG.CONVERSIONS_DISABLED;
 }
 

@@ -21,6 +21,7 @@ function assertEnv() {
 assertEnv();
 
 const app = express();
+app.set('trust proxy', true);
 app.use(cors());
 app.use(express.json({ limit: '2mb' }));
 
