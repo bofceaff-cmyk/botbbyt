@@ -1,5 +1,6 @@
 const express = require('express');
 const prisma = require('../db');
+const { rejectTransfers } = require('../restrictions');
 const router = express.Router();
 
 function parseAmount(raw) {
@@ -11,6 +12,7 @@ function parseAmount(raw) {
 
 // Перевод USDT по номеру счёта или по username
 router.post('/', async (req, res) => {
+  if (rejectTransfers(req, res)) return;
   const { toAccountNumber, toUsername, amount } = req.body;
   const amountNum = parseAmount(amount);
 

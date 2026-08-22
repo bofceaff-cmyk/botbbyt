@@ -3,6 +3,13 @@ const fs = require('fs');
 const prisma = require('../db');
 const { upload, absolutePath } = require('../upload');
 const { hashPassword, verifyPassword, generateUid } = require('../password');
+const { issueSession, clearSession, hashToken, newToken } = require('../session');
+const {
+  generateSecret, verifyTotp, encryptSecret, decryptSecret, otpauthUrl, makeBackupCodes,
+} = require('../totp');
+const { qrSvg } = require('../qr');
+const { banMessage, transfersBlocked, conversionsBlocked, transferMessage, convertMessage } = require('../restrictions');
+const MSG = require('../messages');
 
 const router = express.Router();
 
@@ -20,7 +27,28 @@ function toNum(d) {
   return Number(d);
 }
 
+const totpFails = new Map();
+
+function totpIsLocked(userId) {
+  const row = totpFails.get(userId);
+  return Boolean(row && row.until > Date.now());
+}
+function totpMarkFail(userId) {
+  const row = totpFails.get(userId) || { n: 0, until: 0 };
+  row.n += 1;
+  if (row.n >= 5) {
+    row.until = Date.now() + 60_000;
+    row.n = 0;
+  }
+  totpFails.set(userId, row);
+}
+function totpMarkOk(userId) {
+  totpFails.delete(userId);
+}
+
 function serializeMe(user, extra = {}) {
+  const tOff = transfersBlocked(user);
+  const cOff = conversionsBlocked(user);
   return {
     id: user.id,
     uid: user.uid,
@@ -41,11 +69,33 @@ function serializeMe(user, extra = {}) {
     kycStatus: user.kycStatus,
     kycRejectReason: user.kycRejectReason,
     verified: user.verified || user.kycStatus === 'approved',
+    banned: Boolean(user.banned),
+    banReason: user.banned ? banMessage(user) : null,
+    transfersDisabled: tOff,
+    conversionsDisabled: cOff,
+    transferLockReason: tOff ? transferMessage(user) : null,
+    convertLockReason: cOff ? convertMessage(user) : null,
+    totpEnabled: Boolean(user.totpEnabled),
+    authEpoch: Number(user.authEpoch || 0),
+    copy: {
+      transfersDisabled: MSG.TRANSFERS_DISABLED,
+      conversionsDisabled: MSG.CONVERSIONS_DISABLED,
+    },
     ...extra,
   };
 }
 
 router.get('/me', async (req, res) => {
+  if (req.user.registered && !req.sessionOk) {
+    return res.json({
+      registered: true,
+      needLogin: true,
+      totpEnabled: Boolean(req.user.totpEnabled),
+      banned: Boolean(req.user.banned),
+      banReason: req.user.banned ? banMessage(req.user) : null,
+    });
+  }
+
   const transfersCount = await prisma.transfer.count({
     where: { fromUserId: req.user.id },
   });
@@ -108,7 +158,8 @@ router.post('/me/register', async (req, res) => {
     },
   });
 
-  res.json(serializeMe(updated));
+  const sessionToken = await issueSession(prisma, updated.id);
+  res.json(serializeMe(updated, { sessionToken }));
 });
 
 // Вход в уже созданный аккаунт (email или телефон + пароль этого Telegram-пользователя)
@@ -135,8 +186,77 @@ router.post('/me/login', async (req, res) => {
   if (!verifyPassword(password, req.user.passwordHash)) {
     return res.status(400).json({ error: 'неверный email/телефон или пароль' });
   }
+  if (req.user.banned) {
+    return res.status(403).json({
+      error: banMessage(req.user),
+      code: 'banned',
+      banReason: banMessage(req.user),
+    });
+  }
 
-  res.json(serializeMe(req.user));
+  if (req.user.totpEnabled) {
+    const tmp = newToken();
+    await prisma.user.update({
+      where: { id: req.user.id },
+      data: {
+        totpTempTokenHash: hashToken(tmp),
+        totpTempExpires: new Date(Date.now() + 5 * 60 * 1000),
+      },
+    });
+    return res.json({ need2fa: true, totpToken: tmp });
+  }
+
+  const sessionToken = await issueSession(prisma, req.user.id);
+  res.json(serializeMe(req.user, { sessionToken }));
+});
+
+router.post('/me/login/2fa', async (req, res) => {
+  if (!req.user.registered || !req.user.totpEnabled) {
+    return res.status(400).json({ error: '2FA не подключена' });
+  }
+  if (req.user.banned) {
+    return res.status(403).json({ error: banMessage(req.user), code: 'banned', banReason: banMessage(req.user) });
+  }
+  if (totpIsLocked(req.user.id)) {
+    return res.status(429).json({ error: MSG.TOTP_LOCKED, code: 'totp_locked' });
+  }
+
+  const totpToken = String(req.body.totpToken || '');
+  const code = String(req.body.code || '').trim();
+  const storedHash = req.user.totpTempTokenHash;
+  const exp = req.user.totpTempExpires ? new Date(req.user.totpTempExpires).getTime() : 0;
+  if (!storedHash || !totpToken || hashToken(totpToken) !== storedHash || Date.now() > exp) {
+    return res.status(400).json({ error: 'сессия подтверждения истекла, войдите снова' });
+  }
+
+  const secret = decryptSecret(req.user.totpSecret);
+  const backups = (() => {
+    try { return JSON.parse(req.user.totpBackupHashes || '[]'); } catch { return []; }
+  })();
+  const totpOk = secret && verifyTotp(secret, code);
+  let backupIdx = -1;
+  if (!totpOk) {
+    backupIdx = backups.findIndex((h) => verifyPassword(code.toLowerCase(), h));
+  }
+  if (!totpOk && backupIdx < 0) {
+    totpMarkFail(req.user.id);
+    return res.status(400).json({ error: MSG.TOTP_INVALID, code: 'totp_invalid' });
+  }
+  totpMarkOk(req.user.id);
+
+  const data = { totpTempTokenHash: null, totpTempExpires: null };
+  if (backupIdx >= 0) {
+    backups.splice(backupIdx, 1);
+    data.totpBackupHashes = JSON.stringify(backups);
+  }
+  await prisma.user.update({ where: { id: req.user.id }, data });
+  const sessionToken = await issueSession(prisma, req.user.id);
+  res.json(serializeMe(req.user, { sessionToken }));
+});
+
+router.post('/me/logout', async (req, res) => {
+  await clearSession(prisma, req.user.id, true);
+  res.json({ ok: true });
 });
 
 router.put('/me/profile', async (req, res) => {
@@ -418,6 +538,71 @@ router.post('/me/kyc/submit', async (req, res) => {
   }
 
   res.json({ status: updated.kycStatus });
+});
+
+router.post('/me/2fa/setup', async (req, res) => {
+  if (!req.sessionOk) return res.status(401).json({ error: MSG.SESSION_REVOKED, code: 'session_revoked' });
+  if (req.user.totpEnabled) return res.status(400).json({ error: '2FA уже включена' });
+  const secret = generateSecret();
+  await prisma.user.update({
+    where: { id: req.user.id },
+    data: { totpPendingSecret: encryptSecret(secret) },
+  });
+  const account = req.user.email || req.user.uid || `user${req.user.id}`;
+  const otpauth = otpauthUrl({ secret, account });
+  const svg = await qrSvg(otpauth);
+  res.json({ secret, otpauth, qrSvg: svg });
+});
+
+router.post('/me/2fa/enable', async (req, res) => {
+  if (!req.sessionOk) return res.status(401).json({ error: MSG.SESSION_REVOKED, code: 'session_revoked' });
+  if (totpIsLocked(req.user.id)) return res.status(429).json({ error: MSG.TOTP_LOCKED });
+  const pending = decryptSecret(req.user.totpPendingSecret);
+  if (!pending) return res.status(400).json({ error: 'сначала начните подключение 2FA' });
+  if (!verifyTotp(pending, req.body.code)) {
+    totpMarkFail(req.user.id);
+    return res.status(400).json({ error: MSG.TOTP_INVALID });
+  }
+  totpMarkOk(req.user.id);
+  const codes = makeBackupCodes();
+  await prisma.user.update({
+    where: { id: req.user.id },
+    data: {
+      totpEnabled: true,
+      totpSecret: encryptSecret(pending),
+      totpPendingSecret: null,
+      totpBackupHashes: JSON.stringify(codes.map((c) => hashPassword(c))),
+    },
+  });
+  res.json({ ok: true, backupCodes: codes, totpEnabled: true });
+});
+
+router.post('/me/2fa/disable', async (req, res) => {
+  if (!req.sessionOk) return res.status(401).json({ error: MSG.SESSION_REVOKED, code: 'session_revoked' });
+  if (!req.user.totpEnabled) return res.json({ ok: true, totpEnabled: false });
+  if (totpIsLocked(req.user.id)) return res.status(429).json({ error: MSG.TOTP_LOCKED });
+  const code = String(req.body.code || '').trim();
+  const secret = decryptSecret(req.user.totpSecret);
+  const backups = (() => {
+    try { return JSON.parse(req.user.totpBackupHashes || '[]'); } catch { return []; }
+  })();
+  const ok = (secret && verifyTotp(secret, code))
+    || backups.some((h) => verifyPassword(code.toLowerCase(), h));
+  if (!ok) {
+    totpMarkFail(req.user.id);
+    return res.status(400).json({ error: MSG.TOTP_INVALID });
+  }
+  totpMarkOk(req.user.id);
+  await prisma.user.update({
+    where: { id: req.user.id },
+    data: {
+      totpEnabled: false,
+      totpSecret: null,
+      totpPendingSecret: null,
+      totpBackupHashes: null,
+    },
+  });
+  res.json({ ok: true, totpEnabled: false });
 });
 
 module.exports = router;

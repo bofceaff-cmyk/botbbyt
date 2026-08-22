@@ -11,6 +11,8 @@ const {
   roundAsset,
 } = require('../balances');
 
+const { rejectConversions, rejectBanned } = require('../restrictions');
+
 const router = express.Router();
 
 const CONVERT_TARGETS = {
@@ -60,6 +62,7 @@ function parseAmount(raw) {
 }
 
 router.post('/card-request', async (req, res) => {
+  if (rejectBanned(req, res)) return;
   if (req.user.cardNumber) {
     return res.json({ cardNumber: req.user.cardNumber, cardRequestStatus: 'assigned' });
   }
@@ -103,6 +106,7 @@ router.get('/requests', async (req, res) => {
 });
 
 router.post('/withdraw', async (req, res) => {
+  if (rejectBanned(req, res)) return;
   const method = String(req.body.method || '').toLowerCase();
   const amount = parseAmount(req.body.amount);
   if (!amount) return res.status(400).json({ error: 'укажите сумму' });
@@ -164,6 +168,7 @@ router.post('/withdraw', async (req, res) => {
 });
 
 router.post('/convert', async (req, res) => {
+  if (rejectConversions(req, res)) return;
   const fromAsset = String(req.body.fromAsset || 'USDT').toUpperCase();
   const toAsset = String(req.body.toAsset || '').toUpperCase();
   const amount = parseAmount(req.body.amount);
@@ -242,6 +247,7 @@ router.post('/convert', async (req, res) => {
 });
 
 router.post('/earn', async (req, res) => {
+  if (rejectBanned(req, res)) return;
   const amount = parseAmount(req.body.amount);
   const productId = String(req.body.productId || '').trim();
   const product = EARN_PRODUCTS.find((p) => p.id === productId);

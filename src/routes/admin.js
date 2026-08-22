@@ -1,6 +1,9 @@
 const express = require('express');
 const fs = require('fs');
 const prisma = require('../db');
+const MSG = require('../messages');
+const { transfersBlocked, conversionsBlocked } = require('../restrictions');
+const { clearSession } = require('../session');
 const { absolutePath, supportAbsolutePath, supportUpload } = require('../upload');
 
 const router = express.Router();
@@ -41,6 +44,16 @@ function serializeUser(u) {
     kycStatus: u.kycStatus,
     kycRejectReason: u.kycRejectReason,
     verified: u.verified || u.kycStatus === 'approved',
+    banned: Boolean(u.banned),
+    banReason: u.banReason || null,
+    opsLocked: Boolean(u.opsLocked),
+    opsLockReason: u.opsLockReason || null,
+    transfersDisabled: transfersBlocked(u),
+    conversionsDisabled: conversionsBlocked(u),
+    transferLockReason: u.transferLockReason || null,
+    convertLockReason: u.convertLockReason || null,
+    totpEnabled: Boolean(u.totpEnabled),
+    authEpoch: Number(u.authEpoch || 0),
     createdAt: u.createdAt,
   };
 }
@@ -118,6 +131,8 @@ router.patch('/users/:id', async (req, res) => {
   const {
     accountNumber, usdtBalance, accountRequestStatus, verified,
     kycStatus, kycRejectReason, fullName, cardNumber, cardRequestStatus,
+    banned, banReason, opsLocked, opsLockReason,
+    transfersDisabled, conversionsDisabled, transferLockReason, convertLockReason,
   } = req.body;
 
   const user = await prisma.user.findUnique({ where: { id } });
@@ -191,6 +206,48 @@ router.patch('/users/:id', async (req, res) => {
     data.kycRejectReason = String(kycRejectReason || '').trim() || null;
   }
 
+  if (banned !== undefined) {
+    data.banned = Boolean(banned);
+    if (data.banned) {
+      const reason = String(banReason != null ? banReason : '').trim();
+      if (!reason) return res.status(400).json({ error: MSG.BAN_REASON_REQUIRED });
+      data.banReason = reason;
+      data.authEpoch = Number(user.authEpoch || 0) + 1;
+      data.sessionTokenHash = null;
+    } else {
+      data.banReason = null;
+    }
+  } else if (banReason !== undefined) {
+    data.banReason = String(banReason || '').trim() || null;
+  }
+
+  if (opsLocked !== undefined) {
+    data.opsLocked = Boolean(opsLocked);
+    if (data.opsLocked) {
+      const reason = String(opsLockReason != null ? opsLockReason : '').trim();
+      data.opsLockReason = reason || MSG.TRANSFERS_DISABLED;
+    } else {
+      data.opsLockReason = null;
+    }
+  } else if (opsLockReason !== undefined) {
+    data.opsLockReason = String(opsLockReason || '').trim() || null;
+  }
+
+  if (transfersDisabled !== undefined) {
+    data.transfersDisabled = Boolean(transfersDisabled);
+    if (!data.transfersDisabled) data.transferLockReason = null;
+  }
+  if (transferLockReason !== undefined) {
+    data.transferLockReason = String(transferLockReason || '').trim() || null;
+  }
+  if (conversionsDisabled !== undefined) {
+    data.conversionsDisabled = Boolean(conversionsDisabled);
+    if (!data.conversionsDisabled) data.convertLockReason = null;
+  }
+  if (convertLockReason !== undefined) {
+    data.convertLockReason = String(convertLockReason || '').trim() || null;
+  }
+
   let balanceDelta = null;
   if (usdtBalance !== undefined) {
     const next = Number(usdtBalance);
@@ -220,6 +277,14 @@ router.patch('/users/:id', async (req, res) => {
     return u;
   });
 
+  res.json(serializeUser(updated));
+});
+
+router.post('/users/:id/kick', async (req, res) => {
+  const id = Number(req.params.id);
+  const user = await prisma.user.findUnique({ where: { id } });
+  if (!user) return res.status(404).json({ error: 'пользователь не найден' });
+  const updated = await clearSession(prisma, id, true);
   res.json(serializeUser(updated));
 });
 

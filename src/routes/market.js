@@ -253,25 +253,75 @@ async function quotesFromBinance() {
   });
 }
 
+const sseClients = new Set();
+let quotesPumpStarted = false;
+
+function broadcastQuotes(data) {
+  if (!data) return;
+  const payload = `data: ${JSON.stringify(data)}\n\n`;
+  for (const res of sseClients) {
+    try { res.write(payload); } catch { sseClients.delete(res); }
+  }
+}
+
+async function refreshQuotesLive() {
+  try {
+    let data;
+    try {
+      data = await quotesFromBinance();
+    } catch {
+      data = await quotesFromCoinGecko();
+    }
+    if (quotesCache.data) {
+      const prev = Object.fromEntries(quotesCache.data.map((q) => [q.symbol, q]));
+      data = data.map((q) => ({
+        ...q,
+        image: q.image || prev[q.symbol]?.image || null,
+        name: q.name || prev[q.symbol]?.name,
+      }));
+    }
+    quotesCache = { at: Date.now(), data };
+    broadcastQuotes(data);
+    return data;
+  } catch {
+    if (quotesCache.data) broadcastQuotes(quotesCache.data);
+    return quotesCache.data;
+  }
+}
+
+function ensureQuotesPump() {
+  if (quotesPumpStarted) return;
+  quotesPumpStarted = true;
+  refreshQuotesLive().catch(() => {});
+  setInterval(() => refreshQuotesLive().catch(() => {}), 2500);
+}
+
 router.get('/quotes', async (_req, res) => {
+  ensureQuotesPump();
   try {
     if (quotesCache.data && Date.now() - quotesCache.at < QUOTES_TTL) {
       return res.json(quotesCache.data);
     }
-
-    let data;
-    try {
-      data = await quotesFromCoinGecko();
-    } catch {
-      data = await quotesFromBinance();
-    }
-
-    quotesCache = { at: Date.now(), data };
-    res.json(data);
+    const data = await refreshQuotesLive();
+    if (data) return res.json(data);
+    res.json(FALLBACK_QUOTES);
   } catch (e) {
     if (quotesCache.data) return res.json(quotesCache.data);
     res.json(FALLBACK_QUOTES);
   }
+});
+
+router.get('/stream', (req, res) => {
+  ensureQuotesPump();
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  if (quotesCache.data) res.write(`data: ${JSON.stringify(quotesCache.data)}\n\n`);
+  sseClients.add(res);
+  req.on('close', () => sseClients.delete(res));
 });
 
 router.get('/news', async (_req, res) => {
