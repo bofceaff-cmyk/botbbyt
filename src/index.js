@@ -16,6 +16,9 @@ function assertEnv() {
   if (!process.env.ADMIN_SECRET) {
     console.error('[boot] ADMIN_SECRET не задан — админка не откроется');
   }
+  if (!process.env.ADMIN_STAFF_SECRET) {
+    console.warn('[boot] ADMIN_STAFF_SECRET не задан — вход сотрудника в админку недоступен');
+  }
 }
 
 assertEnv();
