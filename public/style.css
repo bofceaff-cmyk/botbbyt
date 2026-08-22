@@ -20,7 +20,11 @@
 }
 
 * { box-sizing: border-box; }
-html, body { height: 100%; }
+html, body {
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
 body {
   margin: 0;
   background:
@@ -28,10 +32,15 @@ body {
     var(--bg);
   color: var(--text);
   font-family: "IBM Plex Sans", system-ui, sans-serif;
-  padding: 0 0 calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + 36px);
+  padding: 0;
   -webkit-font-smoothing: antialiased;
+  touch-action: pan-y;
 }
-body.auth-locked { padding-bottom: 0; overflow-x: hidden; }
+body.auth-locked {
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
 
 
 .mono { font-family: "JetBrains Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
@@ -43,11 +52,12 @@ body.auth-locked { padding-bottom: 0; overflow-x: hidden; }
   height: var(--topbar-h);
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   padding: 0 16px;
   background: rgba(11, 14, 17, 0.92);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--line-soft);
+  flex-shrink: 0;
 }
 
 /* BYBIT logo (готовая картинка) */
@@ -94,19 +104,17 @@ body.auth-locked { padding-bottom: 0; overflow-x: hidden; }
   color: var(--text-2);
   text-transform: uppercase;
 }
-.topbar-balance { display: flex; align-items: baseline; gap: 6px; font-size: 14px; }
-.topbar-label { color: var(--text-3); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
-.usdt-tag {
-  color: var(--accent);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-}
-
 main { padding: 12px 14px 32px; }
 #screen-profile { padding-bottom: 28px; }
 #screen-support { padding-bottom: 12px; }
-#app-shell { min-height: 100%; }
+#app-shell {
+  height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + 56px);
+}
 
 .screen-hidden { display: none !important; }
 .section-head {
@@ -485,7 +493,7 @@ input:focus { border-color: rgba(247, 166, 0, 0.55); }
 }
 
 /* —— Assets (Bybit-like) —— */
-#screen-wallet { padding-top: 4px; }
+#screen-wallet { padding-top: 4px; padding-bottom: 24px; }
 .assets-topbar {
   display: flex;
   align-items: center;
@@ -776,6 +784,7 @@ input:focus { border-color: rgba(247, 166, 0, 0.55); }
   gap: 12px; padding: 12px 0;
   width: 100%; border: none; background: none; color: inherit;
   font: inherit; text-align: left; cursor: pointer;
+  touch-action: pan-y;
 }
 .assets-coin-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .assets-coin-ico {

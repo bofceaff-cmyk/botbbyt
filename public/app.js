@@ -1,8 +1,18 @@
 const tg = window.Telegram.WebApp;
 tg.ready();
 tg.expand();
+if (typeof tg.disableVerticalSwipes === 'function') tg.disableVerticalSwipes();
 tg.setHeaderColor('#0b0e11');
 tg.setBackgroundColor('#0b0e11');
+
+function syncAppViewport() {
+  const h = Math.round(tg.viewportStableHeight || tg.viewportHeight || window.innerHeight);
+  const shell = document.getElementById('app-shell');
+  if (shell && h > 0) shell.style.height = `${h}px`;
+}
+syncAppViewport();
+if (typeof tg.onEvent === 'function') tg.onEvent('viewportChanged', syncAppViewport);
+window.addEventListener('resize', syncAppViewport);
 
 const API_BASE = '/api';
 const MAIN_TABS = new Set(['markets', 'wallet', 'profile']);
@@ -76,6 +86,7 @@ let currentThreadId = null;
 let kycDocs = {};
 let appReady = false;
 let quotesTimer = null;
+let newsTimer = null;
 let profileTimer = null;
 
 function sleep(ms) {
@@ -176,6 +187,7 @@ function showScreen(name) {
   const screen = document.getElementById(`screen-${name}`);
   if (!screen) return;
   screen.classList.remove('screen-hidden');
+  document.getElementById('app-shell')?.scrollTo(0, 0);
 
   document.querySelectorAll('.tab').forEach((t) => {
     const walletScreens = new Set([
@@ -197,6 +209,7 @@ function showScreen(name) {
     stopSupportPoll();
   }
   if (name === 'deposit') renderDepositNetworks();
+  if (name === 'markets') loadNews();
   if (name === 'transfer' && profile) {
     document.getElementById('transfer-hint').textContent =
       `Доступно: ${fmtUsdt(profile.usdtBalance)} USDT`;
@@ -910,6 +923,7 @@ function enterApp(me, { startScreen = 'markets' } = {}) {
     loadQuotes();
     loadNews();
     quotesTimer = setInterval(loadQuotes, 60_000);
+    newsTimer = setInterval(loadNews, 7 * 60 * 1000);
     profileTimer = setInterval(() => loadProfile().catch(() => {}), 30_000);
   }
 }
@@ -1102,9 +1116,6 @@ function renderProfile(me) {
   document.getElementById('avatar').textContent = initials;
   document.getElementById('display-name').textContent = name;
   document.getElementById('profile-uid').textContent = `UID ${me.uid || me.id}`;
-  document.getElementById('header-balance').textContent = fmtUsdt(
-    (Number(me.usdtBalance) || 0) + (Number(me.earnBalance) || 0)
-  );
   const wAvatar = document.getElementById('wallet-avatar');
   if (wAvatar) wAvatar.textContent = initials;
 
@@ -1792,13 +1803,15 @@ async function loadQuotes() {
 }
 
 async function loadNews() {
+  const list = document.getElementById('news-list');
+  if (!list) return;
+  const hadItems = Boolean(list.querySelector('.news-item'));
   try {
-    const r = await fetch('/api/market/news');
+    const r = await fetch('/api/market/news?t=' + Date.now(), { cache: 'no-store' });
     const news = await r.json().catch(() => null);
     if (!r.ok || !Array.isArray(news)) throw new Error(news?.error || 'bad');
-    const list = document.getElementById('news-list');
     if (!news.length) {
-      list.innerHTML = '<div class="empty">Новостей пока нет</div>';
+      if (!hadItems) list.innerHTML = '<div class="empty">Новостей пока нет</div>';
       return;
     }
     list.innerHTML = news.map((n) => {
@@ -1820,8 +1833,9 @@ async function loadNews() {
         </a>`;
     }).join('');
   } catch {
-    document.getElementById('news-list').innerHTML =
-      '<div class="empty">Не удалось загрузить новости</div>';
+    if (!hadItems) {
+      list.innerHTML = '<div class="empty">Не удалось загрузить новости</div>';
+    }
   }
 }
 
