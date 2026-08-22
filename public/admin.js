@@ -519,6 +519,31 @@ $('edit-kick-btn')?.addEventListener('click', async () => {
     $('edit-error').textContent = e.message;
   }
 });
+document.querySelectorAll('.preset-row button').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const id = btn.parentElement?.dataset.target;
+    if (id && $(id)) $(id).value = btn.dataset.preset || btn.textContent;
+  });
+});
+$('edit-delete-btn')?.addEventListener('click', async () => {
+  const id = $('edit-id').value;
+  $('edit-error').textContent = '';
+  if (!id) return;
+  const uid = $('edit-title-id').textContent || id;
+  if (!confirm(`Удалить аккаунт ${uid} из базы полностью? Это нельзя отменить.`)) return;
+  const typed = prompt('Введите DELETE для подтверждения');
+  if (typed !== 'DELETE') return;
+  try {
+    await adminFetch(`/users/${id}`, { method: 'DELETE' });
+    $('edit-modal').classList.add('screen-hidden');
+    await loadUsers();
+    await loadAccountRequests();
+    await loadCardRequests();
+    await loadKycQueue();
+  } catch (e) {
+    $('edit-error').textContent = e.message;
+  }
+});
 $('edit-save').addEventListener('click', async () => {
   const id = $('edit-id').value;
   $('edit-error').textContent = '';

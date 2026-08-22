@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=10">
+<link rel="stylesheet" href="style.css?v=12">
 </head>
 <body>
 <div id="auth-gate" class="auth-gate">
@@ -225,79 +225,181 @@
       <button type="button" class="trade-prod" data-prod="convert">Конвертация</button>
       <button type="button" class="trade-prod active" data-prod="spot">Спот</button>
       <button type="button" class="trade-prod" data-prod="futures">Фьючерсы</button>
-      <button type="button" class="trade-prod" data-prod="options">Опционы</button>
+      <button type="button" class="trade-prod" data-prod="options">Опцион</button>
       <button type="button" class="trade-prod" data-prod="alpha">Alpha</button>
     </div>
 
-    <div class="trade-pair-row">
-      <button type="button" class="trade-pair-btn" id="trade-pair-btn">LINK/USDT <span>▾</span></button>
-      <span class="trade-chg" id="trade-chg">—</span>
-      <span class="trade-mm">MM</span>
-      <div class="trade-pair-icons">
-        <span title="Избранное">☆</span>
-        <span title="Оповещения">🔔</span>
-        <span title="Поделиться">↗</span>
+    <div id="trade-body-convert" class="trade-body screen-hidden">
+      <div class="cv-top">
+        <button type="button" class="cv-mode active" data-cv="instant">Мгновенно</button>
+        <button type="button" class="cv-mode" data-cv="limit">Лимит</button>
       </div>
-    </div>
-
-    <div class="trade-subtabs" id="trade-subtabs">
-      <button type="button" class="trade-sub active" data-sub="chart">График</button>
-      <button type="button" class="trade-sub" data-sub="overview">Обзор</button>
-      <button type="button" class="trade-sub" data-sub="data">Данные</button>
-      <button type="button" class="trade-sub" data-sub="news">Лента новостей</button>
-    </div>
-
-    <div id="trade-pane-chart">
-      <div class="trade-stats">
-        <div>
-          <div class="trade-last" id="trade-last">—</div>
-          <div class="trade-usd muted" id="trade-usd">≈ — USD</div>
+      <div class="cv-box">
+        <div class="cv-row-label">Доступный баланс: <b id="cv-avail">0</b> <button type="button" class="linkish" id="cv-max">Макс.</button></div>
+        <div class="cv-pair">
+          <span>От</span>
+          <button type="button" class="cv-asset" id="cv-from-btn">USDT ▾</button>
         </div>
-        <div class="trade-ohlc">
-          <div><span>24ч макс.</span><b id="trade-high">—</b></div>
-          <div><span>24ч мин.</span><b id="trade-low">—</b></div>
-          <div><span>24ч оборот</span><b id="trade-vol">—</b></div>
+        <input type="number" id="cv-amount" inputmode="decimal" placeholder="0.01–10,000">
+        <button type="button" class="cv-swap" id="cv-swap">⇅</button>
+        <div class="cv-pair">
+          <span>Кому</span>
+          <button type="button" class="cv-asset" id="cv-to-btn">TRX ▾</button>
+        </div>
+        <div class="cv-out" id="cv-out">—</div>
+        <div class="cv-rate" id="cv-rate">—</div>
+        <div id="cv-limit-box" class="screen-hidden">
+          <div class="cv-pct">
+            <button type="button" data-pct="-1">-1%</button>
+            <button type="button" data-pct="-5">-5%</button>
+            <button type="button" data-pct="-10">-10%</button>
+            <button type="button" class="active" id="cv-mkt">Рыночная цена</button>
+          </div>
+          <div class="cv-limit-px"><span>Цена</span><input type="number" id="cv-limit-price" inputmode="decimal"></div>
+        </div>
+        <button type="button" class="cv-go" id="cv-go">Запрос</button>
+        <div class="error" id="cv-error"></div>
+      </div>
+      <div class="cv-orders">
+        <div class="cv-orders-h">Активные ордера</div>
+        <div id="cv-orders-list" class="muted">Нет активных ордеров</div>
+      </div>
+    </div>
+
+    <div id="trade-body-spot" class="trade-body">
+      <div class="trade-pair-row">
+        <button type="button" class="trade-pair-btn" id="trade-pair-btn">LINK/USDT <span>▾</span></button>
+        <span class="trade-chg" id="trade-chg">—</span>
+        <span class="trade-mm">MM 0.00%</span>
+      </div>
+      <div class="trade-subtabs" id="trade-subtabs">
+        <button type="button" class="trade-sub active" data-sub="chart">График</button>
+        <button type="button" class="trade-sub" data-sub="overview">Обзор</button>
+        <button type="button" class="trade-sub" data-sub="data">Данные</button>
+        <button type="button" class="trade-sub" data-sub="news">Лента новостей</button>
+      </div>
+      <div id="trade-pane-chart" class="trade-spot-fill">
+        <div class="trade-stats">
+          <div>
+            <div class="trade-last" id="trade-last">—</div>
+            <div class="trade-usd muted" id="trade-usd">≈ — USD</div>
+          </div>
+          <div class="trade-ohlc">
+            <div><span>24ч макс.</span><b id="trade-high">—</b></div>
+            <div><span>24ч мин.</span><b id="trade-low">—</b></div>
+            <div><span>24ч оборот</span><b id="trade-vol">—</b></div>
+          </div>
+        </div>
+        <div class="trade-ticker"><span>📢</span><span id="trade-ticker-text">—</span></div>
+        <div class="trade-tf-row">
+          <span class="trade-tf-label">Срок</span>
+          <button type="button" class="trade-tf active" data-interval="15m">15мин.</button>
+          <button type="button" class="trade-tf" data-interval="1h">1ч</button>
+          <button type="button" class="trade-tf" data-interval="4h">4ч</button>
+          <button type="button" class="trade-tf" data-interval="1d">1Д</button>
+          <button type="button" class="trade-tf" data-interval="1w">Ещё</button>
+          <button type="button" class="trade-tf" id="trade-depth">Глубина</button>
+        </div>
+        <div class="trade-ma-legend">
+          <span class="ma7" id="ma7-lab">MA7</span>
+          <span class="ma14" id="ma14-lab">MA14</span>
+          <span class="ma28" id="ma28-lab">MA28</span>
+        </div>
+        <canvas id="trade-canvas"></canvas>
+      </div>
+      <div id="trade-pane-overview" class="screen-hidden trade-scroll">
+        <div id="ov-about" class="ov-text">Загрузка…</div>
+        <div class="ov-links" id="ov-links"></div>
+        <div class="ov-metrics" id="ov-metrics"></div>
+      </div>
+      <div id="trade-pane-data" class="screen-hidden trade-scroll">
+        <div class="data-tf" id="data-tf">
+          <button type="button" class="active" data-df="15m">15m</button>
+          <button type="button" data-df="1h">1H</button>
+          <button type="button" data-df="4h">4H</button>
+          <button type="button" data-df="1d">1D</button>
+        </div>
+        <div id="data-flow" class="data-flow">Загрузка потока…</div>
+      </div>
+      <div id="trade-pane-news" class="screen-hidden trade-scroll">
+        <div class="news-pills">
+          <button type="button" class="active" data-nf="all">Новости</button>
+          <button type="button" data-nf="token">Новости о токене</button>
+          <button type="button" data-nf="macro">Макро</button>
+        </div>
+        <div id="trade-news-mini" class="news-list"></div>
+      </div>
+      <div class="trade-actions">
+        <button type="button" class="trade-buy" id="trade-buy">Купить<small id="trade-buy-px">—</small></button>
+        <input type="number" class="trade-qty-input" id="trade-qty-input" inputmode="decimal" placeholder="Кол-во">
+        <button type="button" class="trade-sell" id="trade-sell">Продать<small id="trade-sell-px">—</small></button>
+      </div>
+      <div class="error" id="trade-error"></div>
+    </div>
+
+    <div id="trade-body-futures" class="trade-body screen-hidden">
+      <div class="fut-head">
+        <button type="button" class="trade-pair-btn" id="fut-pair-btn">BTCUSDT ▾</button>
+        <span class="trade-chg" id="fut-chg">—</span>
+        <span class="trade-mm">MM 0.00%</span>
+      </div>
+      <div class="fut-grid">
+        <div class="fut-form">
+          <div class="fut-row2">
+            <button type="button" class="fut-chip" id="fut-margin">Кросс</button>
+            <button type="button" class="fut-chip" id="fut-lev">10x</button>
+          </div>
+          <div class="muted" id="fut-avail">Доступно 0 USDT</div>
+          <label>Цена</label>
+          <input type="number" id="fut-price" inputmode="decimal">
+          <label>Количество</label>
+          <input type="number" id="fut-qty" inputmode="decimal" placeholder="BTC">
+          <div class="fut-pct" id="fut-pct">
+            <button type="button" data-fp="25">25%</button>
+            <button type="button" data-fp="50">50%</button>
+            <button type="button" data-fp="75">75%</button>
+            <button type="button" data-fp="100">100%</button>
+          </div>
+          <div class="muted" id="fut-cost">Стоимость —</div>
+          <div class="fut-sides">
+            <button type="button" class="trade-buy" id="fut-long">Лонг</button>
+            <button type="button" class="trade-sell" id="fut-short">Шорт</button>
+          </div>
+          <div class="error" id="fut-error"></div>
+        </div>
+        <div class="fut-book">
+          <div class="muted" id="fut-fund">Funding —</div>
+          <div id="fut-asks"></div>
+          <div class="fut-mark" id="fut-mark">—</div>
+          <div class="muted" id="fut-index"></div>
+          <div id="fut-bids"></div>
         </div>
       </div>
-
-      <div class="trade-ticker" id="trade-ticker">
-        <span>📢</span>
-        <span id="trade-ticker-text">Загрузка объявлений…</span>
+      <div class="fut-pos">
+        <div class="cv-orders-h">Позиции</div>
+        <div id="fut-pos-list" class="muted">Нет позиций</div>
       </div>
-
-      <div class="trade-tf-row">
-        <span class="trade-tf-label">Срок</span>
-        <button type="button" class="trade-tf" data-interval="15m">15мин.</button>
-        <button type="button" class="trade-tf active" data-interval="1h">1ч</button>
-        <button type="button" class="trade-tf" data-interval="4h">4ч</button>
-        <button type="button" class="trade-tf" data-interval="1d">1Д</button>
-        <button type="button" class="trade-tf" data-interval="1w">Ещё</button>
-        <button type="button" class="trade-tf" id="trade-depth">Глубина</button>
-      </div>
-      <div class="trade-ma-legend">
-        <span class="ma7">MA(7)</span>
-        <span class="ma14">MA(25)</span>
-        <span class="ma28">MA(99)</span>
-      </div>
-      <canvas id="trade-canvas" width="360" height="340"></canvas>
     </div>
 
-    <div id="trade-pane-overview" class="screen-hidden trade-extra">
-      <div class="panel"><div class="muted">Обзор пары и статистика 24ч. График — во вкладке «График».</div></div>
-    </div>
-    <div id="trade-pane-data" class="screen-hidden trade-extra">
-      <div class="panel"><div class="muted">Стакан и сделки появятся здесь. Сейчас доступен живой график спота.</div></div>
-    </div>
-    <div id="trade-pane-news" class="screen-hidden trade-extra">
-      <div id="trade-news-mini" class="news-list"></div>
+    <div id="trade-body-options" class="trade-body screen-hidden">
+      <div class="opt-asset"><b id="opt-sym">BTC</b> <span class="trade-last up" id="opt-px">—</span></div>
+      <div class="muted">Вы спрогнозировали цену BTC через 3 дн. ↑</div>
+      <div class="opt-target" id="opt-target">—</div>
+      <input type="range" id="opt-slider" min="0" max="100" value="70">
+      <label>Сумма инвестиций</label>
+      <input type="number" id="opt-invest" inputmode="decimal" placeholder="USDT">
+      <div class="muted" id="opt-bal">Доступный баланс 0 USDT</div>
+      <div id="opt-scenarios"></div>
+      <div class="error" id="opt-error"></div>
     </div>
 
-    <div class="trade-actions">
-      <button type="button" class="trade-buy" id="trade-buy">Купить<br><small id="trade-buy-px">—</small></button>
-      <button type="button" class="trade-qty" id="trade-qty">Кол-во<br><small id="trade-qty-lbl">USDT</small></button>
-      <button type="button" class="trade-sell" id="trade-sell">Продать<br><small id="trade-sell-px">—</small></button>
+    <div id="trade-body-alpha" class="trade-body screen-hidden trade-scroll">
+      <div class="alpha-top">Alpha-активы</div>
+      <div class="alpha-bal" id="alpha-bal">0.00 USD</div>
+      <div class="alpha-cards" id="alpha-new"></div>
+      <div class="cv-orders-h">Рынок</div>
+      <div id="alpha-list"></div>
     </div>
-    <div class="error" id="trade-error"></div>
   </section>
 
   <div id="trade-pair-sheet" class="trade-pair-sheet screen-hidden">
@@ -354,7 +456,7 @@
       <div class="assets-topbar-left">
         <button type="button" class="back-ico" data-back="markets" aria-label="Назад">←</button>
         <button type="button" class="assets-avatar" id="wallet-go-profile" aria-label="Профиль">
-          <span id="wallet-avatar">—</span>
+          <img id="wallet-avatar" alt="">
         </button>
       </div>
       <button type="button" class="assets-icon-btn" id="open-history" aria-label="История" title="История">
@@ -508,39 +610,104 @@
     </div>
   </section>
 
-  <!-- PROFILE -->
+  <!-- PROFILE / User Center -->
   <section id="screen-profile" class="screen screen-hidden">
-    <button type="button" class="back-btn" data-back="markets">← Назад</button>
-    <div class="profile-hero">
-      <div class="avatar xl" id="avatar">—</div>
-      <div class="profile-hero-text">
-        <div class="name-row">
-          <span id="display-name">—</span>
-          <span id="verified-badge" class="badge badge-hidden">Верифицирован</span>
+    <div class="uc-top">
+      <button type="button" class="back-btn" data-back="markets" style="position:static;margin:0">←</button>
+      <h1>Центр пользователя</h1>
+      <div class="uc-top-right">
+        <button type="button" class="uc-icon-btn" id="uc-lang-btn" aria-label="Язык">🌐</button>
+      </div>
+    </div>
+
+    <div class="uc-hero">
+      <button type="button" class="uc-avatar" id="open-avatar-picker" aria-label="Аватар">
+        <img id="avatar" alt="">
+      </button>
+      <div>
+        <div class="uc-name" id="display-name">—</div>
+        <span class="uc-site" id="uc-site-badge">Site: Bybit Global</span>
+        <span id="verified-badge" class="badge badge-hidden">Верифицирован</span>
+        <div class="kyc-pill screen-hidden" id="kyc-pill">Не верифицирован</div>
+      </div>
+    </div>
+
+    <div class="uc-protect">
+      <h3>Bybit Protect</h3>
+      <p>Добавьте код защиты от фишинга в письма и SMS, чтобы отличать официальные сообщения Bybit.</p>
+      <button type="button" class="uc-protect-link" id="uc-antiphish-btn">Активировать код защиты от фишинга →</button>
+    </div>
+
+    <div class="uc-tabs" id="uc-tabs">
+      <button type="button" class="uc-tab active" data-uc="data">Мои данные</button>
+      <button type="button" class="uc-tab" data-uc="security">Безопасность</button>
+      <button type="button" class="uc-tab" data-uc="params">Параметры</button>
+      <button type="button" class="uc-tab" data-uc="general">Общее</button>
+    </div>
+
+    <div id="uc-pane-data">
+      <button type="button" class="uc-row" id="open-avatar-picker-row">
+        <span class="uc-ico">👤</span><span class="uc-label">Изображение профиля</span>
+        <img id="uc-avatar-mini" alt="" width="28" height="28" style="border-radius:50%;object-fit:cover">
+        <span class="uc-chev">›</span>
+      </button>
+      <button type="button" class="uc-row" id="uc-nick-row">
+        <span class="uc-ico">✎</span><span class="uc-label">Никнейм</span>
+        <span class="uc-val" id="info-display">—</span><span class="uc-chev">›</span>
+      </button>
+      <button type="button" class="uc-row" id="uc-copy-uid">
+        <span class="uc-ico">#</span><span class="uc-label">UID</span>
+        <span class="uc-val mono" id="profile-uid">—</span>
+        <span class="uc-chev">⧉</span>
+      </button>
+      <button type="button" class="uc-row" id="open-kyc">
+        <span class="uc-ico">🪪</span><span class="uc-label">Верификация личности</span>
+        <span class="uc-val" id="kyc-summary">Не пройдена</span><span class="uc-chev">›</span>
+      </button>
+      <button type="button" class="uc-row" id="uc-personal-toggle">
+        <span class="uc-ico" id="uc-eye-ico">👁</span><span class="uc-label">Личные данные</span>
+        <span class="uc-val">нажмите, чтобы показать</span><span class="uc-chev">›</span>
+      </button>
+      <div id="uc-personal" class="screen-hidden" style="padding:4px 4px 12px">
+        <div class="info-list">
+          <div class="info-row"><span>ФИО</span><span id="info-fullname">—</span></div>
+          <div class="info-row"><span>Email</span><span id="info-email">—</span></div>
+          <div class="info-row"><span>Телефон</span><span id="info-phone">—</span></div>
+          <div class="info-row"><span>Страна</span><span id="info-country">—</span></div>
+          <div class="info-row"><span>Telegram</span><span id="info-tg">—</span></div>
+          <div class="info-row"><span>Счёт</span><span class="mono" id="info-account">—</span></div>
         </div>
-        <div class="muted" id="profile-uid">UID —</div>
-        <div class="kyc-pill" id="kyc-pill">Не верифицирован</div>
+        <button class="btn-secondary full" id="open-edit-profile" style="margin-top:10px">Редактировать</button>
       </div>
+      <button type="button" class="uc-logout" id="logout-btn">Выйти</button>
     </div>
 
-    <div class="panel">
-      <div class="panel-title">Личные данные</div>
-      <div class="info-list">
-        <div class="info-row"><span>Ник</span><span id="info-display">—</span></div>
-        <div class="info-row"><span>ФИО</span><span id="info-fullname">—</span></div>
-        <div class="info-row"><span>Email</span><span id="info-email">—</span></div>
-        <div class="info-row"><span>Телефон</span><span id="info-phone">—</span></div>
-        <div class="info-row"><span>Страна</span><span id="info-country">—</span></div>
-        <div class="info-row"><span>Telegram</span><span id="info-tg">—</span></div>
-        <div class="info-row"><span>Счёт</span><span class="mono" id="info-account">—</span></div>
+    <div id="uc-pane-security" class="screen-hidden">
+      <div class="uc-sec-head">
+        <h4>Basic Protect</h4>
+        <p>Основная защита для повседневных операций на аккаунте</p>
       </div>
-      <button class="btn-secondary full" id="open-edit-profile">Редактировать профиль</button>
-    </div>
-
-    <div class="panel" id="totp-panel">
-      <div class="panel-title">Google Authenticator</div>
-      <p class="muted" id="totp-status">Двухфакторная защита входа выключена.</p>
-      <div id="totp-setup" class="screen-hidden">
+      <button type="button" class="uc-row" id="uc-email-row">
+        <span class="uc-ico">✉</span><span class="uc-label">Эл. почта</span>
+        <span class="uc-val" id="uc-email-mask">—</span><span class="uc-chev">›</span>
+      </button>
+      <div id="uc-email-verify" class="uc-form screen-hidden">
+        <p class="muted" id="uc-email-status">Подтвердите почту кодом из письма.</p>
+        <button type="button" class="btn-secondary full" id="uc-email-send">Отправить код</button>
+        <input type="text" id="uc-email-code" inputmode="numeric" maxlength="6" placeholder="Код из письма">
+        <div class="error" id="uc-email-error"></div>
+        <button type="button" class="btn-primary full" id="uc-email-confirm">Подтвердить</button>
+      </div>
+      <button type="button" class="uc-row" id="uc-phone-row">
+        <span class="uc-ico">📱</span><span class="uc-label">Мобильный</span>
+        <span class="uc-val" id="uc-phone-mask">—</span><span class="uc-chev">›</span>
+      </button>
+      <div class="uc-row" id="totp-panel" style="flex-wrap:wrap">
+        <span class="uc-ico">G</span><span class="uc-label">Google Authentication</span>
+        <button type="button" class="uc-toggle" id="uc-totp-toggle" aria-label="2FA"></button>
+      </div>
+      <p class="muted" id="totp-status" style="padding:0 4px 8px">Двухфакторная защита входа выключена.</p>
+      <div id="totp-setup" class="screen-hidden uc-form">
         <div id="totp-qr" class="totp-qr"></div>
         <div class="muted mono" id="totp-secret" style="word-break:break-all;margin:8px 0"></div>
         <label>Код из приложения</label>
@@ -552,31 +719,61 @@
         <p class="muted">Сохраните резервные коды. Каждый работает один раз.</p>
         <div class="mono" id="totp-backup-list"></div>
       </div>
-      <div id="totp-off-wrap" class="screen-hidden">
+      <div id="totp-off-wrap" class="screen-hidden uc-form">
         <label>Код для отключения</label>
         <input type="text" id="totp-disable-code" inputmode="numeric" maxlength="16" placeholder="000000" autocomplete="one-time-code">
         <button type="button" class="btn-ghost full" id="totp-disable-btn">Отключить 2FA</button>
       </div>
-      <button type="button" class="btn-secondary full" id="totp-start-btn">Подключить 2FA</button>
-    </div>
+      <button type="button" class="screen-hidden" id="totp-start-btn">Подключить 2FA</button>
+      <button type="button" class="uc-row" id="uc-antiphish-row">
+        <span class="uc-ico">🛡</span><span class="uc-label">Код защиты от фишинга</span>
+        <span class="uc-val" id="uc-antiphish-status">Не настроено</span><span class="uc-chev">›</span>
+      </button>
 
-    <div class="panel kyc-panel">
-      <div class="panel-title">Верификация личности</div>
-      <p class="muted kyc-summary-text" id="kyc-summary">Пройдите KYC, чтобы подтвердить аккаунт.</p>
-      <button class="btn-primary full" id="open-kyc">Пройти верификацию</button>
-    </div>
-
-    <div class="panel support-panel">
-      <div class="support-row">
-        <div>
-          <div class="support-title">Поддержка 24/7</div>
-          <p class="muted" style="margin:4px 0 0">Помощь по депозитам, переводам и верификации</p>
-        </div>
-        <button class="btn-primary" id="open-support">Написать</button>
+      <div class="uc-sec-head">
+        <h4>Advanced Protect</h4>
+        <p>Дополнительная защита для важных операций со средствами</p>
       </div>
+      <button type="button" class="uc-row" id="uc-pwd-row">
+        <span class="uc-ico">🔒</span><span class="uc-label">Изменить пароль</span>
+        <span class="uc-chev">›</span>
+      </button>
+      <div id="uc-pwd-form" class="uc-form screen-hidden">
+        <label>Текущий пароль</label>
+        <input type="password" id="uc-pwd-cur" autocomplete="current-password">
+        <label>Новый пароль</label>
+        <input type="password" id="uc-pwd-new" autocomplete="new-password">
+        <label>Повтор</label>
+        <input type="password" id="uc-pwd-new2" autocomplete="new-password">
+        <div class="error" id="uc-pwd-error"></div>
+        <button type="button" class="btn-primary full" id="uc-pwd-save">Сохранить пароль</button>
+      </div>
+      <div class="uc-foot" id="uc-login-meta"></div>
     </div>
 
-    <button type="button" class="btn-ghost full danger-btn" id="logout-btn">Выйти из аккаунта</button>
+    <div id="uc-pane-params" class="screen-hidden">
+      <button type="button" class="uc-row"><span class="uc-ico">⏰</span><span class="uc-label">Ориентировочный часовой пояс</span><span class="uc-val">Последние 24 часа</span><span class="uc-chev">›</span></button>
+      <button type="button" class="uc-row" id="open-withdraw-from-profile"><span class="uc-ico">👛</span><span class="uc-label">Адрес вывода</span><span class="uc-chev">›</span></button>
+      <button type="button" class="uc-row" id="open-support"><span class="uc-ico">🔔</span><span class="uc-label">Настройки уведомлений</span><span class="uc-chev">›</span></button>
+    </div>
+
+    <div id="uc-pane-general" class="screen-hidden">
+      <button type="button" class="uc-row" id="uc-lang-row"><span class="uc-ico">文</span><span class="uc-label">Язык</span><span class="uc-val">Русский</span><span class="uc-chev">›</span></button>
+      <button type="button" class="uc-row"><span class="uc-ico">$</span><span class="uc-label">Курс</span><span class="uc-val">USD</span><span class="uc-chev">›</span></button>
+      <button type="button" class="uc-row"><span class="uc-ico">🌙</span><span class="uc-label">Настройки темы</span><span class="uc-val">Ночной режим</span><span class="uc-chev">›</span></button>
+      <a class="uc-row" href="https://www.bybit.com/ru-RU/help-center/" target="_blank" rel="noopener" style="text-decoration:none"><span class="uc-ico">?</span><span class="uc-label">Справочный центр</span><span class="uc-chev">›</span></a>
+    </div>
+
+    <div id="avatar-picker" class="avatar-picker screen-hidden">
+      <div class="avatar-picker-head">
+        <button type="button" class="uc-icon-btn" id="avatar-picker-close">←</button>
+        <h2>Изображение профиля</h2>
+        <span style="width:28px"></span>
+      </div>
+      <div class="avatar-preview"><img id="avatar-picker-preview" alt=""></div>
+      <div class="avatar-grid" id="avatar-grid"></div>
+      <button type="button" class="btn-primary full" id="avatar-picker-save" style="margin-top:20px;background:#8a6a32;color:#111">Сохранить</button>
+    </div>
   </section>
 
   <!-- DEPOSIT -->
@@ -935,6 +1132,6 @@
     <button type="button" class="btn-primary full" id="ban-support">Написать в поддержку</button>
   </div>
 </div>
-<script src="app.js?v=10"></script>
+<script src="app.js?v=12"></script>
 </body>
 </html>

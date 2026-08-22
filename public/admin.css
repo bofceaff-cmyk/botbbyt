@@ -277,6 +277,27 @@ tr:last-child td { border-bottom: none; }
   width: 100%;
   resize: vertical;
 }
+.restrict-card {
+  background: #0b0e11;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 10px 12px;
+  margin: 10px 0;
+}
+.preset-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 8px; }
+.preset-row button {
+  background: #1a212b;
+  border: 1px solid var(--line);
+  color: var(--text-2);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.preset-row button:hover { color: var(--accent); border-color: var(--accent); }
+.restrict-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.danger-admin { color: var(--red) !important; border-color: var(--red) !important; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
 
 .addr-form { display: grid; gap: 8px; margin-bottom: 10px; }

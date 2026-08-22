@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="admin.css?v=3">
+<link rel="stylesheet" href="admin.css?v=4">
 </head>
 <body>
 <div id="login-view" class="login-wrap">
@@ -228,21 +228,45 @@
         <label class="check-row"><input type="checkbox" id="edit-verified"> Верифицирован (approved)</label>
 
         <div class="restrict-block">
-          <div class="panel-title">Ограничения</div>
-          <label class="check-row"><input type="checkbox" id="edit-banned"> Забанить аккаунт</label>
-          <label>Причина бана (обязательно, увидит пользователь)</label>
-          <textarea id="edit-ban-reason" rows="3" placeholder="Например: нарушение правил. Напишите в службу поддержки."></textarea>
-          <label class="check-row"><input type="checkbox" id="edit-transfers-off"> Запретить переводы</label>
-          <label>Текст при попытке перевода</label>
-          <textarea id="edit-transfer-reason" rows="2" placeholder="Переводы для вашего аккаунта временно недоступны. Обратитесь в службу поддержки."></textarea>
-          <label class="check-row"><input type="checkbox" id="edit-convert-off"> Запретить конвертации</label>
-          <label>Текст при попытке конвертации</label>
-          <textarea id="edit-convert-reason" rows="2" placeholder="Конвертация для вашего аккаунта временно недоступна. Обратитесь в службу поддержки."></textarea>
-          <label class="check-row"><input type="checkbox" id="edit-ops-locked"> Запретить переводы и конвертации сразу</label>
-          <label>Общий текст ограничения</label>
-          <textarea id="edit-ops-reason" rows="2" placeholder="Операции ограничены. Напишите в службу поддержки."></textarea>
-          <button type="button" class="btn-ghost" id="edit-kick-btn" style="margin-top:10px">Разлогинить пользователя</button>
-          <div class="muted" style="margin-top:6px;font-size:12px">Разлогин сбрасывает сессию — человек заново вводит пароль. Бан сразу выкидывает из приложения.</div>
+          <div class="panel-title">Ограничения и доступ</div>
+          <p class="muted" style="margin:0 0 10px">Включаете тумблер — сразу пишите, что увидит клиент. Пресеты подставляют готовый текст.</p>
+          <div class="restrict-card">
+            <label class="check-row"><input type="checkbox" id="edit-banned"> Бан аккаунта (не пускает в приложение)</label>
+            <label>Комментарий пользователю</label>
+            <div class="preset-row" data-target="edit-ban-reason">
+              <button type="button" data-preset="Нарушение правил платформы. Напишите в службу поддержки.">Правила</button>
+              <button type="button" data-preset="Подозрительная активность. Аккаунт заблокирован до проверки.">AML</button>
+              <button type="button" data-preset="Мультиаккаунт. Обратитесь в поддержку.">Мультиакк</button>
+            </div>
+            <textarea id="edit-ban-reason" rows="3" placeholder="Обязательно при бане — этот текст увидит пользователь."></textarea>
+          </div>
+          <div class="restrict-card">
+            <label class="check-row"><input type="checkbox" id="edit-transfers-off"> Запретить переводы</label>
+            <div class="preset-row" data-target="edit-transfer-reason">
+              <button type="button" data-preset="Переводы временно недоступны. Обратитесь в службу поддержки.">Стандарт</button>
+              <button type="button" data-preset="Переводы ограничены до прохождения проверки.">Проверка</button>
+            </div>
+            <textarea id="edit-transfer-reason" rows="2" placeholder="Текст при попытке перевода"></textarea>
+          </div>
+          <div class="restrict-card">
+            <label class="check-row"><input type="checkbox" id="edit-convert-off"> Запретить конвертации</label>
+            <div class="preset-row" data-target="edit-convert-reason">
+              <button type="button" data-preset="Конвертация временно недоступна. Обратитесь в службу поддержки.">Стандарт</button>
+            </div>
+            <textarea id="edit-convert-reason" rows="2" placeholder="Текст при попытке конвертации"></textarea>
+          </div>
+          <div class="restrict-card">
+            <label class="check-row"><input type="checkbox" id="edit-ops-locked"> Запретить переводы и конвертации сразу</label>
+            <div class="preset-row" data-target="edit-ops-reason">
+              <button type="button" data-preset="Операции ограничены. Напишите в службу поддержки.">Стандарт</button>
+            </div>
+            <textarea id="edit-ops-reason" rows="2" placeholder="Общий текст ограничения"></textarea>
+          </div>
+          <div class="restrict-actions">
+            <button type="button" class="btn-ghost" id="edit-kick-btn">Разлогинить</button>
+            <button type="button" class="btn-ghost danger-admin" id="edit-delete-btn">Удалить аккаунт из базы</button>
+          </div>
+          <div class="muted" style="margin-top:6px;font-size:12px">Разлогин сбрасывает сессию. Удаление стирает пользователя и связанные записи безвозвратно.</div>
         </div>
       </div>
       <div>
@@ -287,6 +311,6 @@
   </div>
 </div>
 
-<script src="admin.js?v=5"></script>
+<script src="admin.js?v=6"></script>
 </body>
 </html>

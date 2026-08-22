@@ -2,8 +2,8 @@ const tg = window.Telegram.WebApp;
 tg.ready();
 tg.expand();
 if (typeof tg.disableVerticalSwipes === 'function') tg.disableVerticalSwipes();
-tg.setHeaderColor('#0b0e11');
-tg.setBackgroundColor('#0b0e11');
+tg.setHeaderColor('#000000');
+tg.setBackgroundColor('#000000');
 
 function syncAppViewport() {
   const h = Math.round(tg.viewportStableHeight || tg.viewportHeight || window.innerHeight);
@@ -323,6 +323,7 @@ function showScreen(name, opts = {}) {
     t.classList.toggle('active', t.dataset.tab === tab);
   });
   document.querySelector('.topbar')?.classList.toggle('screen-hidden', name === 'trade' || name === 'tradfi');
+  document.getElementById('app-shell')?.classList.toggle('trade-on', name === 'trade');
 
   if (name === 'history') loadHistory();
   if (name === 'support') {
@@ -378,7 +379,10 @@ document.getElementById('open-history').addEventListener('click', () => showScre
 document.getElementById('wallet-pnl')?.addEventListener('click', () => showScreen('history'));
 document.getElementById('wallet-go-profile')?.addEventListener('click', () => showScreen('profile'));
 document.getElementById('open-withdraw')?.addEventListener('click', () => showScreen('withdraw'));
-document.getElementById('open-convert')?.addEventListener('click', () => showScreen('convert'));
+document.getElementById('open-convert')?.addEventListener('click', () => {
+  showScreen('trade');
+  setTradeProduct('convert');
+});
 document.getElementById('open-earn')?.addEventListener('click', () => showScreen('earn'));
 document.getElementById('open-earn-promo')?.addEventListener('click', () => showScreen('earn'));
 document.getElementById('wallet-card-banner')?.addEventListener('click', () => showScreen('card'));
@@ -727,6 +731,7 @@ function quoteIconFor(id, fallback) {
 function setConvertFromAsset(id) {
   if (id === convertToAsset) convertToAsset = convertFromAsset;
   convertFromAsset = id;
+  cvFrom = id;
   const meta = convertAssetMeta(id);
   document.getElementById('convert-from-asset').value = id;
   document.getElementById('convert-from-label').textContent = id;
@@ -736,6 +741,7 @@ function setConvertFromAsset(id) {
   document.getElementById('convert-hint').textContent = fmtAssetAmt(id, bal);
   setConvertToAsset(convertToAsset, false);
   updateConvertEstimate();
+  if (typeof refreshConvertPane === 'function') refreshConvertPane();
 }
 
 function setConvertToAsset(id, closeSheet = true) {
@@ -744,6 +750,7 @@ function setConvertToAsset(id, closeSheet = true) {
     id = alt ? alt.id : id;
   }
   convertToAsset = id;
+  cvTo = id;
   const meta = convertAssetMeta(id);
   document.getElementById('convert-asset').value = id;
   document.getElementById('convert-to-label').textContent = id;
@@ -960,6 +967,141 @@ document.getElementById('earn-submit')?.addEventListener('click', async () => {
 document.getElementById('open-support').addEventListener('click', () => showScreen('support'));
 document.getElementById('open-edit-profile').addEventListener('click', () => showScreen('edit-profile'));
 document.getElementById('open-kyc').addEventListener('click', () => showScreen('kyc'));
+document.getElementById('uc-nick-row')?.addEventListener('click', () => {
+  fillEditForm();
+  showScreen('edit-profile');
+});
+document.getElementById('uc-phone-row')?.addEventListener('click', () => {
+  fillEditForm();
+  showScreen('edit-profile');
+});
+document.getElementById('open-withdraw-from-profile')?.addEventListener('click', () => showScreen('withdraw'));
+document.getElementById('uc-copy-uid')?.addEventListener('click', async () => {
+  const uid = profile?.uid || document.getElementById('profile-uid')?.textContent;
+  if (!uid) return;
+  try { await navigator.clipboard.writeText(String(uid)); tg.showAlert('UID скопирован'); }
+  catch { tg.showAlert(String(uid)); }
+});
+document.getElementById('uc-personal-toggle')?.addEventListener('click', () => {
+  window.__ucShowPersonal = !window.__ucShowPersonal;
+  document.getElementById('uc-personal')?.classList.toggle('screen-hidden', !window.__ucShowPersonal);
+  document.getElementById('uc-eye-ico').textContent = window.__ucShowPersonal ? '🙈' : '👁';
+  if (profile) renderProfile(profile);
+});
+document.querySelectorAll('#uc-tabs .uc-tab').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#uc-tabs .uc-tab').forEach((b) => b.classList.toggle('active', b === btn));
+    const id = btn.dataset.uc;
+    ['data', 'security', 'params', 'general'].forEach((p) => {
+      document.getElementById(`uc-pane-${p}`)?.classList.toggle('screen-hidden', p !== id);
+    });
+  });
+});
+document.getElementById('uc-email-row')?.addEventListener('click', () => {
+  document.getElementById('uc-email-verify')?.classList.toggle('screen-hidden');
+});
+document.getElementById('uc-pwd-row')?.addEventListener('click', () => {
+  document.getElementById('uc-pwd-form')?.classList.toggle('screen-hidden');
+});
+document.getElementById('uc-email-send')?.addEventListener('click', async () => {
+  const err = document.getElementById('uc-email-error');
+  err.textContent = '';
+  try {
+    await apiFetch('/users/me/email/send', { method: 'POST' });
+    tg.showAlert('Код отправлен на почту');
+  } catch (e) { err.textContent = e.message; }
+});
+document.getElementById('uc-email-confirm')?.addEventListener('click', async () => {
+  const err = document.getElementById('uc-email-error');
+  err.textContent = '';
+  try {
+    const me = await apiFetch('/users/me/email/confirm', {
+      method: 'POST',
+      body: JSON.stringify({ code: document.getElementById('uc-email-code').value.trim() }),
+    });
+    profile = { ...profile, ...me };
+    renderProfile(profile);
+    tg.showAlert('Почта подтверждена');
+  } catch (e) { err.textContent = e.message; }
+});
+document.getElementById('uc-pwd-save')?.addEventListener('click', async () => {
+  const err = document.getElementById('uc-pwd-error');
+  err.textContent = '';
+  const next = document.getElementById('uc-pwd-new').value;
+  if (next !== document.getElementById('uc-pwd-new2').value) {
+    err.textContent = 'Пароли не совпадают';
+    return;
+  }
+  try {
+    await apiFetch('/users/me/password', {
+      method: 'POST',
+      body: JSON.stringify({
+        current: document.getElementById('uc-pwd-cur').value,
+        next,
+      }),
+    });
+    document.getElementById('uc-pwd-form').classList.add('screen-hidden');
+    tg.showAlert('Пароль изменён. Выводы ограничены на 24 часа.');
+  } catch (e) { err.textContent = e.message; }
+});
+async function saveAntiPhish() {
+  const code = window.prompt('Код защиты от фишинга (4–16 символов)', profile?.antiPhishCode || '');
+  if (code == null) return;
+  try {
+    const me = await apiFetch('/users/me/antiphish', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    });
+    profile = { ...profile, ...me };
+    renderProfile(profile);
+    tg.showAlert('Код сохранён');
+  } catch (e) { tg.showAlert(e.message); }
+}
+document.getElementById('uc-antiphish-btn')?.addEventListener('click', saveAntiPhish);
+document.getElementById('uc-antiphish-row')?.addEventListener('click', saveAntiPhish);
+document.getElementById('uc-totp-toggle')?.addEventListener('click', () => {
+  if (profile?.totpEnabled) {
+    document.getElementById('totp-off-wrap')?.classList.remove('screen-hidden');
+    document.getElementById('totp-disable-code')?.focus();
+  } else {
+    document.getElementById('totp-start-btn')?.click();
+  }
+});
+
+let pendingAvatarId = '01';
+function openAvatarPicker() {
+  pendingAvatarId = String(profile?.avatarId || '01').padStart(2, '0').slice(-2);
+  const grid = document.getElementById('avatar-grid');
+  grid.innerHTML = Array.from({ length: 8 }, (_, i) => {
+    const id = String(i + 1).padStart(2, '0');
+    return `<button type="button" data-av="${id}" class="${id === pendingAvatarId ? 'active' : ''}"><img src="${avatarUrl(id)}" alt=""></button>`;
+  }).join('');
+  grid.querySelectorAll('[data-av]').forEach((b) => {
+    b.addEventListener('click', () => {
+      pendingAvatarId = b.dataset.av;
+      grid.querySelectorAll('button').forEach((x) => x.classList.toggle('active', x === b));
+      document.getElementById('avatar-picker-preview').src = avatarUrl(pendingAvatarId);
+    });
+  });
+  document.getElementById('avatar-picker-preview').src = avatarUrl(pendingAvatarId);
+  document.getElementById('avatar-picker').classList.remove('screen-hidden');
+}
+document.getElementById('open-avatar-picker')?.addEventListener('click', openAvatarPicker);
+document.getElementById('open-avatar-picker-row')?.addEventListener('click', openAvatarPicker);
+document.getElementById('avatar-picker-close')?.addEventListener('click', () => {
+  document.getElementById('avatar-picker').classList.add('screen-hidden');
+});
+document.getElementById('avatar-picker-save')?.addEventListener('click', async () => {
+  try {
+    const me = await apiFetch('/users/me/avatar', {
+      method: 'POST',
+      body: JSON.stringify({ avatarId: pendingAvatarId }),
+    });
+    profile = { ...profile, ...me };
+    renderProfile(profile);
+    document.getElementById('avatar-picker').classList.add('screen-hidden');
+  } catch (e) { tg.showAlert(e.message); }
+});
 
 document.getElementById('home-go-deposit')?.addEventListener('click', () => showScreen('deposit'));
 document.getElementById('home-go-wallet')?.addEventListener('click', () => showScreen('wallet'));
@@ -1012,7 +1154,6 @@ function hideAuthSubScreens() {
 }
 
 function setAuthLight(on) {
-  document.getElementById('auth-sheet')?.classList.toggle('light', Boolean(on));
   document.getElementById('auth-main-tabs')?.classList.toggle('screen-hidden', Boolean(on));
 }
 
@@ -1215,8 +1356,7 @@ document.getElementById('reg-submit').addEventListener('click', async () => {
       body: JSON.stringify({ fullName, email, phone, country, password }),
     });
     profile = me;
-    document.getElementById('auth-uid-value').textContent = me.uid || '—';
-    showAuthGate('success');
+    enterApp(me);
   } catch (e) {
     errorEl.textContent = e.message || 'Не удалось зарегистрироваться';
   } finally {
@@ -1483,14 +1623,42 @@ function renderAccount(me) {
   }
 }
 
+function avatarUrl(id) {
+  const n = String(id || '01').replace(/\D/g, '').padStart(2, '0').slice(-2);
+  const num = Math.min(8, Math.max(1, Number(n) || 1));
+  return `/img/avatars/avatar-${String(num).padStart(2, '0')}.png`;
+}
+function maskEmail(v) {
+  const s = String(v || '');
+  if (!s.includes('@')) return s || 'Не указано';
+  const [a, b] = s.split('@');
+  return `${a.slice(0, 2)}***@****`;
+}
+function maskPhone(v) {
+  const s = String(v || '').replace(/\s/g, '');
+  if (s.length < 4) return s || 'Не указано';
+  return `${s.slice(0, 2)}****${s.slice(-3)}`;
+}
+function maskName(v) {
+  const s = String(v || '').trim();
+  if (!s) return 'не указано';
+  if (window.__ucShowPersonal) return s;
+  return '****';
+}
+
+function setAvatarEls(id) {
+  const src = avatarUrl(id);
+  ['avatar', 'wallet-avatar', 'uc-avatar-mini', 'avatar-picker-preview'].forEach((elId) => {
+    const el = document.getElementById(elId);
+    if (el && el.tagName === 'IMG') el.src = src;
+  });
+}
+
 function renderProfile(me) {
   const name = me.displayName || me.fullName || 'Пользователь';
-  const initials = name.slice(0, 2).toUpperCase();
-  document.getElementById('avatar').textContent = initials;
   document.getElementById('display-name').textContent = name;
-  document.getElementById('profile-uid').textContent = `UID ${me.uid || me.id}`;
-  const wAvatar = document.getElementById('wallet-avatar');
-  if (wAvatar) wAvatar.textContent = initials;
+  document.getElementById('profile-uid').textContent = me.uid || me.id || '—';
+  setAvatarEls(me.avatarId);
 
   if (me.balances) profile.balances = me.balances;
   lastWalletBalance = Number(me.usdtBalance) || 0;
@@ -1505,46 +1673,51 @@ function renderProfile(me) {
   if (uidChip) uidChip.textContent = `UID ${me.uid || '—'}`;
 
   document.getElementById('info-display').textContent = me.displayName || '—';
-  document.getElementById('info-fullname').textContent = me.fullName || 'не указано';
-  document.getElementById('info-email').textContent = me.email || 'не указано';
-  document.getElementById('info-phone').textContent = me.phone || 'не указано';
-  document.getElementById('info-country').textContent = me.country || 'не указано';
+  document.getElementById('info-fullname').textContent = maskName(me.fullName);
+  document.getElementById('info-email').textContent = window.__ucShowPersonal ? (me.email || 'не указано') : maskEmail(me.email);
+  document.getElementById('info-phone').textContent = window.__ucShowPersonal ? (me.phone || 'не указано') : maskPhone(me.phone);
+  document.getElementById('info-country').textContent = window.__ucShowPersonal ? (me.country || 'не указано') : (me.country ? '********' : 'не указано');
   document.getElementById('info-tg').textContent = me.usernameTg ? `@${me.usernameTg}` : '—';
   document.getElementById('info-account').textContent = me.accountNumber || 'не выдан';
+
+  const em = document.getElementById('uc-email-mask');
+  if (em) em.textContent = me.emailVerified ? `${maskEmail(me.email)} · OK` : maskEmail(me.email);
+  const pm = document.getElementById('uc-phone-mask');
+  if (pm) pm.textContent = maskPhone(me.phone);
+  const ap = document.getElementById('uc-antiphish-status');
+  if (ap) ap.textContent = me.antiPhishCode ? 'Настроено' : 'Не настроено';
+  const ev = document.getElementById('uc-email-status');
+  if (ev) ev.textContent = me.emailVerified
+    ? 'Почта подтверждена.'
+    : 'Подтвердите почту кодом из письма — статус верификации почты будет одобрен.';
+  const meta = document.getElementById('uc-login-meta');
+  if (meta) {
+    const t = me.lastLoginAt ? new Date(me.lastLoginAt).toLocaleString('ru-RU') : '—';
+    meta.textContent = `Время последнего входа ${t}`;
+  }
 
   const badge = document.getElementById('verified-badge');
   const pill = document.getElementById('kyc-pill');
   const kycBtn = document.getElementById('open-kyc');
   const summary = document.getElementById('kyc-summary');
-  const meta = KYC_LABELS[me.kycStatus] || KYC_LABELS.none;
+  const kycMeta = KYC_LABELS[me.kycStatus] || KYC_LABELS.none;
 
-  pill.textContent = meta.text;
-  pill.className = `kyc-pill ${meta.cls}`;
-  if (me.kycStatus === 'rejected' && me.kycRejectReason) {
-    summary.textContent = `Отклонено: ${me.kycRejectReason}`;
-  } else if (me.kycStatus === 'pending') {
-    summary.textContent = 'Заявка на проверке. Обычно это занимает немного времени.';
-  } else if (me.kycStatus === 'approved') {
-    summary.textContent = 'Документы проверены, профиль подтверждён.';
-  } else {
-    summary.textContent = 'Пройдите KYC: ФИО, фото документа и селфи.';
+  if (pill) {
+    pill.textContent = kycMeta.text;
+    pill.className = `kyc-pill ${kycMeta.cls} screen-hidden`;
+  }
+  if (summary) {
+    if (me.kycStatus === 'rejected' && me.kycRejectReason) summary.textContent = `Отклонено`;
+    else if (me.kycStatus === 'pending') summary.textContent = 'На проверке';
+    else if (me.kycStatus === 'approved') summary.textContent = 'Верификация Ур.2 пройдена';
+    else summary.textContent = 'Не пройдена';
   }
 
   const isVerified = me.verified || me.kycStatus === 'approved';
-  if (isVerified) {
-    badge.classList.remove('badge-hidden');
-    pill.classList.add('screen-hidden'); // не дублируем «Верифицирован»
-  } else {
-    badge.classList.add('badge-hidden');
-    pill.classList.remove('screen-hidden');
+  if (badge) {
+    if (isVerified) badge.classList.remove('badge-hidden');
+    else badge.classList.add('badge-hidden');
   }
-
-  kycBtn.style.display = me.kycStatus === 'approved' ? 'none' : 'block';
-  kycBtn.textContent = me.kycStatus === 'pending'
-    ? 'Статус заявки'
-    : me.kycStatus === 'rejected'
-      ? 'Подать снова'
-      : 'Пройти верификацию';
 
   renderAccount(me);
   applyAccountFlags(me);
@@ -1572,9 +1745,11 @@ function applyAccountFlags(me) {
   if (status) status.textContent = enabled
     ? 'Google Authenticator включён. Код нужен при каждом входе.'
     : 'Двухфакторная защита входа выключена.';
-  document.getElementById('totp-start-btn')?.classList.toggle('screen-hidden', enabled);
+  document.getElementById('totp-start-btn')?.classList.add('screen-hidden');
   document.getElementById('totp-off-wrap')?.classList.toggle('screen-hidden', !enabled);
   if (!enabled) document.getElementById('totp-setup')?.classList.add('screen-hidden');
+  const tog = document.getElementById('uc-totp-toggle');
+  if (tog) tog.classList.toggle('on', enabled);
 }
 
 async function loadProfile() {
@@ -2051,7 +2226,8 @@ function openTrade(symbol, change24h) {
   chartSymbol = tradeSymbol;
   if (change24h != null) chartChange24h = change24h;
   document.getElementById('trade-pair-btn').innerHTML = `${tradeSymbol}/USDT <span>▾</span>`;
-  document.getElementById('trade-qty-lbl').textContent = tradeSymbol;
+  const qtyIn = document.getElementById('trade-qty-input');
+  if (qtyIn) qtyIn.placeholder = `Кол-во ${tradeSymbol}`;
   document.querySelectorAll('.trade-tf').forEach((b) => {
     if (b.dataset.interval) b.classList.toggle('active', b.dataset.interval === chartInterval);
   });
@@ -2116,7 +2292,7 @@ function drawTradeChart(canvas, candles) {
   if (!canvas || !candles?.length) return;
   const dpr = window.devicePixelRatio || 1;
   const cssW = canvas.clientWidth || 360;
-  const cssH = 340;
+  const cssH = Math.max(240, canvas.clientHeight || 280);
   canvas.width = Math.floor(cssW * dpr);
   canvas.height = Math.floor(cssH * dpr);
   const ctx = canvas.getContext('2d');
@@ -2181,6 +2357,15 @@ function drawTradeChart(canvas, candles) {
   drawMa(7, '#f7a600');
   drawMa(14, '#5b9cf6');
   drawMa(28, '#e56b9a');
+  const m7 = smaAt(candles, 7, candles.length - 1);
+  const m14 = smaAt(candles, 14, candles.length - 1);
+  const m28 = smaAt(candles, 28, candles.length - 1);
+  const l7 = document.getElementById('ma7-lab');
+  const l14 = document.getElementById('ma14-lab');
+  const l28 = document.getElementById('ma28-lab');
+  if (l7) l7.textContent = `MA7: ${m7 == null ? '—' : fmtUsdPrice(m7)}`;
+  if (l14) l14.textContent = `MA14: ${m14 == null ? '—' : fmtUsdPrice(m14)}`;
+  if (l28) l28.textContent = `MA28: ${m28 == null ? '—' : fmtUsdPrice(m28)}`;
 
   const last = candles[candles.length - 1];
   const yLast = yPrice(last.close);
@@ -2255,7 +2440,14 @@ function fillTradePairList() {
   box.querySelectorAll('[data-symbol]').forEach((row) => {
     row.onclick = () => {
       document.getElementById('trade-pair-sheet').classList.add('screen-hidden');
-      openTrade(row.dataset.symbol);
+      if (tradeProduct === 'futures') {
+        futSymbol = String(row.dataset.symbol).toUpperCase();
+        document.getElementById('fut-pair-btn').textContent = `${futSymbol}USDT ▾`;
+        loadFutures();
+      } else {
+        setTradeProduct('spot');
+        openTrade(row.dataset.symbol);
+      }
     };
   });
 }
@@ -2272,14 +2464,197 @@ document.getElementById('trade-pair-sheet')?.addEventListener('click', (e) => {
 });
 
 document.querySelectorAll('#trade-products .trade-prod').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('#trade-products .trade-prod').forEach((b) => b.classList.remove('active'));
-    btn.classList.add('active');
-    const prod = btn.dataset.prod;
-    if (prod === 'convert') showScreen('convert');
-    else if (prod !== 'spot') tg.showAlert('Раздел скоро будет доступен. Сейчас открыт спот.');
+  btn.addEventListener('click', () => setTradeProduct(btn.dataset.prod));
+});
+
+let tradeProduct = 'spot';
+let cvMode = 'instant';
+let cvFrom = 'USDT';
+let cvTo = 'TRX';
+let futSymbol = 'BTC';
+let futLeverage = 10;
+let futMark = 0;
+let paperPositions = [];
+let newsFilter = 'all';
+let lastNewsItems = [];
+let dataInterval = '15m';
+
+function setTradeProduct(prod) {
+  tradeProduct = prod || 'spot';
+  document.querySelectorAll('#trade-products .trade-prod').forEach((b) => {
+    b.classList.toggle('active', b.dataset.prod === tradeProduct);
+  });
+  ['convert', 'spot', 'futures', 'options', 'alpha'].forEach((p) => {
+    document.getElementById(`trade-body-${p}`)?.classList.toggle('screen-hidden', p !== tradeProduct);
+  });
+  if (tradeProduct === 'convert') refreshConvertPane();
+  if (tradeProduct === 'spot') loadTradeChart();
+  if (tradeProduct === 'futures') { loadFutures(); loadPaper(); }
+  if (tradeProduct === 'options') refreshOptions();
+  if (tradeProduct === 'alpha') loadAlpha();
+}
+
+function walletAmt(asset) {
+  const b = profile?.balances || {};
+  if (asset === 'USDT') return Number(b.USDT ?? profile?.usdtBalance ?? 0) || 0;
+  return Number(b[asset] ?? 0) || 0;
+}
+
+function pxOf(sym) {
+  const q = lastQuotes.find((x) => String(x.symbol).toUpperCase() === String(sym).toUpperCase());
+  return Number(q?.price) || 0;
+}
+
+function refreshConvertPane() {
+  document.getElementById('cv-from-btn').textContent = `${cvFrom} ▾`;
+  document.getElementById('cv-to-btn').textContent = `${cvTo} ▾`;
+  document.getElementById('cv-avail').textContent = fmtUsdPrice(walletAmt(cvFrom));
+  const amt = Number(document.getElementById('cv-amount')?.value);
+  const fp = cvFrom === 'USDT' ? 1 : pxOf(cvFrom);
+  const tp = cvTo === 'USDT' ? 1 : pxOf(cvTo);
+  if (amt > 0 && fp && tp) {
+    const got = (amt * fp) / tp;
+    document.getElementById('cv-out').textContent = fmtUsdPrice(got);
+    document.getElementById('cv-rate').textContent = `1 ${cvTo} ≈ ${fmtUsdPrice(tp / fp)} ${cvFrom}`;
+  } else {
+    document.getElementById('cv-out').textContent = '—';
+    document.getElementById('cv-rate').textContent = fp && tp ? `1 ${cvTo} ≈ ${fmtUsdPrice(tp / fp)} ${cvFrom}` : '—';
+  }
+  const lim = document.getElementById('cv-limit-price');
+  if (lim && !lim.value && tp && fp) lim.value = String((tp / (cvFrom === 'USDT' ? 1 : fp)).toFixed(6));
+  renderLimitOrders();
+}
+
+async function doConvert(amount, fromAsset, toAsset, silent) {
+  const res = await apiFetch('/finance/convert', {
+    method: 'POST',
+    body: JSON.stringify({ amount, fromAsset, toAsset }),
+  });
+  if (res.balances) profile.balances = res.balances;
+  if (res.usdtBalance != null) profile.usdtBalance = res.usdtBalance;
+  applyBalanceVisibility();
+  if (!silent) tg.showAlert(`Готово: ${fromAsset} → ${toAsset}`);
+  return res;
+}
+
+function limitOrders() {
+  try { return JSON.parse(localStorage.getItem('byx_limits') || '[]'); } catch { return []; }
+}
+function saveLimitOrders(rows) {
+  localStorage.setItem('byx_limits', JSON.stringify(rows));
+}
+function renderLimitOrders() {
+  const rows = limitOrders().filter((o) => o.status === 'open');
+  const el = document.getElementById('cv-orders-list');
+  if (!el) return;
+  if (!rows.length) { el.textContent = 'Нет активных ордеров'; el.className = 'muted'; return; }
+  el.className = '';
+  el.innerHTML = rows.map((o) => `<div class="pos-row">${o.amount} ${o.from} → ${o.to} @ ${o.price}</div>`).join('');
+}
+async function tryLimitOrders() {
+  const rows = limitOrders();
+  let changed = false;
+  for (const o of rows) {
+    if (o.status !== 'open') continue;
+    const fp = o.from === 'USDT' ? 1 : pxOf(o.from);
+    const tp = o.to === 'USDT' ? 1 : pxOf(o.to);
+    if (!fp || !tp) continue;
+    const px = tp / fp;
+    if (px <= Number(o.price)) {
+      try {
+        await doConvert(o.amount, o.from, o.to, true);
+        o.status = 'filled';
+        changed = true;
+      } catch { /* keep open */ }
+    }
+  }
+  if (changed) {
+    saveLimitOrders(rows);
+    renderLimitOrders();
+  }
+}
+
+document.querySelectorAll('.cv-mode').forEach((b) => {
+  b.addEventListener('click', () => {
+    cvMode = b.dataset.cv;
+    document.querySelectorAll('.cv-mode').forEach((x) => x.classList.toggle('active', x === b));
+    document.getElementById('cv-limit-box').classList.toggle('screen-hidden', cvMode !== 'limit');
+    document.getElementById('cv-go').textContent = cvMode === 'limit' ? 'Разместить ордер' : 'Запрос';
   });
 });
+document.getElementById('cv-amount')?.addEventListener('input', refreshConvertPane);
+document.getElementById('cv-max')?.addEventListener('click', () => {
+  document.getElementById('cv-amount').value = String(walletAmt(cvFrom));
+  refreshConvertPane();
+});
+document.getElementById('cv-swap')?.addEventListener('click', () => {
+  const a = cvFrom; cvFrom = cvTo; cvTo = a;
+  refreshConvertPane();
+});
+document.getElementById('cv-from-btn')?.addEventListener('click', () => {
+  convertPickSide = 'from';
+  openConvertAssetSheet('from');
+});
+document.getElementById('cv-to-btn')?.addEventListener('click', () => {
+  convertPickSide = 'to';
+  openConvertAssetSheet('to');
+});
+document.querySelectorAll('#cv-limit-box [data-pct]').forEach((b) => {
+  b.addEventListener('click', () => {
+    const p = Number(b.dataset.pct) / 100;
+    const fp = cvFrom === 'USDT' ? 1 : pxOf(cvFrom);
+    const tp = cvTo === 'USDT' ? 1 : pxOf(cvTo);
+    if (!fp || !tp) return;
+    document.getElementById('cv-limit-price').value = String(((tp / fp) * (1 + p)).toFixed(6));
+  });
+});
+document.getElementById('cv-mkt')?.addEventListener('click', () => {
+  const fp = cvFrom === 'USDT' ? 1 : pxOf(cvFrom);
+  const tp = cvTo === 'USDT' ? 1 : pxOf(cvTo);
+  if (fp && tp) document.getElementById('cv-limit-price').value = String((tp / fp).toFixed(6));
+});
+document.getElementById('cv-go')?.addEventListener('click', async () => {
+  const err = document.getElementById('cv-error');
+  err.textContent = '';
+  const amount = Number(document.getElementById('cv-amount').value);
+  if (!amount) { err.textContent = 'укажите сумму'; return; }
+  try {
+    if (cvMode === 'limit') {
+      const price = Number(document.getElementById('cv-limit-price').value);
+      if (!price) { err.textContent = 'укажите цену'; return; }
+      const rows = limitOrders();
+      rows.push({ from: cvFrom, to: cvTo, amount, price, status: 'open', at: Date.now() });
+      saveLimitOrders(rows);
+      renderLimitOrders();
+      tg.showAlert('Лимитный ордер размещён. Исполнится при достижении цены.');
+    } else {
+      await doConvert(amount, cvFrom, cvTo);
+      refreshConvertPane();
+    }
+  } catch (e) {
+    err.textContent = e.message;
+  }
+});
+
+async function execSpot(side) {
+  const err = document.getElementById('trade-error');
+  if (err) err.textContent = '';
+  const qty = Number(document.getElementById('trade-qty-input')?.value);
+  const q = tradeQuote();
+  const px = Number(q?.ask || q?.price);
+  if (!qty || qty <= 0) {
+    if (err) err.textContent = 'укажите количество';
+    return;
+  }
+  if (!px) { if (err) err.textContent = 'нет цены'; return; }
+  try {
+    if (side === 'buy') await doConvert(qty * px, 'USDT', tradeSymbol);
+    else await doConvert(qty, tradeSymbol, 'USDT');
+    loadProfile().catch(() => {});
+  } catch (e) {
+    if (err) err.textContent = e.message;
+  }
+}
 
 document.querySelectorAll('#trade-subtabs .trade-sub').forEach((btn) => {
   btn.addEventListener('click', () => {
@@ -2290,6 +2665,10 @@ document.querySelectorAll('#trade-subtabs .trade-sub').forEach((btn) => {
     document.getElementById('trade-pane-overview').classList.toggle('screen-hidden', sub !== 'overview');
     document.getElementById('trade-pane-data').classList.toggle('screen-hidden', sub !== 'data');
     document.getElementById('trade-pane-news').classList.toggle('screen-hidden', sub !== 'news');
+    if (sub === 'overview') loadOverview();
+    if (sub === 'data') loadFlow();
+    if (sub === 'news') renderTradeNews();
+    if (sub === 'chart') setTimeout(() => loadTradeChart({ silent: true }), 50);
   });
 });
 
@@ -2301,23 +2680,289 @@ document.querySelectorAll('.trade-tf[data-interval]').forEach((btn) => {
   });
 });
 
-document.getElementById('trade-buy')?.addEventListener('click', () => {
-  convertFromAsset = 'USDT';
-  convertToAsset = tradeSymbol;
-  showScreen('convert');
+document.getElementById('trade-buy')?.addEventListener('click', () => execSpot('buy'));
+document.getElementById('trade-sell')?.addEventListener('click', () => execSpot('sell'));
+document.getElementById('tradfi-go-trade')?.addEventListener('click', () => {
+  setTradeProduct('spot');
+  openTrade(tradeSymbol);
 });
-document.getElementById('trade-sell')?.addEventListener('click', () => {
-  convertFromAsset = tradeSymbol;
-  convertToAsset = 'USDT';
-  showScreen('convert');
+document.getElementById('trade-depth')?.addEventListener('click', () => setTradeProduct('futures'));
+
+async function loadOverview() {
+  const about = document.getElementById('ov-about');
+  const metrics = document.getElementById('ov-metrics');
+  try {
+    const r = await fetch(`/api/market/coin?symbol=${encodeURIComponent(tradeSymbol)}`);
+    const d = await r.json();
+    about.textContent = d.description || 'Нет описания';
+    const n = (x) => x == null ? '—' : Number(x).toLocaleString('en-US', { maximumFractionDigits: 0 });
+    metrics.innerHTML = `
+      <div><span>Рын. капитализация</span><b>$${n(d.marketCap)}</b></div>
+      <div><span>FDV</span><b>$${n(d.fdv)}</b></div>
+      <div><span>В обороте</span><b>${n(d.circulating)}</b></div>
+      <div><span>Общая эмиссия</span><b>${n(d.total)}</b></div>
+      <div><span>Макс. эмиссия</span><b>${n(d.max)}</b></div>`;
+    const links = [];
+    if (d.homepage) links.push(`<a href="${d.homepage}" target="_blank">Website</a>`);
+    document.getElementById('ov-links').innerHTML = links.join(' · ');
+  } catch {
+    about.textContent = 'Не удалось загрузить обзор';
+  }
+}
+
+async function loadFlow() {
+  const box = document.getElementById('data-flow');
+  try {
+    const data = await fetchKlines(tradeSymbol, dataInterval);
+    const cs = data.candles || [];
+    const slice = cs.slice(-40);
+    let inn = 0; let out = 0;
+    slice.forEach((c) => {
+      if (c.close >= c.open) inn += c.volume || 0;
+      else out += c.volume || 0;
+    });
+    const tot = inn + out || 1;
+    box.innerHTML = `
+      <div>Приток <b style="color:#2ebd85">${fmtCompact(inn)} ${tradeSymbol}</b></div>
+      <div class="flow-bar"><i style="width:${(inn / tot) * 100}%;background:#2ebd85"></i></div>
+      <div>Отток <b style="color:#f6465d">${fmtCompact(out)} ${tradeSymbol}</b></div>
+      <div class="flow-bar"><i style="width:${(out / tot) * 100}%;background:#f6465d"></i></div>
+      <div class="muted">Чистый поток ${fmtCompact(inn - out)} · интервал ${dataInterval}</div>`;
+  } catch {
+    box.textContent = 'Нет данных потока';
+  }
+}
+document.querySelectorAll('#data-tf button').forEach((b) => {
+  b.addEventListener('click', () => {
+    dataInterval = b.dataset.df;
+    document.querySelectorAll('#data-tf button').forEach((x) => x.classList.toggle('active', x === b));
+    loadFlow();
+  });
 });
-document.getElementById('trade-qty')?.addEventListener('click', () => {
-  convertFromAsset = 'USDT';
-  convertToAsset = tradeSymbol;
-  showScreen('convert');
+
+function renderTradeNews() {
+  const mini = document.getElementById('trade-news-mini');
+  if (!mini) return;
+  const items = lastNewsItems.filter((n) => {
+    const t = `${n.title || ''} ${n.body || ''}`.toLowerCase();
+    if (newsFilter === 'token') return t.includes(tradeSymbol.toLowerCase()) || t.includes((tradeQuote()?.name || '').toLowerCase());
+    if (newsFilter === 'macro') return /fed|ставк|инфляц|macro|bank|цб|доллар/i.test(t);
+    return true;
+  });
+  mini.innerHTML = (items.length ? items : lastNewsItems).slice(0, 12).map((n) => {
+    const date = n.publishedAt ? new Date(n.publishedAt).toISOString().slice(0, 16).replace('T', ' ') : '';
+    const bull = /bull|рост|etf|buy/i.test(n.title || '');
+    const bear = /bear|пад|crash|sell/i.test(n.title || '');
+    const tag = bull ? 'Бычьи' : bear ? 'Медвежий тренд' : 'Нейтральный';
+    return `<div class="news-item" style="display:block;padding:10px 0;border-bottom:1px solid #1a1a1a">
+      <div class="news-meta">${date} UTC · ${escapeHtml(n.source || '')} · ${tag}</div>
+      <div class="news-title">${escapeHtml(n.title || '')}</div></div>`;
+  }).join('') || '<div class="muted">Нет новостей</div>';
+}
+document.querySelectorAll('.news-pills button').forEach((b) => {
+  b.addEventListener('click', () => {
+    newsFilter = b.dataset.nf;
+    document.querySelectorAll('.news-pills button').forEach((x) => x.classList.toggle('active', x === b));
+    renderTradeNews();
+  });
 });
-document.getElementById('tradfi-go-trade')?.addEventListener('click', () => openTrade(tradeSymbol));
-document.getElementById('trade-depth')?.addEventListener('click', () => tg.showAlert('Стакан глубины — в следующей версии.'));
+
+async function loadFutures() {
+  try {
+    const r = await fetch(`/api/market/futures?symbol=${futSymbol}USDT`);
+    const d = await r.json();
+    futMark = Number(d.mark || d.price) || 0;
+    const chg = fmtChange(d.change24h);
+    const el = document.getElementById('fut-chg');
+    el.textContent = chg.text;
+    el.className = `trade-chg ${chg.up ? 'up' : 'down'}`;
+    document.getElementById('fut-mark').textContent = fmtUsdPrice(futMark);
+    document.getElementById('fut-mark').style.color = chg.up ? '#2ebd85' : '#f6465d';
+    document.getElementById('fut-index').textContent = `Index ${fmtUsdPrice(d.index)}`;
+    const left = d.nextFunding ? Math.max(0, d.nextFunding - Date.now()) : 0;
+    const h = Math.floor(left / 3600000);
+    const m = Math.floor((left % 3600000) / 60000);
+    const s = Math.floor((left % 60000) / 1000);
+    document.getElementById('fut-fund').textContent =
+      `Funding ${Number(d.funding || 0).toFixed(4)}% / ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    if (!document.getElementById('fut-price').value) document.getElementById('fut-price').value = String(futMark);
+    document.getElementById('fut-avail').textContent = `Доступно ${fmtUsdPrice(walletAmt('USDT'))} USDT`;
+    updateFutCost();
+  } catch { /* ignore */ }
+  try {
+    const r = await fetch(`/api/market/depth?symbol=${futSymbol}USDT&market=futures`);
+    const d = await r.json();
+    const asks = (d.asks || []).slice(0, 8).reverse();
+    const bids = (d.bids || []).slice(0, 8);
+    document.getElementById('fut-asks').innerHTML = asks.map((a) =>
+      `<div class="ask"><span>${fmtUsdPrice(a.price)}</span><span>${Number(a.qty).toFixed(4)}</span></div>`).join('');
+    document.getElementById('fut-bids').innerHTML = bids.map((a) =>
+      `<div class="bid"><span>${fmtUsdPrice(a.price)}</span><span>${Number(a.qty).toFixed(4)}</span></div>`).join('');
+  } catch { /* ignore */ }
+  renderPaper();
+}
+
+function updateFutCost() {
+  const qty = Number(document.getElementById('fut-qty')?.value) || 0;
+  const px = Number(document.getElementById('fut-price')?.value) || futMark;
+  const cost = qty && px ? (qty * px) / futLeverage : 0;
+  document.getElementById('fut-cost').textContent = `Стоимость ${fmtUsdPrice(cost)} USDT · ${futLeverage}x`;
+}
+document.getElementById('fut-qty')?.addEventListener('input', updateFutCost);
+document.getElementById('fut-price')?.addEventListener('input', updateFutCost);
+document.getElementById('fut-lev')?.addEventListener('click', () => {
+  futLeverage = futLeverage >= 50 ? 5 : futLeverage * 2;
+  document.getElementById('fut-lev').textContent = `${futLeverage}x`;
+  updateFutCost();
+});
+document.querySelectorAll('#fut-pct button').forEach((b) => {
+  b.addEventListener('click', () => {
+    const pct = Number(b.dataset.fp) / 100;
+    const px = Number(document.getElementById('fut-price').value) || futMark;
+    if (!px) return;
+    const margin = walletAmt('USDT') * pct;
+    document.getElementById('fut-qty').value = String(((margin * futLeverage) / px).toFixed(6));
+    updateFutCost();
+  });
+});
+document.getElementById('fut-pair-btn')?.addEventListener('click', () => {
+  fillTradePairList();
+  document.getElementById('trade-pair-sheet').classList.remove('screen-hidden');
+});
+
+async function loadPaper() {
+  try {
+    paperPositions = await apiFetch('/finance/paper');
+  } catch { paperPositions = []; }
+  renderPaper();
+}
+function renderPaper() {
+  const box = document.getElementById('fut-pos-list');
+  if (!box) return;
+  const rows = (paperPositions || []).filter((p) => p.market !== 'option');
+  if (!rows.length) { box.innerHTML = '<div class="muted">Нет позиций</div>'; return; }
+  box.innerHTML = rows.map((p) => {
+    const mark = p.symbol === futSymbol ? futMark : pxOf(p.symbol);
+    const dir = p.side === 'short' ? -1 : 1;
+    const pnl = mark ? (mark - p.entry) * p.qty * dir : 0;
+    return `<div class="pos-row">
+      <div>${p.side.toUpperCase()} ${p.symbol} ${p.leverage}x<br><span class="muted">${p.qty} @ ${fmtUsdPrice(p.entry)}</span></div>
+      <div style="color:${pnl >= 0 ? '#2ebd85' : '#f6465d'}">${pnl >= 0 ? '+' : ''}${fmtUsdPrice(pnl)}
+        <button type="button" class="fut-chip" data-close="${p.id}">Закрыть</button></div>
+    </div>`;
+  }).join('');
+  box.querySelectorAll('[data-close]').forEach((b) => {
+    b.onclick = () => closePaper(Number(b.dataset.close));
+  });
+}
+async function openPaper(side) {
+  const err = document.getElementById('fut-error');
+  err.textContent = '';
+  const qty = Number(document.getElementById('fut-qty').value);
+  const entry = Number(document.getElementById('fut-price').value) || futMark;
+  try {
+    const res = await apiFetch('/finance/paper/open', {
+      method: 'POST',
+      body: JSON.stringify({ market: 'futures', symbol: futSymbol, side, qty, leverage: futLeverage, entry }),
+    });
+    if (res.balances) profile.balances = res.balances;
+    if (res.usdtBalance != null) profile.usdtBalance = res.usdtBalance;
+    paperPositions = res.positions || [];
+    applyBalanceVisibility();
+    renderPaper();
+    document.getElementById('fut-avail').textContent = `Доступно ${fmtUsdPrice(walletAmt('USDT'))} USDT`;
+  } catch (e) {
+    err.textContent = e.message;
+  }
+}
+async function closePaper(id, mark) {
+  const pos = (paperPositions || []).find((p) => p.id === id);
+  const px = mark || (pos?.symbol === futSymbol ? futMark : pxOf(pos?.symbol || futSymbol));
+  try {
+    const res = await apiFetch('/finance/paper/close', {
+      method: 'POST',
+      body: JSON.stringify({ id, mark: px }),
+    });
+    if (res.balances) profile.balances = res.balances;
+    if (res.usdtBalance != null) profile.usdtBalance = res.usdtBalance;
+    paperPositions = res.positions || [];
+    applyBalanceVisibility();
+    renderPaper();
+    refreshOptions();
+    tg.showAlert(`Закрыто. PnL ${fmtUsdPrice(res.pnl)}`);
+  } catch (e) {
+    tg.showAlert(e.message);
+  }
+}
+document.getElementById('fut-long')?.addEventListener('click', () => openPaper('long'));
+document.getElementById('fut-short')?.addEventListener('click', () => openPaper('short'));
+
+function refreshOptions() {
+  const px = pxOf('BTC') || futMark;
+  document.getElementById('opt-px').textContent = fmtUsdPrice(px);
+  document.getElementById('opt-bal').textContent = `Доступный баланс ${fmtUsdPrice(walletAmt('USDT'))} USDT`;
+  const sl = document.getElementById('opt-slider');
+  const target = px * (0.9 + (Number(sl.value) / 100) * 0.25);
+  document.getElementById('opt-target').textContent = fmtUsdPrice(target);
+  const levels = [0.07, 0.08, 0.055, 0.045].map((k) => px * (1 + k));
+  document.getElementById('opt-scenarios').innerHTML = levels.map((lv) => `
+    <div class="opt-sc">
+      <div>Цена BTC выше ${fmtUsdPrice(lv)}</div>
+      <button type="button" data-opt="${lv}">Подписаться</button>
+    </div>`).join('');
+  document.querySelectorAll('#opt-scenarios [data-opt]').forEach((b) => {
+    b.onclick = () => subscribeOption(Number(b.dataset.opt));
+  });
+}
+document.getElementById('opt-slider')?.addEventListener('input', refreshOptions);
+async function subscribeOption(target) {
+  const err = document.getElementById('opt-error');
+  err.textContent = '';
+  const invest = Number(document.getElementById('opt-invest').value);
+  const entry = pxOf('BTC');
+  if (!invest) { err.textContent = 'укажите сумму'; return; }
+  try {
+    const res = await apiFetch('/finance/paper/open', {
+      method: 'POST',
+      body: JSON.stringify({
+        market: 'option', symbol: 'BTC', side: 'up', qty: invest, leverage: 1, entry, target,
+      }),
+    });
+    if (res.balances) profile.balances = res.balances;
+    if (res.usdtBalance != null) profile.usdtBalance = res.usdtBalance;
+    paperPositions = res.positions || [];
+    applyBalanceVisibility();
+    tg.showAlert('Опцион оформлен. Прибыль начислится при закрытии, если цель достигнута.');
+    refreshOptions();
+  } catch (e) {
+    err.textContent = e.message;
+  }
+}
+
+async function loadAlpha() {
+  document.getElementById('alpha-bal').textContent = `${fmtUsdPrice(walletAmt('USDT'))} USD`;
+  try {
+    const r = await fetch('/api/market/alpha');
+    const list = await r.json();
+    const cards = list.slice(0, 2);
+    document.getElementById('alpha-new').innerHTML = cards.map((a) => {
+      const chg = fmtChange(a.change24h);
+      return `<div class="alpha-card"><div class="muted">Новые</div>
+        <b>${escapeHtml(a.symbol)}</b>
+        <div>${fmtUsdPrice(a.price)} <span class="${chg.up ? 'chg-up' : 'chg-down'}">${chg.text}</span></div>
+        <div class="muted">Объём ${fmtCompact(a.volume24h)}</div></div>`;
+    }).join('');
+    document.getElementById('alpha-list').innerHTML = list.map((a) => {
+      const chg = fmtChange(a.change24h);
+      return `<div class="alpha-row">
+        <b>${escapeHtml(a.symbol)}</b>
+        <div>${fmtUsdPrice(a.price)} <span class="chg-pill ${chg.up ? 'up' : 'down'}">${chg.text}</span></div>
+      </div>`;
+    }).join('');
+  } catch {
+    document.getElementById('alpha-list').textContent = 'Не удалось загрузить Alpha';
+  }
+}
 
 document.querySelectorAll('.tab').forEach((tab) => {
   if (tab.dataset.tab === 'trade') {
@@ -2402,6 +3047,7 @@ function startChartLive() {
     const onTrade = !document.getElementById('screen-trade')?.classList.contains('screen-hidden');
     const onChart = !document.getElementById('screen-chart')?.classList.contains('screen-hidden');
     if (onTrade) loadTradeChart({ silent: true });
+    if (onTrade && tradeProduct === 'futures') loadFutures();
     else if (onChart) loadChart({ silent: true });
   }, 12_000);
 }
@@ -2528,6 +3174,13 @@ function ingestQuotes(quotes) {
   if (btcQ?.price) lastBtcPrice = Number(btcQ.price) || lastBtcPrice;
   renderQuotesUi(quotes);
   renderTickersList(quotes);
+  tryLimitOrders().catch(() => {});
+  const onTrade = !document.getElementById('screen-trade')?.classList.contains('screen-hidden');
+  if (onTrade) {
+    if (tradeProduct === 'convert') refreshConvertPane();
+    if (tradeProduct === 'futures') loadFutures();
+    if (tradeProduct === 'options') refreshOptions();
+  }
   quotes.forEach((q) => applyLivePriceToChart(q.symbol, q.price, q.change24h));
   quotes.forEach((q) => applyLivePriceToTrade(q));
   const onConvert = !document.getElementById('screen-convert')?.classList.contains('screen-hidden');
@@ -2736,10 +3389,10 @@ async function loadNews() {
           </div>
         </a>`;
     }).join('');
+    lastNewsItems = news;
     const tick = document.getElementById('trade-ticker-text');
     if (tick && news[0]?.title) tick.textContent = news[0].title;
-    const mini = document.getElementById('trade-news-mini');
-    if (mini) mini.innerHTML = list.innerHTML;
+    renderTradeNews();
   } catch {
     if (!hadItems) {
       list.innerHTML = '<div class="empty">Не удалось загрузить новости</div>';
