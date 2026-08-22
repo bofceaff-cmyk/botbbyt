@@ -39,6 +39,9 @@ if (!process.env.BOT_TOKEN) {
   console.warn('[boot] BOT_TOKEN не задан — бот не запустится');
 }
 
+console.log('[boot] prisma generate…');
+run('npx', ['prisma', 'generate']);
+
 console.log('[boot] DATABASE_URL ok, running migrations…');
 const migrateCode = run('npx', ['prisma', 'migrate', 'deploy']);
 if (migrateCode !== 0) {

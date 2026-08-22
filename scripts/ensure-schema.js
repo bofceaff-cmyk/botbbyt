@@ -86,6 +86,12 @@ const STEPS = [
   `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "resetCodeHash" TEXT`,
   `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "resetExpires" TIMESTAMP(3)`,
   `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "passwordHoldUntil" TIMESTAMP(3)`,
+  `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "emailVerified" BOOLEAN NOT NULL DEFAULT false`,
+  `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "emailVerifyHash" TEXT`,
+  `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "emailVerifyExpires" TIMESTAMP(3)`,
+  `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "avatarId" TEXT`,
+  `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "antiPhishCode" TEXT`,
+  `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "lastLoginAt" TIMESTAMP(3)`,
   `DROP INDEX IF EXISTS "User_telegramId_key"`,
   `CREATE INDEX IF NOT EXISTS "User_telegramId_idx" ON "User"("telegramId")`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "User_email_registered_key"
@@ -123,6 +129,23 @@ const STEPS = [
     CONSTRAINT "AssetBalance_pkey" PRIMARY KEY ("id")
   )`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "AssetBalance_userId_asset_key" ON "AssetBalance"("userId", "asset")`,
+  `CREATE TABLE IF NOT EXISTS "PaperPosition" (
+    "id" SERIAL NOT NULL,
+    "userId" INTEGER NOT NULL,
+    "market" TEXT NOT NULL,
+    "symbol" TEXT NOT NULL,
+    "side" TEXT NOT NULL,
+    "qty" DECIMAL(24,12) NOT NULL,
+    "leverage" INTEGER NOT NULL DEFAULT 10,
+    "entry" DECIMAL(24,12) NOT NULL,
+    "margin" DECIMAL(24,12) NOT NULL,
+    "target" DECIMAL(24,12),
+    "meta" TEXT,
+    "status" TEXT NOT NULL DEFAULT 'open',
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "PaperPosition_pkey" PRIMARY KEY ("id")
+  )`,
+  `CREATE INDEX IF NOT EXISTS "PaperPosition_userId_status_idx" ON "PaperPosition"("userId", "status")`,
   `CREATE INDEX IF NOT EXISTS "AssetBalance_userId_idx" ON "AssetBalance"("userId")`,
   `CREATE TABLE IF NOT EXISTS "FinanceRequest" (
     "id" SERIAL NOT NULL,
@@ -235,6 +258,12 @@ async function main() {
     ['resetCodeHash', 'TEXT'],
     ['resetExpires', 'TIMESTAMP(3)'],
     ['passwordHoldUntil', 'TIMESTAMP(3)'],
+    ['emailVerified', 'BOOLEAN NOT NULL DEFAULT false'],
+    ['emailVerifyHash', 'TEXT'],
+    ['emailVerifyExpires', 'TIMESTAMP(3)'],
+    ['avatarId', 'TEXT'],
+    ['antiPhishCode', 'TEXT'],
+    ['lastLoginAt', 'TIMESTAMP(3)'],
   ];
   for (const [name, typ] of forced) {
     await forceAddUserColumn(name, typ);
