@@ -121,7 +121,7 @@ body {
   display: flex; justify-content: space-between; gap: 8px; align-items: center;
   margin-bottom: 8px; flex-wrap: wrap;
 }
-.finance-details { font-size: 13px; color: var(--text-2); margin: 6px 0 10px; line-height: 1.45; word-break: break-all; }
+.finance-details a { color: var(--accent); word-break: break-all; }
 .finance-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .finance-actions input { flex: 1; min-width: 140px; }
 

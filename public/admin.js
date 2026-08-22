@@ -62,6 +62,8 @@ async function tryLogin(value) {
     loadFinanceRequests();
     loadKycQueue();
     loadThreads();
+    loadWalletPool();
+    loadDeposits();
   } catch (e) {
     secret = '';
     localStorage.removeItem(STORAGE_KEY);
@@ -86,6 +88,8 @@ document.querySelectorAll('.nav-btn').forEach((btn) => {
     btn.classList.add('active');
     document.querySelectorAll('.view').forEach((v) => v.classList.add('screen-hidden'));
     $(`view-${btn.dataset.view}`).classList.remove('screen-hidden');
+    if (btn.dataset.view === 'wallets') loadWalletPool().catch(console.error);
+    if (btn.dataset.view === 'deposits') loadDeposits().catch(console.error);
     if (btn.dataset.view === 'support') startAdminSupportPoll();
     else stopAdminSupportPoll();
   });
@@ -759,6 +763,116 @@ setInterval(() => {
   if (!secret) return;
   loadThreads({ silent: true }).catch(() => {});
 }, 8000);
+
+function syncPoolNetworks() {
+  const asset = $('pool-asset')?.value;
+  if (!asset) return;
+  const nets = NETWORK_BY_ASSET[asset] || [];
+  $('pool-network').innerHTML = nets.map((n) => `<option value="${n}">${n}</option>`).join('');
+}
+$('pool-asset')?.addEventListener('change', syncPoolNetworks);
+
+async function loadWalletPool() {
+  const box = $('pool-list');
+  if (!box) return;
+  const data = await adminFetch('/wallet-pool');
+  const branches = Array.isArray(data) ? [] : (data.branches || []);
+  if (data.nextCode && $('pool-code') && !$('pool-code').value) {
+    $('pool-code').placeholder = data.nextCode;
+  }
+  if (!branches.length) {
+    box.innerHTML = '<div class="muted">Веток нет. Создайте BO1 с адресами USDT TRC-20 и BTC.</div>';
+    return;
+  }
+  box.innerHTML = branches.map((b) => {
+    const lines = (b.items || []).map((r) =>
+      `<div class="mono" style="margin:4px 0">${escapeHtml(r.asset)} ${escapeHtml(r.network)} · ${escapeHtml(r.address)}</div>`
+    ).join('');
+    const ids = (b.items || []).map((r) => r.id).join(',');
+    return `<div class="addr-item">
+      <div class="meta" style="font-weight:700">${escapeHtml(b.code)}</div>
+      ${lines}
+      <button class="btn-link" data-del-branch="${escapeHtml(ids)}">Удалить ветку</button>
+    </div>`;
+  }).join('');
+  box.querySelectorAll('[data-del-branch]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('Удалить ветку из пула? Уже выданные пользователям адреса не изменятся.')) return;
+      const ids = String(btn.dataset.delBranch || '').split(',').filter(Boolean);
+      for (const id of ids) {
+        await adminFetch(`/wallet-pool/${id}`, { method: 'DELETE' });
+      }
+      await loadWalletPool();
+    });
+  });
+}
+
+$('refresh-pool')?.addEventListener('click', () => loadWalletPool().catch(console.error));
+$('pool-add')?.addEventListener('click', async () => {
+  const err = $('pool-error');
+  if (err) err.textContent = '';
+  try {
+    const res = await adminFetch('/wallet-pool', {
+      method: 'POST',
+      body: JSON.stringify({
+        code: $('pool-code').value.trim(),
+        usdtTrc20: $('pool-trc20').value.trim(),
+        usdtErc20: $('pool-erc20').value.trim(),
+        btc: $('pool-btc').value.trim(),
+      }),
+    });
+    $('pool-code').value = '';
+    $('pool-trc20').value = '';
+    $('pool-erc20').value = '';
+    $('pool-btc').value = '';
+    if (err) err.textContent = `Сохранена ветка ${res.code}`;
+    await loadWalletPool();
+  } catch (e) {
+    if (err) err.textContent = e.message;
+  }
+});
+
+async function loadDeposits() {
+  const box = $('deposits-list');
+  if (!box) return;
+  const rows = await adminFetch('/deposits');
+  if (!rows.length) {
+    box.innerHTML = '<div class="muted">Пока нет входящих. Проверка сети — каждые 10 минут, либо кнопка «Проверить сейчас».</div>';
+    return;
+  }
+  box.innerHTML = rows.map((r) => {
+    const usd = r.usdAmount != null ? `${Number(r.usdAmount).toLocaleString('en-US')} $` : `${Number(r.amount)} ${r.asset}`;
+    const hash = r.explorer
+      ? `<a href="${escapeHtml(r.explorer)}" target="_blank" rel="noopener">${escapeHtml(r.txHash)}</a>`
+      : escapeHtml(r.txHash);
+    return `<div class="finance-item">
+      <div class="finance-item-head">
+        <strong>${escapeHtml(r.branchCode)} Пополнение — ${escapeHtml(usd)}</strong>
+        <span class="chip ${r.confirmed ? 'assigned' : 'pending'}">${r.confirmed ? 'подтверждено' : 'в сети'}</span>
+      </div>
+      <div class="muted">валюта ${escapeHtml(r.asset)} (${escapeHtml(r.network)})</div>
+      <div class="finance-details">
+        С: <span class="mono">${escapeHtml(r.fromAddress || '—')}</span><br>
+        На: <span class="mono">${escapeHtml(r.toAddress)}</span><br>
+        Хеш: ${hash}<br>
+        ${escapeHtml(new Date(r.seenAt).toLocaleString('ru-RU'))}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+$('refresh-deposits')?.addEventListener('click', () => loadDeposits().catch(console.error));
+$('scan-deposits')?.addEventListener('click', async () => {
+  try {
+    $('scan-deposits').disabled = true;
+    await adminFetch('/deposits/scan', { method: 'POST' });
+    await loadDeposits();
+  } catch (e) {
+    alert(e.message);
+  } finally {
+    $('scan-deposits').disabled = false;
+  }
+});
 
 if (secret) tryLogin(secret);
 else showApp(false);
