@@ -3,10 +3,62 @@ const express = require('express');
 const router = express.Router();
 
 function coinPng(symbol) {
-  const s = String(symbol || 'btc').toLowerCase().replace(/usdt$/, '') || 'usdt';
-  const slug = s === 'usd' ? 'usdt' : s;
-  return `https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/${slug}.png`;
+  const s = String(symbol || 'BTC').toUpperCase().replace(/\.PNG$/i, '');
+  const id = (s.endsWith('USDT') && s !== 'USDT') ? s.replace(/USDT$/, '') : (s || 'USDT');
+  return `/api/market/icon/${id}`;
 }
+
+const GECKO_ICONS = {
+  BTC: 'https://assets.coingecko.com/coins/images/1/small/bitcoin.png',
+  ETH: 'https://assets.coingecko.com/coins/images/279/small/ethereum.png',
+  USDT: 'https://assets.coingecko.com/coins/images/325/small/Tether.png',
+  BNB: 'https://assets.coingecko.com/coins/images/825/small/bnb-icon2_2x.png',
+  SOL: 'https://assets.coingecko.com/coins/images/4128/small/solana.png',
+  XRP: 'https://assets.coingecko.com/coins/images/44/small/xrp-symbol-white-128.png',
+  DOGE: 'https://assets.coingecko.com/coins/images/5/small/dogecoin.png',
+  ADA: 'https://assets.coingecko.com/coins/images/975/small/cardano.png',
+  TON: 'https://assets.coingecko.com/coins/images/17980/small/ton_symbol.png',
+  AVAX: 'https://assets.coingecko.com/coins/images/12559/small/Avalanche_Circle_RedWhite_Trans.png',
+  LINK: 'https://assets.coingecko.com/coins/images/877/small/chainlink-new-logo.png',
+  TRX: 'https://assets.coingecko.com/coins/images/1094/small/tron-logo.png',
+};
+
+const iconMem = new Map();
+
+router.get('/icon/:symbol', async (req, res) => {
+  let id = String(req.params.symbol || '').toUpperCase().replace(/\.PNG$/i, '');
+  if (id.endsWith('USDT') && id !== 'USDT') id = id.replace(/USDT$/, '');
+  id = id || 'USDT';
+  const hit = iconMem.get(id);
+  if (hit && Date.now() - hit.at < 24 * 3600 * 1000) {
+    res.set('Cache-Control', 'public, max-age=86400');
+    res.type(hit.ctype);
+    return res.send(hit.buf);
+  }
+  const slug = id.toLowerCase();
+  const urls = [
+    GECKO_ICONS[id],
+    `https://assets.coincap.io/assets/icons/${slug}@2x.png`,
+    `https://bin.bnbstatic.com/static/assets/logos/${id}.png`,
+  ].filter(Boolean);
+  for (const url of urls) {
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 8000);
+      const r = await fetch(url, { signal: ctrl.signal, headers: { Accept: 'image/*', 'User-Agent': 'Mozilla/5.0' } });
+      clearTimeout(t);
+      if (!r.ok) continue;
+      const buf = Buffer.from(await r.arrayBuffer());
+      if (buf.length < 80) continue;
+      const rec = { buf, ctype: r.headers.get('content-type') || 'image/png', at: Date.now() };
+      iconMem.set(id, rec);
+      res.set('Cache-Control', 'public, max-age=86400');
+      res.type(rec.ctype);
+      return res.send(rec.buf);
+    } catch { /* try next */ }
+  }
+  res.status(404).end();
+});
 
 const COINS = [
   { id: 'bitcoin', symbol: 'BTC', name: 'Bitcoin', binance: 'BTCUSDT' },
