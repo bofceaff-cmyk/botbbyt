@@ -32,6 +32,22 @@ model User {
   verified             Boolean   @default(false)
   verifiedAt           DateTime?
   isAdmin              Boolean   @default(false)
+  banned               Boolean   @default(false)
+  banReason            String?
+  opsLocked            Boolean   @default(false)
+  opsLockReason        String?
+  transfersDisabled    Boolean   @default(false)
+  conversionsDisabled  Boolean   @default(false)
+  transferLockReason   String?
+  convertLockReason    String?
+  authEpoch            Int       @default(0)
+  sessionTokenHash     String?
+  totpEnabled          Boolean   @default(false)
+  totpSecret           String?
+  totpPendingSecret    String?
+  totpBackupHashes     String?
+  totpTempTokenHash    String?
+  totpTempExpires      DateTime?
   createdAt            DateTime  @default(now())
 
   transfersSent     Transfer[]       @relation("TransfersSent")
