@@ -331,6 +331,14 @@ async function openEdit(id) {
   $('edit-convert-reason').value = user.convertLockReason || '';
   $('edit-ops-locked').checked = Boolean(user.opsLocked);
   $('edit-ops-reason').value = user.opsLockReason || '';
+  const holdEl = $('edit-hold-status');
+  if (holdEl) {
+    if (user.passwordHoldActive && user.passwordHoldUntil) {
+      holdEl.textContent = `24ч холд после смены пароля до ${new Date(user.passwordHoldUntil).toLocaleString('ru-RU')}`;
+    } else {
+      holdEl.textContent = '24ч холд после смены пароля: нет';
+    }
+  }
   $('edit-error').textContent = '';
   $('edit-error').style.color = '';
   $('addr-value').value = '';
@@ -503,6 +511,34 @@ $('addr-save').addEventListener('click', async () => {
   }
 });
 
+$('edit-clear-locks')?.addEventListener('click', async () => {
+  const id = $('edit-id').value;
+  $('edit-error').textContent = '';
+  if (!id) return;
+  if (!confirm('Снять бан, локи и 24-часовой холд после пароля?')) return;
+  try {
+    await adminFetch(`/users/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ clearRestrictions: true }),
+    });
+    $('edit-banned').checked = false;
+    $('edit-ban-reason').value = '';
+    $('edit-transfers-off').checked = false;
+    $('edit-transfer-reason').value = '';
+    $('edit-convert-off').checked = false;
+    $('edit-convert-reason').value = '';
+    $('edit-ops-locked').checked = false;
+    $('edit-ops-reason').value = '';
+    const holdEl = $('edit-hold-status');
+    if (holdEl) holdEl.textContent = '24ч холд после смены пароля: нет';
+    $('edit-error').style.color = 'var(--green)';
+    $('edit-error').textContent = 'Все ограничения сняты.';
+    setTimeout(() => { $('edit-error').style.color = ''; }, 2500);
+  } catch (e) {
+    $('edit-error').style.color = '';
+    $('edit-error').textContent = e.message;
+  }
+});
 $('edit-cancel').addEventListener('click', () => $('edit-modal').classList.add('screen-hidden'));
 $('edit-kick-btn')?.addEventListener('click', async () => {
   const id = $('edit-id').value;
