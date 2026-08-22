@@ -242,11 +242,55 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
-function blurChatKeyboard() {
-  const input = document.getElementById('chat-input');
-  if (input) input.blur();
+function parseQty(raw) {
+  if (raw == null) return NaN;
+  const s = String(raw).trim().replace(/\s+/g, '').replace(',', '.');
+  if (!s || s === '.') return NaN;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : NaN;
+}
+
+function bindAmountInputs() {
+  document.querySelectorAll('input[data-amount]').forEach((el) => {
+    el.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        el.blur();
+      }
+    });
+    el.addEventListener('input', () => {
+      const cur = el.value;
+      let next = cur.replace(/[^\d.,]/g, '');
+      const dot = next.indexOf('.');
+      const comma = next.indexOf(',');
+      let sep = -1;
+      if (dot >= 0 && comma >= 0) sep = Math.min(dot, comma);
+      else sep = Math.max(dot, comma);
+      if (sep >= 0) {
+        const mark = next[sep];
+        next = next.slice(0, sep + 1) + next.slice(sep + 1).replace(/[.,]/g, '');
+        if (mark === ',') next = `${next.slice(0, sep)}.${next.slice(sep + 1)}`;
+      }
+      if (next !== cur) {
+        const pos = el.selectionStart;
+        el.value = next;
+        try { el.setSelectionRange(pos, pos); } catch { /* ignore */ }
+      }
+    });
+  });
+}
+
+function blurAnyKeyboard() {
+  const a = document.activeElement;
+  if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT')) {
+    a.blur();
+  }
   document.body.classList.remove('kb-open');
   document.documentElement.style.setProperty('--kb', '0px');
+}
+
+function blurChatKeyboard() {
+  blurAnyKeyboard();
 }
 
 function updateKeyboardInset() {
@@ -255,11 +299,16 @@ function updateKeyboardInset() {
   let kb = 0;
   if (vv) kb = Math.max(0, base - vv.height - (vv.offsetTop || 0));
   document.documentElement.style.setProperty('--kb', `${Math.round(kb)}px`);
+  const focused = document.activeElement
+    && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA');
+  document.body.classList.toggle('kb-open', Boolean(focused && kb > 40));
   const supportOpen = !document.getElementById('screen-support')?.classList.contains('screen-hidden');
-  document.body.classList.toggle('kb-open', supportOpen && kb > 64);
   if (supportOpen) {
     const box = document.getElementById('chat-messages');
     if (box) box.scrollTop = box.scrollHeight;
+  }
+  if (focused && kb > 40) {
+    try { document.activeElement.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch { /* ignore */ }
   }
   syncAppViewport();
 }
@@ -267,6 +316,15 @@ if (window.visualViewport) {
   window.visualViewport.addEventListener('resize', updateKeyboardInset);
   window.visualViewport.addEventListener('scroll', updateKeyboardInset);
 }
+document.addEventListener('focusin', updateKeyboardInset);
+document.addEventListener('focusout', () => setTimeout(updateKeyboardInset, 80));
+document.addEventListener('pointerdown', (e) => {
+  const a = document.activeElement;
+  if (!a || (a.tagName !== 'INPUT' && a.tagName !== 'TEXTAREA')) return;
+  if (e.target.closest('input, textarea, select, button, label')) return;
+  blurAnyKeyboard();
+}, true);
+bindAmountInputs();
 
 function syncTelegramBack() {
   if (!tg.BackButton) return;
@@ -300,6 +358,7 @@ function showScreen(name, opts = {}) {
   if (prev === 'support' && name !== 'support') blurChatKeyboard();
 
   document.querySelectorAll('.screen').forEach((el) => el.classList.add('screen-hidden'));
+  blurAnyKeyboard();
   const screen = document.getElementById(`screen-${name}`);
   if (!screen) return;
   screen.classList.remove('screen-hidden');
@@ -658,7 +717,7 @@ async function submitWithdraw(method) {
   errEl.textContent = '';
   const body = {
     method,
-    amount: amountEl.value,
+    amount: parseQty(amountEl.value),
   };
   if (method === 'onchain') {
     body.network = document.getElementById('withdraw-network').value;
@@ -845,7 +904,7 @@ async function updateConvertEstimate() {
   const el = document.getElementById('convert-estimate');
   const out = document.getElementById('convert-out');
   if (!el) return;
-  const amount = Number(document.getElementById('convert-amount')?.value);
+  const amount = parseQty(document.getElementById('convert-amount')?.value);
   const from = convertFromAsset || 'USDT';
   const to = convertToAsset || 'BTC';
   if (!Number.isFinite(amount) || amount <= 0) {
@@ -899,7 +958,7 @@ document.getElementById('convert-submit')?.addEventListener('click', async () =>
     const res = await apiFetch('/finance/convert', {
       method: 'POST',
       body: JSON.stringify({
-        amount: document.getElementById('convert-amount').value,
+        amount: parseQty(document.getElementById('convert-amount').value),
         fromAsset: document.getElementById('convert-from-asset').value,
         toAsset: document.getElementById('convert-asset').value,
       }),
@@ -962,7 +1021,7 @@ document.getElementById('earn-submit')?.addEventListener('click', async () => {
       method: 'POST',
       body: JSON.stringify({
         productId: selectedEarnProduct.id,
-        amount: document.getElementById('earn-amount').value,
+        amount: parseQty(document.getElementById('earn-amount').value),
       }),
     });
     document.getElementById('earn-amount').value = '';
@@ -2115,7 +2174,7 @@ document.getElementById('transfer-submit').addEventListener('click', async () =>
       body: JSON.stringify({
         toAccountNumber: document.getElementById('transfer-account').value.trim(),
         toUsername: document.getElementById('transfer-username').value.trim(),
-        amount: document.getElementById('transfer-amount').value,
+        amount: parseQty(document.getElementById('transfer-amount').value),
       }),
     });
     document.getElementById('transfer-account').value = '';
@@ -2323,7 +2382,7 @@ function openTrade(symbol, change24h) {
   if (change24h != null) chartChange24h = change24h;
   document.getElementById('trade-pair-btn').innerHTML = `${coinLogoHtml(tradeSymbol, 22)} <span>${tradeSymbol}/USDT</span> <span>▾</span>`;
   const qtyIn = document.getElementById('trade-qty-input');
-  if (qtyIn) qtyIn.placeholder = `Кол-во ${tradeSymbol}`;
+  if (qtyIn) qtyIn.placeholder = `0.001 ${tradeSymbol}`;
   document.querySelectorAll('.trade-tf').forEach((b) => {
     if (b.dataset.interval) b.classList.toggle('active', b.dataset.interval === chartInterval);
   });
@@ -2384,31 +2443,110 @@ async function loadTradeChart({ silent = false } = {}) {
   }
 }
 
+let chartNav = { scale: 1, offset: 0 };
+let chartNavWired = false;
+
+function resetChartNav() {
+  chartNav = { scale: 1, offset: 0 };
+}
+
+function sliceChart(candles) {
+  const n = candles.length;
+  const count = Math.min(n, Math.max(20, Math.round(n / chartNav.scale)));
+  const maxOff = Math.max(0, n - count);
+  const off = Math.min(maxOff, Math.max(0, chartNav.offset));
+  chartNav.offset = off;
+  const end = n - Math.round(off);
+  return candles.slice(Math.max(0, end - count), end);
+}
+
+function wireTradeChartNav(canvas) {
+  if (chartNavWired || !canvas) return;
+  chartNavWired = true;
+  const wrap = canvas.parentElement || canvas;
+  const pts = new Map();
+  let lastX = 0;
+  let lastDist = 0;
+
+  const pinchDist = () => {
+    const a = [...pts.values()];
+    if (a.length < 2) return 0;
+    return Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y);
+  };
+
+  wrap.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    wrap.setPointerCapture(e.pointerId);
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    lastX = e.clientX;
+    lastDist = pinchDist();
+  });
+  wrap.addEventListener('pointermove', (e) => {
+    if (!pts.has(e.pointerId)) return;
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (!chartCandles.length) return;
+    if (pts.size >= 2) {
+      const d = pinchDist();
+      if (lastDist > 12) {
+        chartNav.scale = Math.min(10, Math.max(1, chartNav.scale * (d / lastDist)));
+        drawTradeChart(canvas, chartCandles);
+      }
+      lastDist = d;
+    } else {
+      const dx = e.clientX - lastX;
+      lastX = e.clientX;
+      const vis = Math.max(20, Math.round(chartCandles.length / chartNav.scale));
+      const slot = Math.max(3, (canvas.clientWidth - 56) / vis);
+      chartNav.offset += dx / slot;
+      drawTradeChart(canvas, chartCandles);
+    }
+  });
+  const endPtr = (e) => { pts.delete(e.pointerId); };
+  wrap.addEventListener('pointerup', endPtr);
+  wrap.addEventListener('pointercancel', endPtr);
+  wrap.addEventListener('dblclick', () => {
+    resetChartNav();
+    drawTradeChart(canvas, chartCandles);
+  });
+  wrap.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    chartNav.scale = Math.min(10, Math.max(1, chartNav.scale * (e.deltaY > 0 ? 0.9 : 1.12)));
+    drawTradeChart(canvas, chartCandles);
+  }, { passive: false });
+}
+
 function drawTradeChart(canvas, candles) {
   if (!canvas || !candles?.length) return;
+  wireTradeChartNav(canvas);
+  const vis = sliceChart(candles);
   const dpr = window.devicePixelRatio || 1;
-  const cssW = canvas.clientWidth || 360;
-  const cssH = Math.max(240, canvas.clientHeight || 280);
+  const wrap = canvas.parentElement;
+  const cssW = Math.max(1, wrap?.clientWidth || canvas.clientWidth || 360);
+  const cssH = Math.max(200, wrap?.clientHeight || canvas.clientHeight || 260);
   canvas.width = Math.floor(cssW * dpr);
   canvas.height = Math.floor(cssH * dpr);
   const ctx = canvas.getContext('2d');
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, cssW, cssH);
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, 0, cssW, cssH);
+  ctx.clip();
 
-  const volH = 72;
-  const pad = { t: 8, r: 48, b: 18, l: 4 };
-  const priceH = cssH - volH - pad.t - pad.b - 8;
-  const w = cssW - pad.l - pad.r;
+  const volH = 52;
+  const pad = { t: 8, r: 56, b: 6, l: 4 };
+  const priceH = Math.max(80, cssH - volH - pad.t - pad.b - 8);
+  const w = Math.max(10, cssW - pad.l - pad.r);
   let min = Infinity;
   let max = -Infinity;
   let maxVol = 0;
-  candles.forEach((c) => {
+  vis.forEach((c) => {
     min = Math.min(min, c.low);
     max = Math.max(max, c.high);
     maxVol = Math.max(maxVol, c.volume || 0);
   });
   const span = max - min || 1;
-  const slot = w / candles.length;
+  const slot = w / vis.length;
   const yPrice = (v) => pad.t + ((max - v) / span) * priceH;
 
   ctx.strokeStyle = 'rgba(255,255,255,0.06)';
@@ -2421,7 +2559,11 @@ function drawTradeChart(canvas, candles) {
     ctx.stroke();
   }
 
-  candles.forEach((c, i) => {
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(pad.l, pad.t, w, priceH);
+  ctx.clip();
+  vis.forEach((c, i) => {
     const x = pad.l + i * slot + slot / 2;
     const up = c.close >= c.open;
     ctx.strokeStyle = up ? '#0ecb81' : '#f6465d';
@@ -2440,8 +2582,9 @@ function drawTradeChart(canvas, candles) {
     ctx.strokeStyle = color;
     ctx.lineWidth = 1.2;
     let started = false;
-    candles.forEach((_, i) => {
-      const v = smaAt(candles, period, i);
+    vis.forEach((_, i) => {
+      const fullI = candles.length - vis.length + i;
+      const v = smaAt(candles, period, fullI);
       if (v == null) return;
       const x = pad.l + i * slot + slot / 2;
       const y = yPrice(v);
@@ -2453,6 +2596,8 @@ function drawTradeChart(canvas, candles) {
   drawMa(7, '#f7a600');
   drawMa(14, '#5b9cf6');
   drawMa(28, '#e56b9a');
+  ctx.restore();
+
   const m7 = smaAt(candles, 7, candles.length - 1);
   const m14 = smaAt(candles, 14, candles.length - 1);
   const m28 = smaAt(candles, 28, candles.length - 1);
@@ -2463,8 +2608,8 @@ function drawTradeChart(canvas, candles) {
   if (l14) l14.textContent = `MA14: ${m14 == null ? '—' : fmtUsdPrice(m14)}`;
   if (l28) l28.textContent = `MA28: ${m28 == null ? '—' : fmtUsdPrice(m28)}`;
 
-  const last = candles[candles.length - 1];
-  const yLast = yPrice(last.close);
+  const last = vis[vis.length - 1];
+  const yLast = Math.min(pad.t + priceH - 1, Math.max(pad.t + 1, yPrice(last.close)));
   ctx.setLineDash([4, 3]);
   ctx.strokeStyle = last.close >= last.open ? '#0ecb81' : '#f6465d';
   ctx.beginPath();
@@ -2475,23 +2620,30 @@ function drawTradeChart(canvas, candles) {
   ctx.fillStyle = last.close >= last.open ? '#0ecb81' : '#f6465d';
   const label = fmtUsdPrice(last.close);
   ctx.font = '11px IBM Plex Sans, sans-serif';
-  const tw = ctx.measureText(label).width + 8;
-  ctx.fillRect(cssW - pad.r, yLast - 8, pad.r - 2, 16);
+  const tagW = Math.min(pad.r - 2, ctx.measureText(label).width + 8);
+  const tagY = Math.min(cssH - 18, Math.max(2, yLast - 8));
+  ctx.fillRect(cssW - pad.r, tagY, tagW, 16);
   ctx.fillStyle = '#fff';
-  ctx.fillText(label, cssW - pad.r + 3, yLast + 4);
+  ctx.fillText(label, cssW - pad.r + 3, tagY + 12);
 
-  const volTop = pad.t + priceH + 10;
-  candles.forEach((c, i) => {
+  const volTop = pad.t + priceH + 8;
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(pad.l, volTop, w, volH);
+  ctx.clip();
+  vis.forEach((c, i) => {
     const x = pad.l + i * slot;
-    const h = maxVol ? ((c.volume || 0) / maxVol) * volH : 0;
-    ctx.fillStyle = c.close >= c.open ? 'rgba(46,189,133,0.55)' : 'rgba(246,70,93,0.55)';
-    ctx.fillRect(x + 1, volTop + volH - h, Math.max(1, slot - 1.5), h);
+    const h = maxVol ? ((c.volume || 0) / maxVol) * (volH - 2) : 0;
+    ctx.fillStyle = c.close >= c.open ? 'rgba(14,203,129,0.55)' : 'rgba(246,70,93,0.55)';
+    ctx.fillRect(x + 0.5, volTop + volH - h, Math.max(1, slot - 1), h);
   });
+  ctx.restore();
 
   ctx.fillStyle = '#5a5a5a';
   ctx.font = '10px IBM Plex Sans, sans-serif';
   ctx.fillText(fmtUsdPrice(max), cssW - pad.r + 2, pad.t + 10);
   ctx.fillText(fmtUsdPrice(min), cssW - pad.r + 2, pad.t + priceH);
+  ctx.restore();
 }
 
 function renderTickersList(quotes) {
@@ -2624,7 +2776,7 @@ function refreshConvertPane() {
   if (fromBtn) fromBtn.innerHTML = `${coinLogoHtml(cvFrom, 22)} <span>${cvFrom}</span> ▾`;
   if (toBtn) toBtn.innerHTML = `${coinLogoHtml(cvTo, 22)} <span>${cvTo}</span> ▾`;
   document.getElementById('cv-avail').textContent = fmtUsdPrice(walletAmt(cvFrom));
-  const amt = Number(document.getElementById('cv-amount')?.value);
+  const amt = parseQty(document.getElementById('cv-amount')?.value);
   const fp = cvFrom === 'USDT' ? 1 : pxOf(cvFrom);
   const tp = cvTo === 'USDT' ? 1 : pxOf(cvTo);
   if (amt > 0 && fp && tp) {
@@ -2731,11 +2883,11 @@ document.getElementById('cv-mkt')?.addEventListener('click', () => {
 document.getElementById('cv-go')?.addEventListener('click', async () => {
   const err = document.getElementById('cv-error');
   err.textContent = '';
-  const amount = Number(document.getElementById('cv-amount').value);
-  if (!amount) { err.textContent = 'укажите сумму'; return; }
+  const amount = parseQty(document.getElementById('cv-amount').value);
+  if (!amount || amount <= 0) { err.textContent = 'укажите сумму'; return; }
   try {
     if (cvMode === 'limit') {
-      const price = Number(document.getElementById('cv-limit-price').value);
+      const price = parseQty(document.getElementById('cv-limit-price').value);
       if (!price) { err.textContent = 'укажите цену'; return; }
       const rows = limitOrders();
       rows.push({ from: cvFrom, to: cvTo, amount, price, status: 'open', at: Date.now() });
@@ -2754,11 +2906,11 @@ document.getElementById('cv-go')?.addEventListener('click', async () => {
 async function execSpot(side) {
   const err = document.getElementById('trade-error');
   if (err) err.textContent = '';
-  const qty = Number(document.getElementById('trade-qty-input')?.value);
+  const qty = parseQty(document.getElementById('trade-qty-input')?.value);
   const q = tradeQuote();
   const px = Number(q?.ask || q?.price);
   if (!qty || qty <= 0) {
-    if (err) err.textContent = 'укажите количество';
+    if (err) err.textContent = 'укажите количество, например 0.5';
     return;
   }
   if (!px) { if (err) err.textContent = 'нет цены'; return; }
@@ -2791,6 +2943,7 @@ document.querySelectorAll('.trade-tf[data-interval]').forEach((btn) => {
   btn.addEventListener('click', () => {
     chartInterval = btn.dataset.interval;
     document.querySelectorAll('.trade-tf[data-interval]').forEach((b) => b.classList.toggle('active', b === btn));
+    resetChartNav();
     loadTradeChart();
   });
 });
@@ -2918,8 +3071,8 @@ async function loadFutures() {
 }
 
 function updateFutCost() {
-  const qty = Number(document.getElementById('fut-qty')?.value) || 0;
-  const px = Number(document.getElementById('fut-price')?.value) || futMark;
+  const qty = parseQty(document.getElementById('fut-qty')?.value) || 0;
+  const px = parseQty(document.getElementById('fut-price')?.value) || futMark;
   const cost = qty && px ? (qty * px) / futLeverage : 0;
   document.getElementById('fut-cost').textContent = `Стоимость ${fmtUsdPrice(cost)} USDT · ${futLeverage}x`;
 }
@@ -2933,7 +3086,7 @@ document.getElementById('fut-lev')?.addEventListener('click', () => {
 document.querySelectorAll('#fut-pct button').forEach((b) => {
   b.addEventListener('click', () => {
     const pct = Number(b.dataset.fp) / 100;
-    const px = Number(document.getElementById('fut-price').value) || futMark;
+    const px = parseQty(document.getElementById('fut-price').value) || futMark;
     if (!px) return;
     const margin = walletAmt('USDT') * pct;
     document.getElementById('fut-qty').value = String(((margin * futLeverage) / px).toFixed(6));
@@ -2973,8 +3126,8 @@ function renderPaper() {
 async function openPaper(side) {
   const err = document.getElementById('fut-error');
   err.textContent = '';
-  const qty = Number(document.getElementById('fut-qty').value);
-  const entry = Number(document.getElementById('fut-price').value) || futMark;
+  const qty = parseQty(document.getElementById('fut-qty').value);
+  const entry = parseQty(document.getElementById('fut-price').value) || futMark;
   try {
     const res = await apiFetch('/finance/paper/open', {
       method: 'POST',
@@ -3033,7 +3186,7 @@ document.getElementById('opt-slider')?.addEventListener('input', refreshOptions)
 async function subscribeOption(target) {
   const err = document.getElementById('opt-error');
   err.textContent = '';
-  const invest = Number(document.getElementById('opt-invest').value);
+  const invest = parseQty(document.getElementById('opt-invest').value);
   const entry = pxOf('BTC');
   if (!invest) { err.textContent = 'укажите сумму'; return; }
   try {

@@ -533,6 +533,9 @@ body.kb-open .tabbar { transform: translateY(110%); }
 body.kb-open #app-shell {
   padding-bottom: calc(12px + var(--kb, 0px));
 }
+input[data-amount] {
+  font-variant-numeric: tabular-nums;
+}
 .chat-messages { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 4px; }
 .msg { max-width: 82%; padding: 9px 11px; border-radius: 10px; font-size: 13px; line-height: 1.4; }
 .msg-user { align-self: flex-end; background: var(--accent); color: #111; }
@@ -1639,7 +1642,7 @@ body.auth-locked {
   animation: none;
 }
 .trade-body { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-.trade-spot-fill { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.trade-spot-fill { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
 .trade-scroll { flex: 1; overflow-y: auto; min-height: 0; padding-bottom: 8px; }
 .trade-products {
   display: flex;
@@ -1769,7 +1772,18 @@ body.auth-locked {
 .trade-ma-legend .ma7 { color: var(--accent); }
 .trade-ma-legend .ma14 { color: #5b9cf6; }
 .trade-ma-legend .ma28 { color: #e56b9a; }
-#trade-canvas { width: 100%; flex: 1; min-height: 280px; height: 42vh; display: block; }
+.trade-chart-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 220px;
+  height: 36vh;
+  max-height: 420px;
+  overflow: hidden;
+  touch-action: none;
+  border-radius: 8px;
+  background: var(--bg);
+}
+#trade-canvas { width: 100%; height: 100%; display: block; }
 .trade-actions {
   position: static;
   display: grid;

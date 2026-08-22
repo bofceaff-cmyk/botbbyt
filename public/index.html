@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=17">
+<link rel="stylesheet" href="style.css?v=18">
 </head>
 <body>
 <div id="auth-gate" class="auth-gate">
@@ -240,7 +240,7 @@
           <span>От</span>
           <button type="button" class="cv-asset" id="cv-from-btn">USDT ▾</button>
         </div>
-        <input type="number" id="cv-amount" inputmode="decimal" placeholder="0.01–10,000">
+        <input type="text" id="cv-amount" inputmode="decimal" enterkeyhint="done" data-amount autocomplete="off" placeholder="0.01–10,000">
         <button type="button" class="cv-swap" id="cv-swap">⇅</button>
         <div class="cv-pair">
           <span>Кому</span>
@@ -255,7 +255,7 @@
             <button type="button" data-pct="-10">-10%</button>
             <button type="button" class="active" id="cv-mkt">Рыночная цена</button>
           </div>
-          <div class="cv-limit-px"><span>Цена</span><input type="number" id="cv-limit-price" inputmode="decimal"></div>
+          <div class="cv-limit-px"><span>Цена</span><input type="text" id="cv-limit-price" inputmode="decimal" enterkeyhint="done" data-amount autocomplete="off"></div>
         </div>
         <button type="button" class="cv-go" id="cv-go">Запрос</button>
         <div class="error" id="cv-error"></div>
@@ -305,7 +305,9 @@
           <span class="ma14" id="ma14-lab">MA14</span>
           <span class="ma28" id="ma28-lab">MA28</span>
         </div>
-        <canvas id="trade-canvas"></canvas>
+        <div class="trade-chart-wrap" id="trade-chart-wrap">
+          <canvas id="trade-canvas"></canvas>
+        </div>
       </div>
       <div id="trade-pane-overview" class="screen-hidden trade-scroll">
         <div id="ov-about" class="ov-text">Загрузка…</div>
@@ -331,7 +333,7 @@
       </div>
       <div class="trade-actions">
         <button type="button" class="trade-buy" id="trade-buy">Купить<small id="trade-buy-px">—</small></button>
-        <input type="number" class="trade-qty-input" id="trade-qty-input" inputmode="decimal" placeholder="Кол-во">
+        <input type="text" class="trade-qty-input" id="trade-qty-input" inputmode="decimal" enterkeyhint="done" data-amount autocomplete="off" placeholder="0.5">
         <button type="button" class="trade-sell" id="trade-sell">Продать<small id="trade-sell-px">—</small></button>
       </div>
       <div class="error" id="trade-error"></div>
@@ -351,9 +353,9 @@
           </div>
           <div class="muted" id="fut-avail">Доступно 0 USDT</div>
           <label>Цена</label>
-          <input type="number" id="fut-price" inputmode="decimal">
+          <input type="text" id="fut-price" inputmode="decimal" enterkeyhint="done" data-amount autocomplete="off">
           <label>Количество</label>
-          <input type="number" id="fut-qty" inputmode="decimal" placeholder="BTC">
+          <input type="text" id="fut-qty" inputmode="decimal" enterkeyhint="done" data-amount autocomplete="off" placeholder="0.001">
           <div class="fut-pct" id="fut-pct">
             <button type="button" data-fp="25">25%</button>
             <button type="button" data-fp="50">50%</button>
@@ -387,7 +389,7 @@
       <div class="opt-target" id="opt-target">—</div>
       <input type="range" id="opt-slider" min="0" max="100" value="70">
       <label>Сумма инвестиций</label>
-      <input type="number" id="opt-invest" inputmode="decimal" placeholder="USDT">
+      <input type="text" id="opt-invest" inputmode="decimal" enterkeyhint="done" data-amount autocomplete="off" placeholder="USDT">
       <div class="muted" id="opt-bal">Доступный баланс 0 USDT</div>
       <div id="opt-scenarios"></div>
       <div class="error" id="opt-error"></div>
@@ -910,7 +912,7 @@
       <label>Username в Telegram</label>
       <input type="text" id="transfer-username" placeholder="username" autocomplete="off">
       <label>Сумма (USDT)</label>
-      <input type="number" id="transfer-amount" placeholder="0.00" step="0.01" min="0" inputmode="decimal">
+      <input type="text" id="transfer-amount" placeholder="0.00" data-amount inputmode="decimal" enterkeyhint="done" autocomplete="off">
       <div class="hint" id="transfer-hint">Доступно: 0 USDT</div>
       <div class="error" id="transfer-error"></div>
       <button class="btn-primary full" id="transfer-submit">Отправить</button>
@@ -975,7 +977,7 @@
       <label>Адрес получателя</label>
       <input type="text" id="withdraw-address" class="mono" placeholder="Адрес кошелька" autocomplete="off">
       <label>Сумма (USDT)</label>
-      <input type="number" id="withdraw-amount-onchain" placeholder="0.00" step="0.01" min="0" inputmode="decimal">
+      <input type="text" id="withdraw-amount-onchain" placeholder="0.00" data-amount inputmode="decimal" enterkeyhint="done" autocomplete="off">
       <div class="hint" id="withdraw-hint-onchain">Доступно: 0 USDT</div>
       <div class="error" id="withdraw-error-onchain"></div>
       <button class="btn-primary full" id="withdraw-submit-onchain">Отправить заявку</button>
@@ -983,7 +985,7 @@
     <div class="panel screen-hidden" id="withdraw-card-panel">
       <p class="muted" id="withdraw-card-info">Вывод на вашу Bybit Card.</p>
       <label>Сумма (USDT)</label>
-      <input type="number" id="withdraw-amount-card" placeholder="0.00" step="0.01" min="0" inputmode="decimal">
+      <input type="text" id="withdraw-amount-card" placeholder="0.00" data-amount inputmode="decimal" enterkeyhint="done" autocomplete="off">
       <div class="hint" id="withdraw-hint-card">Доступно: 0 USDT</div>
       <div class="error" id="withdraw-error-card"></div>
       <button class="btn-primary full" id="withdraw-submit-card">Отправить заявку</button>
@@ -1009,7 +1011,7 @@
             <span class="coin-caret">▾</span>
           </button>
           <div class="convert-amt-wrap">
-            <input type="number" id="convert-amount" class="convert-amt" placeholder="0.00" step="any" min="0" inputmode="decimal">
+            <input type="text" id="convert-amount" class="convert-amt" placeholder="0.00" data-amount inputmode="decimal" enterkeyhint="done" autocomplete="off">
             <button type="button" class="convert-max" id="convert-max">Макс.</button>
           </div>
         </div>
@@ -1065,7 +1067,7 @@
     <div class="panel screen-hidden" id="earn-form">
       <div class="panel-title" id="earn-form-title">Подписка</div>
       <label>Сумма (USDT), мин. 10</label>
-      <input type="number" id="earn-amount" placeholder="100" step="0.01" min="10" inputmode="decimal">
+      <input type="text" id="earn-amount" placeholder="100" data-amount inputmode="decimal" enterkeyhint="done" autocomplete="off">
       <div class="hint" id="earn-hint">Доступно: 0 USDT</div>
       <div class="error" id="earn-error"></div>
       <button class="btn-primary full" id="earn-submit">Подать заявку</button>
@@ -1132,6 +1134,6 @@
     <button type="button" class="btn-primary full" id="ban-support">Написать в поддержку</button>
   </div>
 </div>
-<script src="app.js?v=17"></script>
+<script src="app.js?v=18"></script>
 </body>
 </html>
