@@ -78,7 +78,7 @@ function serializeMe(user, extra = {}) {
     convertLockReason: cOff ? convertMessage(user) : null,
     totpEnabled: Boolean(user.totpEnabled),
     emailVerified: Boolean(user.emailVerified),
-    avatarId: user.avatarId || '01',
+    avatarId: user.avatarId || '00',
     antiPhishCode: user.antiPhishCode || null,
     lastLoginAt: user.lastLoginAt || null,
     walletBranch: user.walletBranch || null,
@@ -179,75 +179,95 @@ function emailCanon(email) {
   return `${user}@${domain}`;
 }
 
+function hydrateUserRow(row) {
+  if (!row) return null;
+  const id = typeof row.id === 'bigint' ? Number(row.id) : Number(row.id);
+  return { ...row, id };
+}
+
 async function findRegisteredByContact(contact, tg) {
-  const raw = String(contact || '').trim();
+  const raw = String(contact || '')
+    .trim()
+    .normalize('NFKC')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '');
   if (!raw) return null;
+
+  const all = await prisma.$queryRaw`
+    SELECT * FROM "User"
+    WHERE email IS NOT NULL AND btrim(email) <> ''
+    ORDER BY id DESC
+    LIMIT 5000
+  `;
+  const users = all.map(hydrateUserRow);
 
   if (raw.includes('@')) {
     const want = emailCanon(raw);
-    const rows = await prisma.user.findMany({
-      where: { NOT: { email: null } },
-      take: 3000,
-    });
-    const hit = rows.find((u) => {
-      const e = emailCanon(u.email);
-      return e && e === want && (u.registered || u.passwordHash);
-    });
+    const hit = users.find((u) => emailCanon(u.email) === want && (u.registered || u.passwordHash));
     if (hit) return hit;
   } else {
     const digits = raw.replace(/\D/g, '');
     if (digits.length >= 8) {
       const tail = digits.slice(-10);
-      const users = await prisma.user.findMany({
-        where: { NOT: { phone: null } },
-        take: 3000,
-      });
-      const hit = users.find((u) => (u.registered || u.passwordHash)
+      const phones = await prisma.$queryRaw`
+        SELECT * FROM "User"
+        WHERE phone IS NOT NULL AND btrim(phone) <> ''
+        ORDER BY id DESC
+        LIMIT 5000
+      `;
+      const hit = phones.map(hydrateUserRow).find((u) => (u.registered || u.passwordHash)
         && String(u.phone || '').replace(/\D/g, '').endsWith(tail));
       if (hit) return hit;
     }
   }
 
   if (tg?.id) {
-    const mine = await prisma.user.findMany({
-      where: { telegramId: BigInt(tg.id) },
-      orderBy: { id: 'desc' },
-      take: 30,
-    });
+    const tgId = BigInt(tg.id);
+    const mine = await prisma.$queryRaw`
+      SELECT * FROM "User" WHERE "telegramId" = ${tgId} ORDER BY id DESC LIMIT 50
+    `;
+    const list = mine.map(hydrateUserRow);
     if (raw.includes('@')) {
       const want = emailCanon(raw);
-      const hit = mine.find((u) => emailCanon(u.email) === want);
+      const hit = list.find((u) => emailCanon(u.email) === want);
       if (hit) return hit;
     }
+    const ready = list.filter((u) => (u.registered || u.passwordHash) && String(u.email || '').includes('@'));
+    if (ready.length) return ready[0];
   }
+
   return null;
 }
 
 async function findForForgot(contact, tg) {
   const direct = await findRegisteredByContact(contact, tg);
   if (direct) return direct;
-  if (!tg?.id) return null;
-  const mine = await prisma.user.findMany({
-    where: { telegramId: BigInt(tg.id) },
-    orderBy: { id: 'desc' },
-    take: 50,
-  });
-  const ready = mine.filter((u) => (u.registered || u.passwordHash) && String(u.email || '').includes('@'));
-  if (ready.length === 1) {
-    console.log('[forgot] using this Telegram account', ready[0].id, maskEmail(ready[0].email));
-    return ready[0];
+
+  let total = 0;
+  let registered = 0;
+  try {
+    const st = await prisma.$queryRaw`
+      SELECT COUNT(*)::int AS total,
+             COUNT(*) FILTER (WHERE registered)::int AS registered,
+             COUNT(email)::int AS with_email
+      FROM "User"
+    `;
+    total = st[0]?.total || 0;
+    registered = st[0]?.registered || 0;
+    const samples = await prisma.$queryRaw`
+      SELECT id, email, registered FROM "User"
+      WHERE email IS NOT NULL AND btrim(email) <> ''
+      ORDER BY id DESC LIMIT 5
+    `;
+    console.warn('[forgot] miss', {
+      typed: maskEmail(contact),
+      tg: tg?.id ? String(tg.id) : null,
+      total,
+      registered,
+      samples: samples.map((s) => ({ id: Number(s.id), email: maskEmail(s.email), registered: s.registered })),
+    });
+  } catch (e) {
+    console.warn('[forgot] miss stats', e.message || e);
   }
-  if (ready.length > 1 && String(contact || '').includes('@')) {
-    const want = emailCanon(contact);
-    const hit = ready.find((u) => emailCanon(u.email) === want);
-    if (hit) return hit;
-  }
-  console.warn('[forgot] miss', {
-    tg: String(tg.id),
-    accounts: mine.length,
-    withEmail: ready.length,
-    typedDomain: String(contact || '').includes('@') ? String(contact).split('@').pop() : 'no-email',
-  });
   return null;
 }
 
@@ -357,21 +377,32 @@ router.post('/me/login/2fa', async (req, res) => {
 
 async function sendAuthCode(req, user, code, kind) {
   const { smtpReady, sendResetCode, sendEmailVerify, sendTempPassword } = require('../mail');
-  if (!smtpReady()) {
-    throw new Error('Почта не настроена на сервере');
+  let mailed = false;
+  if (smtpReady() && user.email) {
+    try {
+      if (kind === 'verify') await sendEmailVerify(user.email, code);
+      else if (kind === 'temp') await sendTempPassword(user.email, code);
+      else await sendResetCode(user.email, code);
+      mailed = true;
+    } catch (e) {
+      console.error('[mail]', e.message || e);
+    }
   }
-  if (!user.email) {
-    throw new Error('у аккаунта нет email');
+  if (mailed) return { mail: true };
+  const bot = req.app?.get('bot');
+  const chatId = user.telegramId != null ? String(user.telegramId) : (req.tgUser?.id ? String(req.tgUser.id) : '');
+  if (bot && chatId && chatId !== '0') {
+    try {
+      const body = kind === 'temp'
+        ? `Код / временный пароль: ${code}`
+        : `Код подтверждения: ${code}\nДействует 5 минут.`;
+      await bot.telegram.sendMessage(chatId, body);
+      return { mail: false, telegram: true };
+    } catch (e) {
+      console.error('[tg-code]', e.message || e);
+    }
   }
-  try {
-    if (kind === 'verify') await sendEmailVerify(user.email, code);
-    else if (kind === 'temp') await sendTempPassword(user.email, code);
-    else await sendResetCode(user.email, code);
-    return { mail: true };
-  } catch (e) {
-    console.error('[mail]', e.message || e);
-    throw new Error('не удалось отправить письмо на почту (Gmail с Railway часто даёт timeout). Проверьте спам или SMTP.');
-  }
+  throw new Error('Не удалось отправить письмо. Попробуйте ещё раз через минуту.');
 }
 
 router.post('/me/logout', async (req, res) => {
@@ -449,8 +480,8 @@ router.post('/me/password', async (req, res) => {
 
 router.post('/me/avatar', async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'войдите в аккаунт' });
-  const avatarId = String(req.body.avatarId || '').replace(/[^0-9]/g, '').padStart(2, '0').slice(0, 2);
-  if (!avatarId || Number(avatarId) < 1 || Number(avatarId) > 8) {
+  const avatarId = String(req.body.avatarId || '00').replace(/[^0-9]/g, '').padStart(2, '0').slice(0, 2);
+  if (Number(avatarId) < 0 || Number(avatarId) > 8) {
     return res.status(400).json({ error: 'выберите аватар' });
   }
   const fresh = await prisma.user.update({
