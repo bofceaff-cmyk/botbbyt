@@ -912,42 +912,61 @@ $('pool-add')?.addEventListener('click', async () => {
 async function loadDeposits() {
   const box = $('deposits-list');
   if (!box) return;
-  const rows = await adminFetch('/deposits');
-  if (!rows.length) {
-    box.innerHTML = '<div class="muted">Пока нет входящих. Проверка сети — каждые 10 минут, либо кнопка «Проверить сейчас».</div>';
-    return;
+  try {
+    const rows = await adminFetch('/deposits');
+    if (!rows.length) {
+      box.innerHTML = '<div class="muted">Пока нет входящих. Нажмите «Проверить сейчас» — смотрим TRC-20 / ERC-20 / BTC по адресам из пула.</div>';
+      return;
+    }
+    box.innerHTML = rows.map((r) => {
+      const usd = r.usdAmount != null ? `${Number(r.usdAmount).toLocaleString('en-US')} $` : `${Number(r.amount)} ${r.asset}`;
+      const hash = r.explorer
+        ? `<a href="${escapeHtml(r.explorer)}" target="_blank" rel="noopener">${escapeHtml(r.txHash)}</a>`
+        : escapeHtml(r.txHash);
+      return `<div class="finance-item">
+        <div class="finance-item-head">
+          <strong>${escapeHtml(r.branchCode)} Пополнение — ${escapeHtml(usd)}</strong>
+          <span class="chip ${r.confirmed ? 'assigned' : 'pending'}">${r.confirmed ? 'подтверждено' : 'в сети'}</span>
+        </div>
+        <div class="muted">валюта ${escapeHtml(r.asset)} (${escapeHtml(r.network)})</div>
+        <div class="finance-details">
+          С: <span class="mono">${escapeHtml(r.fromAddress || '—')}</span><br>
+          На: <span class="mono">${escapeHtml(r.toAddress)}</span><br>
+          Хеш: ${hash}<br>
+          ${escapeHtml(new Date(r.seenAt).toLocaleString('ru-RU'))}
+        </div>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    box.innerHTML = `<div class="error">${escapeHtml(e.message || 'не удалось загрузить')}</div>`;
   }
-  box.innerHTML = rows.map((r) => {
-    const usd = r.usdAmount != null ? `${Number(r.usdAmount).toLocaleString('en-US')} $` : `${Number(r.amount)} ${r.asset}`;
-    const hash = r.explorer
-      ? `<a href="${escapeHtml(r.explorer)}" target="_blank" rel="noopener">${escapeHtml(r.txHash)}</a>`
-      : escapeHtml(r.txHash);
-    return `<div class="finance-item">
-      <div class="finance-item-head">
-        <strong>${escapeHtml(r.branchCode)} Пополнение — ${escapeHtml(usd)}</strong>
-        <span class="chip ${r.confirmed ? 'assigned' : 'pending'}">${r.confirmed ? 'подтверждено' : 'в сети'}</span>
-      </div>
-      <div class="muted">валюта ${escapeHtml(r.asset)} (${escapeHtml(r.network)})</div>
-      <div class="finance-details">
-        С: <span class="mono">${escapeHtml(r.fromAddress || '—')}</span><br>
-        На: <span class="mono">${escapeHtml(r.toAddress)}</span><br>
-        Хеш: ${hash}<br>
-        ${escapeHtml(new Date(r.seenAt).toLocaleString('ru-RU'))}
-      </div>
-    </div>`;
-  }).join('');
 }
 
-$('refresh-deposits')?.addEventListener('click', () => loadDeposits().catch(console.error));
+$('refresh-deposits')?.addEventListener('click', () => {
+  const box = $('deposits-list');
+  if (box) box.innerHTML = '<div class="muted">Обновление…</div>';
+  loadDeposits().catch((e) => {
+    if (box) box.innerHTML = `<div class="error">${escapeHtml(e.message)}</div>`;
+  });
+});
 $('scan-deposits')?.addEventListener('click', async () => {
+  const btn = $('scan-deposits');
+  const box = $('deposits-list');
+  if (btn) btn.disabled = true;
+  if (box) box.innerHTML = '<div class="muted">Проверяем сеть по адресам из пула… Это может занять до минуты.</div>';
   try {
-    $('scan-deposits').disabled = true;
-    await adminFetch('/deposits/scan', { method: 'POST' });
+    const res = await adminFetch('/deposits/scan', { method: 'POST' });
     await loadDeposits();
+    const note = `Проверено адресов: ${res.scanned || 0}. Новых: ${res.newCount || 0}.`;
+    if (box && !box.querySelector('.finance-item')) {
+      box.innerHTML = `<div class="muted">${note} Входящих пока нет.</div>`;
+    } else if (box) {
+      box.insertAdjacentHTML('afterbegin', `<div class="muted" style="margin-bottom:8px">${note}</div>`);
+    }
   } catch (e) {
-    alert(e.message);
+    if (box) box.innerHTML = `<div class="error">${escapeHtml(e.message)}</div>`;
   } finally {
-    $('scan-deposits').disabled = false;
+    if (btn) btn.disabled = false;
   }
 });
 

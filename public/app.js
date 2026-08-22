@@ -357,6 +357,11 @@ const prefs = Object.assign({
   fiat: 'USD',
   theme: 'dark',
   tz: 'UTC+3',
+  notifDeposit: true,
+  notifSecurity: true,
+  notifTrade: true,
+  notifNews: true,
+  notifTg: true,
 }, loadPrefs());
 let fxRates = { USD: 1, EUR: 0.92, RUB: 92 };
 window.pendingOtpauth = '';
@@ -389,6 +394,10 @@ function applyPrefs() {
   if (themeVal) themeVal.textContent = prefs.theme === 'light' ? t('themeLight') : t('themeDark');
   const tzVal = document.getElementById('uc-tz-val');
   if (tzVal) tzVal.textContent = prefs.tz;
+  ['deposit', 'security', 'trade', 'news', 'tg'].forEach((k) => {
+    const key = `notif${k[0].toUpperCase()}${k.slice(1)}`;
+    document.getElementById(`notif-${k}`)?.classList.toggle('on', prefs[key] !== false);
+  });
   const ccy = document.getElementById('assets-ccy-label');
   if (ccy) ccy.innerHTML = `${prefs.fiat} <span class="assets-ccy-caret">▾</span>`;
   if (typeof applyBalanceVisibility === 'function') {
@@ -475,12 +484,12 @@ function showScreen(name, opts = {}) {
 
   document.querySelectorAll('.tab').forEach((t) => {
     const walletScreens = new Set([
-      'deposit', 'transfer', 'history', 'withdraw', 'convert', 'earn', 'card',
+      'deposit', 'transfer', 'history', 'withdraw', 'convert', 'earn', 'card', 'notif',
     ]);
     const tab = MAIN_TABS.has(name) ? name : (
       name === 'chart' ? 'trade' : (
         walletScreens.has(name) ? 'wallet' : (
-          name === 'profile' || name === 'support' || name === 'kyc' || name === 'edit-profile' ? 'wallet' : 'markets'
+        name === 'profile' || name === 'support' || name === 'kyc' || name === 'edit-profile' || name === 'notif' ? 'wallet' : 'markets'
         )
       )
     );
@@ -1186,6 +1195,16 @@ document.getElementById('earn-submit')?.addEventListener('click', async () => {
 });
 
 document.getElementById('open-support').addEventListener('click', () => showScreen('support'));
+document.getElementById('open-notif')?.addEventListener('click', () => showScreen('notif'));
+document.querySelectorAll('[data-notif]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const k = btn.dataset.notif;
+    const key = `notif${k[0].toUpperCase()}${k.slice(1)}`;
+    prefs[key] = prefs[key] === false;
+    savePrefs();
+    applyPrefs();
+  });
+});
 document.getElementById('open-edit-profile').addEventListener('click', () => showScreen('edit-profile'));
 document.getElementById('open-kyc').addEventListener('click', () => showScreen('kyc'));
 document.getElementById('uc-nick-row')?.addEventListener('click', () => {

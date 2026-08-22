@@ -778,13 +778,14 @@
     <div id="uc-pane-params" class="screen-hidden">
       <button type="button" class="uc-row" id="uc-tz-row"><span class="uc-ico">⏰</span><span class="uc-label" data-i18n="tz">Ориентировочный часовой пояс</span><span class="uc-val" id="uc-tz-val">UTC+3</span><span class="uc-chev">›</span></button>
       <button type="button" class="uc-row" id="open-withdraw-from-profile"><span class="uc-ico">👛</span><span class="uc-label">Адрес вывода</span><span class="uc-chev">›</span></button>
-      <button type="button" class="uc-row" id="open-support"><span class="uc-ico">🔔</span><span class="uc-label">Настройки уведомлений</span><span class="uc-chev">›</span></button>
+      <button type="button" class="uc-row" id="open-notif"><span class="uc-ico">🔔</span><span class="uc-label">Настройки уведомлений</span><span class="uc-chev">›</span></button>
     </div>
 
     <div id="uc-pane-general" class="screen-hidden">
       <button type="button" class="uc-row" id="uc-lang-row"><span class="uc-ico">文</span><span class="uc-label" data-i18n="lang">Язык</span><span class="uc-val" id="uc-lang-val">Русский</span><span class="uc-chev">›</span></button>
       <button type="button" class="uc-row" id="uc-fiat-row"><span class="uc-ico">$</span><span class="uc-label" data-i18n="fiat">Курс</span><span class="uc-val" id="uc-fiat-val">USD</span><span class="uc-chev">›</span></button>
       <button type="button" class="uc-row" id="uc-theme-row"><span class="uc-ico">🌙</span><span class="uc-label" data-i18n="theme">Настройки темы</span><span class="uc-val" id="uc-theme-val">Ночной режим</span><span class="uc-chev">›</span></button>
+      <button type="button" class="uc-row" id="open-support"><span class="uc-ico">💬</span><span class="uc-label">Поддержка</span><span class="uc-chev">›</span></button>
       <a class="uc-row" href="https://www.bybit.com/ru-RU/help-center/" target="_blank" rel="noopener" style="text-decoration:none"><span class="uc-ico">?</span><span class="uc-label">Справочный центр</span><span class="uc-chev">›</span></a>
     </div>
 
@@ -797,6 +798,33 @@
       <div class="avatar-preview"><img id="avatar-picker-preview" alt=""></div>
       <div class="avatar-grid" id="avatar-grid"></div>
       <button type="button" class="btn-primary full" id="avatar-picker-save" style="margin-top:20px;background:#8a6a32;color:#111">Сохранить</button>
+    </div>
+  </section>
+
+  <section id="screen-notif" class="screen screen-hidden">
+    <button class="back-btn" data-back="profile">← Назад</button>
+    <div class="section-head"><h1>Уведомления</h1></div>
+    <div class="panel">
+      <button type="button" class="uc-row" data-notif="deposit">
+        <span class="uc-label">Пополнения</span>
+        <span class="uc-toggle on" id="notif-deposit"></span>
+      </button>
+      <button type="button" class="uc-row" data-notif="security">
+        <span class="uc-label">Безопасность и вход</span>
+        <span class="uc-toggle on" id="notif-security"></span>
+      </button>
+      <button type="button" class="uc-row" data-notif="trade">
+        <span class="uc-label">Ордера и конвертация</span>
+        <span class="uc-toggle on" id="notif-trade"></span>
+      </button>
+      <button type="button" class="uc-row" data-notif="news">
+        <span class="uc-label">Новости рынка</span>
+        <span class="uc-toggle on" id="notif-news"></span>
+      </button>
+      <button type="button" class="uc-row" data-notif="tg">
+        <span class="uc-label">Сообщения в Telegram</span>
+        <span class="uc-toggle on" id="notif-tg"></span>
+      </button>
     </div>
   </section>
 
@@ -1174,6 +1202,6 @@
   </div>
 </div>
 <script src="geo.js?v=1"></script>
-<script src="app.js?v=28"></script>
+<script src="app.js?v=29"></script>
 </body>
 </html>
