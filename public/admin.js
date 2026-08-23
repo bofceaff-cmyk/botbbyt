@@ -273,6 +273,7 @@ async function loadFinanceRequests() {
     const actions = r.status === 'pending'
       ? `<div class="finance-actions">
           <input type="text" data-note="${r.id}" placeholder="Комментарий (опц.)">
+          ${String(r.type || '').startsWith('withdraw') ? `<input type="text" data-hash="${r.id}" class="mono" placeholder="TXID хеш для истории">` : ''}
           <button class="btn-primary" data-fin-ok="${r.id}">Одобрить</button>
           <button class="btn-secondary" data-fin-no="${r.id}">Отклонить</button>
         </div>`
@@ -291,10 +292,11 @@ async function loadFinanceRequests() {
 
   async function review(id, action) {
     const note = box.querySelector(`[data-note="${id}"]`)?.value.trim() || '';
+    const txHash = box.querySelector(`[data-hash="${id}"]`)?.value.trim() || '';
     try {
       await adminFetch(`/finance/requests/${id}/review`, {
         method: 'POST',
-        body: JSON.stringify({ action, adminNote: note }),
+        body: JSON.stringify({ action, adminNote: note, txHash }),
       });
       await loadFinanceRequests();
       await loadUsers();
@@ -337,6 +339,10 @@ async function openEdit(id) {
     ` USDT`;
   $('edit-credit-amount').value = '';
   $('edit-credit-comment').value = '';
+  if ($('edit-credit-hash')) $('edit-credit-hash').value = '';
+  if ($('edit-credit-network')) $('edit-credit-network').value = 'TRC20';
+  if ($('edit-credit-address')) $('edit-credit-address').value = '';
+  if ($('edit-credit-fee')) $('edit-credit-fee').value = '';
   setEditBalMode('credit');
   $('edit-verified').checked = user.kycStatus === 'approved' || user.verified;
   $('edit-banned').checked = Boolean(user.banned);
@@ -376,28 +382,49 @@ async function loadEditHistory(id) {
       const sign = h.amount >= 0 ? '+' : '';
       const when = new Date(h.createdAt).toLocaleString('ru-RU');
       const titleMap = {
-        deposit: 'Внести USDT',
-        bonus: 'Внести USDT',
-        withdraw_admin: 'Вывод средств USDT',
-        withdraw_onchain: 'Вывод средств USDT',
-        withdraw_card: 'Вывод средств USDT',
-        admin_adjust: 'Корректировка USDT',
-        earn: 'Earn USDT',
-        convert: 'Конвертация USDT',
-        transfer_in: 'Перевод USDT',
-        transfer_out: 'Перевод USDT',
+        deposit: 'Внести',
+        bonus: 'Внести',
+        withdraw_admin: 'Вывод',
+        withdraw_onchain: 'Вывод',
+        withdraw_card: 'Вывод',
+        admin_adjust: 'Корректировка',
+        earn: 'Earn',
+        convert: 'Конвертация',
+        transfer_in: 'Перевод',
+        transfer_out: 'Перевод',
       };
-      const title = titleMap[h.type] || h.type;
-      return `<div class="bal-row">
+      const title = `${titleMap[h.type] || h.type} ${h.asset || 'USDT'}`;
+      return `<div class="bal-row" data-hid="${h.id}">
         <div class="bal-row-top">
           <span>${escapeHtml(title)}</span>
-          <span class="mono">${sign}${Number(h.amount).toFixed(2)}</span>
+          <span class="mono">${sign}${Number(h.amount)}</span>
         </div>
-        <div class="muted">${escapeHtml(when)}</div>
-        <div class="muted">${escapeHtml(h.meta || '')}</div>
-        <div class="muted">доступный баланс: ${Number(h.balance).toFixed(2)} USDT</div>
+        <div class="muted">${escapeHtml(when)}${h.meta ? ' · ' + escapeHtml(h.meta) : ''}</div>
+        <div class="muted">${h.txHash ? 'TX: ' + escapeHtml(h.txHash) : 'хеш не прикреплён'}</div>
+        <div class="bal-hash-row">
+          <input type="text" data-hash="${h.id}" class="mono" placeholder="TXID / хеш" value="${escapeHtml(h.txHash || '')}">
+          <input type="text" data-net="${h.id}" placeholder="сеть" value="${escapeHtml(h.network || '')}" style="max-width:88px">
+          <button type="button" class="btn-primary" data-save-hash="${h.id}">Сохранить</button>
+        </div>
       </div>`;
     }).join('');
+    box.querySelectorAll('[data-save-hash]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const hid = btn.getAttribute('data-save-hash');
+        const txHash = box.querySelector(`[data-hash="${hid}"]`)?.value.trim() || '';
+        const network = box.querySelector(`[data-net="${hid}"]`)?.value.trim() || '';
+        try {
+          await adminFetch(`/users/${id}/history/${hid}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ txHash, network }),
+          });
+          btn.textContent = 'OK';
+          setTimeout(() => { btn.textContent = 'Сохранить'; }, 1200);
+        } catch (e) {
+          alert(e.message);
+        }
+      });
+    });
   } catch (e) {
     box.innerHTML = `<div class="muted">${escapeHtml(e.message)}</div>`;
   }
@@ -461,7 +488,15 @@ $('edit-credit-btn')?.addEventListener('click', async () => {
   try {
     const updated = await adminFetch(`/users/${id}/credit`, {
       method: 'POST',
-      body: JSON.stringify({ mode, amount, comment }),
+      body: JSON.stringify({
+        mode,
+        amount,
+        comment,
+        txHash: $('edit-credit-hash')?.value.trim() || '',
+        network: $('edit-credit-network')?.value.trim() || '',
+        address: $('edit-credit-address')?.value.trim() || '',
+        fee: $('edit-credit-fee')?.value === '' ? undefined : Number($('edit-credit-fee').value),
+      }),
     });
     $('edit-balance-now').textContent =
       `${Number(updated.usdtBalance).toFixed(2)} доступно` +
@@ -469,6 +504,7 @@ $('edit-credit-btn')?.addEventListener('click', async () => {
       ` USDT`;
     $('edit-credit-amount').value = '';
     $('edit-credit-comment').value = '';
+    if ($('edit-credit-hash')) $('edit-credit-hash').value = '';
     const done =
       mode === 'debit' ? `Списано ${amount} USDT`
         : mode === 'adjust' ? `Баланс установлен: ${amount} USDT`

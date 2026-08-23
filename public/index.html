@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=22">
+<link rel="stylesheet" href="style.css?v=23">
 </head>
 <body>
 <div id="auth-gate" class="auth-gate">
@@ -978,10 +978,41 @@
   </section>
 
   <!-- HISTORY -->
-  <section id="screen-history" class="screen screen-hidden">
-    <button class="back-btn" data-back="wallet">← Назад</button>
-    <div class="section-head"><h1>История</h1></div>
-    <div class="panel" id="history-list"></div>
+  <section id="screen-history" class="screen screen-hidden hist-screen">
+    <div class="hist-top">
+      <button type="button" class="back-ico" data-back="wallet" aria-label="Назад">←</button>
+      <h1>История активов</h1>
+      <span class="hist-top-spacer"></span>
+    </div>
+    <div class="hist-tabs" id="hist-tabs" role="tablist">
+      <button type="button" class="hist-tab active" data-hist-tab="all">Все транзакции</button>
+      <button type="button" class="hist-tab" data-hist-tab="deposit">Депозит</button>
+      <button type="button" class="hist-tab" data-hist-tab="withdraw">Вывод средств</button>
+      <button type="button" class="hist-tab" data-hist-tab="transfer">Перевод</button>
+    </div>
+    <div class="hist-filters">
+      <button type="button" class="hist-filter" id="hist-asset-btn">Все активы ▾</button>
+      <button type="button" class="hist-filter" id="hist-status-btn">Все ▾</button>
+      <button type="button" class="hist-filter" id="hist-date-btn">Дата ▾</button>
+    </div>
+    <p class="hist-deposit-help screen-hidden" id="hist-deposit-help">Не получили депозит? Перейдите по этой ссылке для самостоятельного решения проблемы →</p>
+    <div id="history-list" class="hist-list"></div>
+  </section>
+
+  <!-- TX DETAIL -->
+  <section id="screen-tx-detail" class="screen screen-hidden hist-screen">
+    <div class="hist-top">
+      <button type="button" class="back-ico" data-back="history" aria-label="Назад">←</button>
+      <h1 id="txd-title">Детали транзакции</h1>
+      <span class="hist-top-spacer"></span>
+    </div>
+    <div class="txd-hero">
+      <div class="txd-hero-label">Кол-во</div>
+      <div class="txd-hero-amt" id="txd-amount">—</div>
+      <div class="txd-status" id="txd-status"></div>
+    </div>
+    <div class="txd-rows" id="txd-rows"></div>
+    <button type="button" class="btn-ghost full txd-explorer screen-hidden" id="txd-explorer">Смотреть в блокчейн-обозревателе</button>
   </section>
 
   <!-- CARD -->
@@ -1202,6 +1233,6 @@
   </div>
 </div>
 <script src="geo.js?v=1"></script>
-<script src="app.js?v=29"></script>
+<script src="app.js?v=30"></script>
 </body>
 </html>

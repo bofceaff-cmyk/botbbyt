@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="admin.css?v=6">
+<link rel="stylesheet" href="admin.css?v=7">
 </head>
 <body>
 <div id="login-view" class="login-wrap">
@@ -222,6 +222,14 @@
           <input type="number" id="edit-credit-amount" step="0.01" min="0" placeholder="например 200">
           <label>Комментарий</label>
           <input type="text" id="edit-credit-comment" placeholder="За что / причина">
+          <label>Хеш транзакции (TXID)</label>
+          <input type="text" id="edit-credit-hash" class="mono" placeholder="вставьте хеш — пользователь увидит в деталях">
+          <label>Сеть / адрес / комиссия</label>
+          <div class="hist-admin-grid">
+            <input type="text" id="edit-credit-network" placeholder="TRC20">
+            <input type="text" id="edit-credit-address" class="mono" placeholder="адрес">
+            <input type="number" id="edit-credit-fee" step="0.000001" min="0" placeholder="комиссия">
+          </div>
           <button type="button" class="btn-primary" id="edit-credit-btn">Применить операцию</button>
           <div class="muted" id="edit-bal-hint" style="margin-top:6px;font-size:12px">Сейчас: внести на баланс</div>          <div class="panel-title" style="margin-top:14px">История баланса</div>
           <div id="edit-balance-history" class="bal-history"></div>
@@ -317,6 +325,6 @@
   </div>
 </div>
 
-<script src="admin.js?v=8"></script>
+<script src="admin.js?v=9"></script>
 </body>
 </html>

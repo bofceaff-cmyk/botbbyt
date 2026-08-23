@@ -51,10 +51,20 @@ const TYPE_KIND = {
   earn: 'Earn',
 };
 
+function historyAsset(item) {
+  return String(item.asset || 'USDT').toUpperCase();
+}
+
 function historyTitle(item) {
+  const a = historyAsset(item);
   if (item.type === 'admin_adjust') {
-    return item.amount >= 0 ? 'Внести USDT' : 'Вывод средств USDT';
+    return item.amount >= 0 ? `Внести ${a}` : `Вывод средств ${a}`;
   }
+  if (item.type === 'convert') return `Конвертация ${a}`;
+  if (item.type === 'deposit' || item.type === 'bonus') return `Внести ${a}`;
+  if (String(item.type || '').startsWith('withdraw')) return `Вывод средств ${a}`;
+  if (item.type === 'transfer_in' || item.type === 'transfer_out') return `Перевод ${a}`;
+  if (item.type === 'earn') return `Earn ${a}`;
   return TYPE_LABELS[item.type] || item.type;
 }
 
@@ -63,6 +73,29 @@ function historyKind(item) {
     return item.amount >= 0 ? 'Внести' : 'Вывести';
   }
   return TYPE_KIND[item.type] || item.type;
+}
+
+function historyBucket(item) {
+  const t = String(item.type || '');
+  if (t === 'transfer_in' || t === 'transfer_out') return 'transfer';
+  if (t.startsWith('withdraw') || (t === 'admin_adjust' && item.amount < 0)) return 'withdraw';
+  if (t === 'deposit' || t === 'bonus' || (t === 'admin_adjust' && item.amount > 0)) return 'deposit';
+  return 'other';
+}
+
+function historyStatusText(item) {
+  const bucket = historyBucket(item);
+  if (bucket === 'withdraw') return 'Вывод завершён';
+  return 'Успешно';
+}
+
+function fmtHistAmt(n) {
+  const x = Math.abs(Number(n) || 0);
+  if (x === 0) return '0';
+  if (Number.isInteger(x) || Math.abs(x - Math.round(x)) < 1e-8) {
+    return Math.round(x).toLocaleString('en-US');
+  }
+  return x.toLocaleString('en-US', { maximumFractionDigits: 8 });
 }
 
 function fmtHistoryDate(iso) {
@@ -484,7 +517,7 @@ function showScreen(name, opts = {}) {
 
   document.querySelectorAll('.tab').forEach((t) => {
     const walletScreens = new Set([
-      'deposit', 'transfer', 'history', 'withdraw', 'convert', 'earn', 'card', 'notif',
+      'deposit', 'transfer', 'history', 'tx-detail', 'withdraw', 'convert', 'earn', 'card', 'notif',
     ]);
     const tab = MAIN_TABS.has(name) ? name : (
       name === 'chart' ? 'trade' : (
@@ -551,6 +584,51 @@ document.getElementById('open-deposit').addEventListener('click', () => showScre
 document.getElementById('open-transfer').addEventListener('click', () => showScreen('transfer'));
 document.getElementById('open-history').addEventListener('click', () => showScreen('history'));
 document.getElementById('wallet-pnl')?.addEventListener('click', () => showScreen('history'));
+
+document.querySelectorAll('#hist-tabs [data-hist-tab]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    histTab = btn.getAttribute('data-hist-tab') || 'all';
+    document.querySelectorAll('#hist-tabs [data-hist-tab]').forEach((b) => {
+      b.classList.toggle('active', b === btn);
+    });
+    renderHistory();
+  });
+});
+document.getElementById('hist-asset-btn')?.addEventListener('click', () => {
+  const assets = ['', ...[...new Set(historyCache.map(historyAsset))].sort()];
+  const i = assets.indexOf(histAssetFilter);
+  histAssetFilter = assets[(i + 1) % assets.length] || '';
+  const el = document.getElementById('hist-asset-btn');
+  if (el) el.textContent = (histAssetFilter || 'Все активы') + ' ▾';
+  renderHistory();
+});
+document.getElementById('hist-status-btn')?.addEventListener('click', () => {});
+document.getElementById('hist-date-btn')?.addEventListener('click', () => {
+  histDateFilter = histDateFilter === 'all' ? '7d' : histDateFilter === '7d' ? '30d' : 'all';
+  const labels = { all: 'Дата', '7d': '7 дней', '30d': '30 дней' };
+  const el = document.getElementById('hist-date-btn');
+  if (el) el.textContent = `${labels[histDateFilter]} ▾`;
+  renderHistory();
+});
+document.getElementById('hist-deposit-help')?.addEventListener('click', () => showScreen('support'));
+document.getElementById('history-list')?.addEventListener('click', (e) => {
+  const row = e.target.closest('[data-hid]');
+  if (row) openTxDetail(row.getAttribute('data-hid'));
+});
+document.getElementById('txd-explorer')?.addEventListener('click', () => {
+  const url = document.getElementById('txd-explorer')?.dataset.url;
+  if (url) window.open(url, '_blank', 'noopener');
+});
+document.getElementById('txd-rows')?.addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-copy]');
+  if (!btn) return;
+  const which = btn.getAttribute('data-copy');
+  const el = document.getElementById(which === 'hash' ? 'txd-hash' : 'txd-addr');
+  const text = el?.textContent?.trim();
+  if (!text || text === '—') return;
+  const ok = await copyText(text);
+  if (ok) tg.showAlert('Скопировано');
+});
 document.getElementById('wallet-go-profile')?.addEventListener('click', () => showScreen('profile'));
 document.getElementById('open-withdraw')?.addEventListener('click', () => showScreen('withdraw'));
 document.getElementById('open-convert')?.addEventListener('click', () => {
@@ -2503,43 +2581,137 @@ document.getElementById('transfer-submit').addEventListener('click', async () =>
 });
 
 // ---------- history ----------
+let historyCache = [];
+let histTab = 'all';
+let histAssetFilter = '';
+let histDateFilter = 'all';
+
+function histMatches(item) {
+  if (histTab !== 'all' && historyBucket(item) !== histTab) return false;
+  if (histAssetFilter && historyAsset(item) !== histAssetFilter) return false;
+  if (histDateFilter !== 'all') {
+    const t = new Date(item.createdAt).getTime();
+    const days = histDateFilter === '7d' ? 7 : 30;
+    if (Date.now() - t > days * 86400000) return false;
+  }
+  return true;
+}
+
+function renderHistory() {
+  const list = document.getElementById('history-list');
+  const help = document.getElementById('hist-deposit-help');
+  const dateBtn = document.getElementById('hist-date-btn');
+  if (help) help.classList.toggle('screen-hidden', histTab !== 'deposit');
+  if (dateBtn) dateBtn.classList.toggle('screen-hidden', histTab !== 'all');
+  const items = historyCache.filter(histMatches);
+  if (!items.length) {
+    list.innerHTML = '<div class="hist-empty">Пока нет операций</div>';
+    return;
+  }
+  list.innerHTML = items.map((item) => {
+    const asset = historyAsset(item);
+    const date = fmtHistoryDate(item.createdAt);
+    const status = `<div class="hist-status"><span class="hist-dot"></span>${escapeHtml(historyStatusText(item))}</div>`;
+    const chev = '<span class="hist-chevron">›</span>';
+    if (histTab === 'deposit' || histTab === 'withdraw' || histTab === 'transfer') {
+      return `<button type="button" class="hist-row" data-hid="${item.id}">
+        <div class="hist-row-l">
+          <div class="hist-sym">${escapeHtml(asset)}</div>
+          <div class="hist-time">${escapeHtml(date)}</div>
+        </div>
+        <div class="hist-row-r">
+          <div class="hist-row-r-inner">
+            <div class="hist-amt hist-amt-plain">${escapeHtml(fmtHistAmt(item.amount))}</div>
+            ${status}
+          </div>
+          ${chev}
+        </div>
+      </button>`;
+    }
+    const pos = item.amount >= 0;
+    const sign = pos ? '+' : '−';
+    const amtCls = pos ? 'hist-amt-pos' : 'hist-amt-neg';
+    const bal = item.balance != null ? String(item.balance) : '—';
+    return `<button type="button" class="hist-row" data-hid="${item.id}">
+      <div class="hist-row-l">
+        <div class="hist-title">${escapeHtml(historyTitle(item))}</div>
+        <div class="hist-time">${escapeHtml(date)}</div>
+        <div class="hist-type">Тип ${escapeHtml(historyKind(item))}</div>
+      </div>
+      <div class="hist-row-r">
+        <div class="hist-row-r-inner">
+          <div class="hist-amt ${amtCls}">${sign}${escapeHtml(fmtHistAmt(item.amount))}</div>
+          <div class="hist-bal">Доступный баланс ${escapeHtml(bal)}</div>
+        </div>
+      </div>
+    </button>`;
+  }).join('');
+}
+
 async function loadHistory() {
   try {
-    const items = await apiFetch('/users/me/history');
-    const list = document.getElementById('history-list');
-    if (!items.length) {
-      list.innerHTML = '<div class="empty">Пока нет операций</div>';
-      return;
-    }
-    list.innerHTML = items.map((item) => {
-      const isPositive = item.amount > 0;
-      const sign = isPositive ? '+' : '';
-      const title = historyTitle(item);
-      const kind = historyKind(item);
-      const date = fmtHistoryDate(item.createdAt);
-      const bal = item.balance != null ? fmtUsdt(item.balance) : '—';
-      return `
-        <div class="history-item">
-          <div class="history-main">
-            <div>
-              <div class="history-title">${escapeHtml(title)}</div>
-              <div class="history-meta">${escapeHtml(date)}</div>
-            </div>
-            <div class="mono ${isPositive ? 'history-amount-pos' : 'history-amount-neg'}">
-              ${sign}${fmtUsdt(item.amount)}
-            </div>
-          </div>
-          <div class="history-foot">
-            <div class="history-type">Тип ${escapeHtml(kind)}</div>
-            <div class="history-bal">Доступный баланс <span class="mono">${escapeHtml(bal)}</span></div>
-          </div>
-          ${item.meta ? `<div class="history-comment">${escapeHtml(item.meta)}</div>` : ''}
-        </div>`;
-    }).join('');
+    historyCache = await apiFetch('/users/me/history');
+    const assets = [...new Set(historyCache.map(historyAsset))].sort();
+    const btn = document.getElementById('hist-asset-btn');
+    if (btn && !histAssetFilter) btn.textContent = 'Все активы ▾';
+    renderHistory();
+    void assets;
   } catch (e) {
     document.getElementById('history-list').innerHTML =
-      `<div class="empty">${escapeHtml(e.message)}</div>`;
+      `<div class="hist-empty">${escapeHtml(e.message)}</div>`;
   }
+}
+
+function openTxDetail(id) {
+  const item = historyCache.find((h) => Number(h.id) === Number(id));
+  if (!item) return;
+  const asset = historyAsset(item);
+  const bucket = historyBucket(item);
+  const titles = {
+    withdraw: 'Детали вывода',
+    deposit: 'Детали депозита',
+    transfer: 'Детали перевода',
+  };
+  document.getElementById('txd-title').textContent = titles[bucket] || 'Детали транзакции';
+  document.getElementById('txd-amount').textContent = `${fmtHistAmt(item.amount)} ${asset}`;
+  document.getElementById('txd-status').innerHTML =
+    `<span class="hist-dot"></span>${escapeHtml(historyStatusText(item))}`;
+
+  const account = item.type === 'withdraw_card' ? 'Bybit Card' : 'Аккаунт финансирования';
+  const fee = item.fee == null ? '—' : String(item.fee);
+  const net = item.networkLabel || item.network || (asset === 'USDT' ? 'TRON (TRC20)' : '—');
+  const rows = [
+    ['Аккаунт', account],
+    bucket === 'withdraw' ? ['Комиссии', fee] : null,
+    ['Вид сети', net],
+    ['Время', fmtHistoryDate(item.createdAt)],
+  ].filter(Boolean);
+
+  const copyBtn = (val, which) => val
+    ? `<button type="button" class="txd-copy" data-copy="${which}" aria-label="Копировать">⧉</button>`
+    : '';
+
+  const extra = [];
+  if (item.address || bucket === 'withdraw' || bucket === 'deposit') {
+    extra.push(`<div class="txd-kv"><span class="txd-k">${bucket === 'deposit' ? 'Адрес' : 'Адрес вывода'}</span>
+      <div class="txd-v-row"><span class="txd-v" id="txd-addr">${escapeHtml(item.address || '—')}</span>${copyBtn(item.address, 'addr')}</div></div>`);
+  }
+  extra.push(`<div class="txd-kv"><span class="txd-k">Хэш транзакции (TXID)</span>
+    <div class="txd-v-row"><span class="txd-v" id="txd-hash">${escapeHtml(item.txHash || '—')}</span>${copyBtn(item.txHash, 'hash')}</div></div>`);
+
+  document.getElementById('txd-rows').innerHTML =
+    rows.map(([k, v]) => `<div class="txd-kv"><span class="txd-k">${escapeHtml(k)}</span><span class="txd-v">${escapeHtml(v)}</span></div>`).join('')
+    + extra.join('');
+
+  const ex = document.getElementById('txd-explorer');
+  if (item.txHash) {
+    ex.classList.remove('screen-hidden');
+    ex.dataset.url = item.explorer || `https://tronscan.org/#/transaction/${item.txHash}`;
+  } else {
+    ex.classList.add('screen-hidden');
+    ex.dataset.url = '';
+  }
+  showScreen('tx-detail');
 }
 
 // ---------- support ----------

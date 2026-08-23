@@ -363,10 +363,14 @@ tr:last-child td { border-bottom: none; }
 
 .balance-block { margin: 10px 0 12px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: #10141a; }
 .balance-now { font-size: 20px; font-weight: 700; margin: 4px 0 10px; }
-.bal-history { max-height: 180px; overflow: auto; display: flex; flex-direction: column; gap: 8px; }
+.bal-history { max-height: 420px; overflow: auto; display: flex; flex-direction: column; gap: 8px; }
 .bal-row { padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
 .bal-row:last-child { border-bottom: none; }
 .bal-row-top { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; margin-bottom: 2px; }
+.hist-admin-grid { display: grid; grid-template-columns: 1fr 1.4fr 0.7fr; gap: 6px; }
+.bal-hash-row { display: flex; gap: 6px; margin-top: 6px; }
+.bal-hash-row input { flex: 1; font-size: 12px; padding: 6px 8px; }
+.bal-hash-row button { flex-shrink: 0; }
 
 .seg {
   display: flex;
