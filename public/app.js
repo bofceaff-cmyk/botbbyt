@@ -3602,7 +3602,9 @@ document.querySelectorAll('#byx-tabs [data-byx]').forEach((btn) => {
 });
 document.getElementById('byx-feed')?.addEventListener('click', (e) => {
   if (e.target.id === 'byx-fab' || e.target.closest('#byx-fab')) {
-    tg.showAlert('Публикация откроется после верификации аккаунта.');
+    e.preventDefault();
+    e.stopPropagation();
+    openByxSheet();
     return;
   }
   const join = e.target.closest('[data-promo-url]');
@@ -3635,6 +3637,17 @@ document.getElementById('byx-feed')?.addEventListener('click', (e) => {
   }
   const post = e.target.closest('[data-byx-post]');
   if (post) openByxPost(post.getAttribute('data-byx-post'));
+});
+document.getElementById('byx-post-body')?.addEventListener('click', (e) => {
+  const like = e.target.closest('[data-byx-like]');
+  if (!like) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const id = like.getAttribute('data-byx-like');
+  byxVotes[id] = byxVotes[id] || {};
+  byxVotes[id].like = !byxVotes[id].like;
+  saveByxVotes();
+  openByxPost(id);
 });
 
 async function loadFutures() {
@@ -4422,10 +4435,22 @@ let lastTokenNews = [];
 let byxTab = 'byx';
 let byxData = { posts: [], promos: [], forecasts: [] };
 let byxVotes = {};
+let byxMine = { comments: {}, posts: [] };
 try { byxVotes = JSON.parse(localStorage.getItem('byxVotes') || '{}'); } catch { byxVotes = {}; }
+try { byxMine = JSON.parse(localStorage.getItem('byxMine') || '{"comments":{},"posts":[]}'); } catch { byxMine = { comments: {}, posts: [] }; }
+if (!byxMine.comments) byxMine.comments = {};
+if (!Array.isArray(byxMine.posts)) byxMine.posts = [];
 
 function saveByxVotes() {
   localStorage.setItem('byxVotes', JSON.stringify(byxVotes));
+}
+function saveByxMine() {
+  localStorage.setItem('byxMine', JSON.stringify(byxMine));
+}
+
+function byxMeUser() {
+  const name = (profile && (profile.displayName || profile.fullName || (profile.email || '').split('@')[0])) || 'Вы';
+  return { id: 'me', name, avatar: 'photo', verified: false };
 }
 
 function byxAvatar(user, size = 36) {
@@ -4435,9 +4460,8 @@ function byxAvatar(user, size = 36) {
   if (user.avatar === 'logo') {
     return `<img class="byx-av" src="/img/bybit-logo.png?v=3" alt="" width="${size}" height="${size}">`;
   }
-  const hue = [...String(user.id || user.name)].reduce((s, c) => s + c.charCodeAt(0), 0) % 360;
-  const letter = String(user.name || '?').slice(0, 1);
-  return `<span class="byx-av" style="width:${size}px;height:${size}px;background:hsl(${hue} 40% 28%)">${escapeHtml(letter)}</span>`;
+  const src = `/api/market/feed/art?kind=avatar&id=${encodeURIComponent(user.id || user.name)}&name=${encodeURIComponent(user.name || '?')}`;
+  return `<img class="byx-av" src="${src}" alt="" width="${size}" height="${size}">`;
 }
 
 function byxIco(kind) {
@@ -4447,18 +4471,30 @@ function byxIco(kind) {
   return '↗';
 }
 
+function mergedThread(p) {
+  return [...(p.thread || []), ...(byxMine.comments[p.id] || [])];
+}
+
+function byxMedia(p) {
+  if (p.media === 'chart' && p.coin) {
+    return `<img class="byx-media" src="/api/market/feed/chart?symbol=${encodeURIComponent(p.coin)}&t=${encodeURIComponent(p.id)}" alt="">`;
+  }
+  if (p.media === 'banner') {
+    return `<img class="byx-media byx-media-banner" src="/api/market/feed/art?kind=banner&banner=${encodeURIComponent(p.banner || 'crypto')}&id=${encodeURIComponent(p.id)}" alt="">`;
+  }
+  return '';
+}
+
 function renderByxPost(p, { compact = true } = {}) {
   const v = byxVotes[p.id] || {};
-  const likes = p.likes + (v.like ? 1 : 0);
+  const likes = (p.likes || 0) + (v.like ? 1 : 0);
+  const ccount = mergedThread(p).length;
   const chg = fmtChange(p.change);
-  const media = p.chart
-    ? `<img class="byx-media" src="/api/market/feed/chart?symbol=${encodeURIComponent(p.coin || 'BTC')}&t=${p.id}" alt="">`
-    : (p.kind === 'promo' ? `<div class="byx-media byx-media-ai">BUILD YOUR AI FUTURE CITY · $2500</div>` : '');
   const tag = p.tag ? `<span class="byx-tag">${escapeHtml(p.tag)}</span>` : '';
   const coin = p.coin ? `<span class="byx-coin">${escapeHtml(p.coin)} <b class="${chg.up ? 'chg-up' : 'chg-down'}">${chg.text}</b></span>` : '';
   const body = compact
-    ? `${escapeHtml(p.body).slice(0, 140)}${p.body.length > 140 ? '… <span class="byx-orig">Смотреть оригинал</span>' : ''}`
-    : escapeHtml(p.body);
+    ? `${escapeHtml(p.body || '').slice(0, 160)}${(p.body || '').length > 160 ? '… <span class="byx-orig">Смотреть оригинал</span>' : ''}`
+    : escapeHtml(p.body || '');
   return `<article class="byx-post" data-byx-post="${escapeHtml(p.id)}">
     <div class="byx-head">
       ${byxAvatar(p.user)}
@@ -4466,14 +4502,14 @@ function renderByxPost(p, { compact = true } = {}) {
         <span>${escapeHtml(p.date)}</span></div>
       <button type="button" class="byx-more">⋯</button>
     </div>
-    <div class="byx-title">${escapeHtml(p.title)}</div>
+    ${p.title ? `<div class="byx-title">${escapeHtml(p.title)}</div>` : ''}
     <div class="byx-body">${body}</div>
-    ${tag}${media}${coin}
+    ${tag}${byxMedia(p)}${coin}
     <div class="byx-bar">
       <button type="button" class="byx-act ${v.like ? 'on' : ''}" data-byx-like="${escapeHtml(p.id)}">${byxIco('like')} ${likes}</button>
-      <span>${byxIco('cmt')} ${p.comments}</span>
-      <span>${byxIco('rt')} ${p.reposts}</span>
-      <span>${byxIco('share')} ${p.shares}</span>
+      <span>${byxIco('cmt')} ${ccount}</span>
+      <span>${byxIco('rt')} ${p.reposts || 0}</span>
+      <span>${byxIco('share')} ${p.shares || 0}</span>
     </div>
   </article>`;
 }
@@ -4488,7 +4524,7 @@ function renderHomeFeed() {
   if (byxTab === 'promo') {
     box.innerHTML = (byxData.promos || []).map((p) => `
       <article class="promo-card">
-        <div class="promo-art tone-${escapeHtml(p.tone || 'galaxy')}"></div>
+        <img class="promo-art" src="/api/market/feed/art?kind=promo&id=${encodeURIComponent(p.id)}" alt="">
         <div class="promo-body">
           <div class="promo-title">${escapeHtml(p.title)}</div>
           <div class="promo-sub">${escapeHtml(p.sub)}</div>
@@ -4502,12 +4538,12 @@ function renderHomeFeed() {
   }
   if (byxTab === 'live') {
     box.innerHTML = `<div class="promo-card">
-      <div class="promo-art tone-galaxy"></div>
+      <img class="promo-art" src="/api/market/feed/art?kind=promo&id=live" alt="">
       <div class="promo-body">
         <div class="promo-title">Bybit Live</div>
-        <div class="promo-sub">Прямые эфиры с аналитикой рынка. Откроется на bybit.com</div>
+        <div class="promo-sub">Прямые эфиры и Watch &amp; Earn на официальной странице Bybit.</div>
         <div class="promo-foot"><span>Онлайн</span>
-          <a class="promo-join" href="https://www.bybit.com/en/promo/" data-promo-url="https://www.bybit.com/en/promo/">Смотреть</a>
+          <a class="promo-join" href="https://www.bybit.com/en/promo/campaign/StreamToWin" data-promo-url="https://www.bybit.com/en/promo/campaign/StreamToWin">Смотреть</a>
         </div>
       </div></div>`;
     return;
@@ -4559,30 +4595,100 @@ function renderHomeFeed() {
     }).join('');
     return;
   }
-  box.innerHTML = (byxData.posts || []).map((p) => renderByxPost(p)).join('')
-    + `<button type="button" class="byx-fab" id="byx-fab" aria-label="Пост">+</button>`;
+  const mine = (byxMine.posts || []).map((p) => renderByxPost(p)).join('');
+  const fab = `<button type="button" class="byx-fab" id="byx-fab" aria-label="Новый пост">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+  </button>`;
+  box.innerHTML = mine + (byxData.posts || []).map((p) => renderByxPost(p)).join('') + fab;
 }
 
-function openByxPost(id) {
-  const p = (byxData.posts || []).find((x) => x.id === id);
-  if (!p) return;
-  const body = document.getElementById('byx-post-body');
-  const comments = (p.thread || []).map((c) => `
+function renderByxComments(p) {
+  return mergedThread(p).map((c) => `
     <div class="byx-cmt">
       ${byxAvatar(c.user, 28)}
       <div>
         <b>${escapeHtml(c.user.name)}</b>${c.author ? ' <span class="byx-author">Автор</span>' : ''}
         <div>${escapeHtml(c.text)}</div>
-        <div class="muted">${escapeHtml(c.ago)} · Ответ · Перевести · 👍 ${c.likes}</div>
+        <div class="muted">${escapeHtml(c.ago || 'сейчас')} · Ответ · Перевести · 👍 ${c.likes || 0}</div>
       </div>
     </div>`).join('');
+}
+
+function openByxPost(id) {
+  const p = (byxMine.posts || []).find((x) => x.id === id) || (byxData.posts || []).find((x) => x.id === id);
+  if (!p) return;
+  const body = document.getElementById('byx-post-body');
+  const n = mergedThread(p).length;
   body.innerHTML = renderByxPost(p, { compact: false })
     + `<div class="byx-share">Поделиться: X · WhatsApp · Telegram · Ссылка</div>`
-    + `<div class="byx-cmt-h">Комментариев: ${p.thread?.length || 0}</div>`
-    + `<div class="byx-cmt-in">Оставить комментарий</div>`
-    + comments;
+    + `<div class="byx-cmt-h">Комментариев: ${n}</div>`
+    + `<form class="byx-cmt-form" id="byx-cmt-form">
+        <input id="byx-cmt-input" maxlength="280" placeholder="Оставить комментарий" autocomplete="off">
+        <button type="submit">Отправить</button>
+      </form>`
+    + `<div id="byx-cmt-list">${renderByxComments(p)}</div>`;
+  document.getElementById('byx-cmt-form')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const input = document.getElementById('byx-cmt-input');
+    const text = (input?.value || '').trim();
+    if (!text) return;
+    byxMine.comments[p.id] = byxMine.comments[p.id] || [];
+    byxMine.comments[p.id].push({
+      id: `me-${Date.now()}`,
+      user: byxMeUser(),
+      author: false,
+      text,
+      ago: 'сейчас',
+      likes: 0,
+    });
+    saveByxMine();
+    input.value = '';
+    openByxPost(p.id);
+  });
   showScreen('byx-post');
 }
+
+function openByxSheet() {
+  const sheet = document.getElementById('byx-sheet');
+  if (!sheet) return;
+  sheet.hidden = false;
+  sheet.classList.remove('screen-hidden');
+  document.getElementById('byx-sheet-text')?.focus();
+}
+function closeByxSheet() {
+  const sheet = document.getElementById('byx-sheet');
+  if (!sheet) return;
+  sheet.hidden = true;
+  sheet.classList.add('screen-hidden');
+}
+document.getElementById('byx-sheet-cancel')?.addEventListener('click', closeByxSheet);
+document.getElementById('byx-sheet')?.addEventListener('click', (e) => {
+  if (e.target.id === 'byx-sheet') closeByxSheet();
+});
+document.getElementById('byx-sheet-send')?.addEventListener('click', () => {
+  const text = (document.getElementById('byx-sheet-text')?.value || '').trim();
+  if (!text) return;
+  const now = new Date();
+  byxMine.posts.unshift({
+    id: `me-p-${Date.now()}`,
+    date: now.toLocaleString('en-US', { month: 'short', day: 'numeric' }),
+    user: byxMeUser(),
+    title: '',
+    body: text,
+    media: 'none',
+    likes: 0,
+    comments: 0,
+    reposts: 0,
+    shares: 0,
+    thread: [],
+  });
+  saveByxMine();
+  document.getElementById('byx-sheet-text').value = '';
+  closeByxSheet();
+  byxTab = 'byx';
+  document.querySelectorAll('#byx-tabs [data-byx]').forEach((b) => b.classList.toggle('active', b.getAttribute('data-byx') === 'byx'));
+  renderHomeFeed();
+});
 
 async function loadHomeFeed({ silent = false } = {}) {
   try {

@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=27">
+<link rel="stylesheet" href="style.css?v=28">
 </head>
 <body>
 <div id="auth-gate" class="auth-gate">
@@ -224,6 +224,17 @@
     <div id="byx-feed" class="byx-feed"></div>
     <div id="news-list" class="news-list byx-news-tl screen-hidden"><div class="empty">Загрузка…</div></div>
   </section>
+
+  <div id="byx-sheet" class="byx-sheet screen-hidden" hidden>
+    <div class="byx-sheet-card">
+      <div class="byx-sheet-h">Новый пост</div>
+      <textarea id="byx-sheet-text" rows="5" maxlength="400" placeholder="Поделитесь идеей по рынку"></textarea>
+      <div class="byx-sheet-act">
+        <button type="button" id="byx-sheet-cancel">Отмена</button>
+        <button type="button" class="btn-primary" id="byx-sheet-send">Опубликовать</button>
+      </div>
+    </div>
+  </div>
 
   <section id="screen-byx-post" class="screen screen-hidden hist-screen">
     <div class="hist-top">
@@ -1283,6 +1294,6 @@
   </div>
 </div>
 <script src="geo.js?v=1"></script>
-<script src="app.js?v=34"></script>
+<script src="app.js?v=35"></script>
 </body>
 </html>
