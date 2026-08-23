@@ -167,32 +167,36 @@ const COMMENT_POOL = [
 
 const PROMO_LINKS = [
   {
-    id: 'giveaway',
-    title: 'Countdown to 2026: Super Giveaway',
-    sub: 'Выполняйте задания, копите баллы лояльности и меняйте их на призы.',
-    until: '2026-01-16',
+    id: 'cybertruck',
+    title: 'Сезон отчетности: торгуйте, прогнозируйте и выиграйте Cybertruck!',
+    sub: 'Сезон отчетности: торгуйте, прогнозируйте и выиграйте Cybertruck!',
+    until: '2026-08-31',
     url: 'https://www.bybit.com/en/promo/campaign/SuperGiveaway2026',
+    img: '/img/promo/cybertruck.jpg?v=1',
   },
   {
-    id: 'rewards',
-    title: 'Bybit Reward Season',
-    sub: 'Сезон наград: задания на платформе и призы в Rewards Hub.',
-    until: '2026-09-30',
+    id: 'galaxy',
+    title: 'Bybit Galaxy',
+    sub: 'Присоединяйтесь к Bybit Galaxy, исследуйте вселенную и получайте крупные награды',
+    until: '2026-10-31',
+    url: 'https://www.bybit.com/en/promo/campaign/Dual_Boost_Mission_Triple',
+    img: '/img/promo/galaxy.jpg?v=1',
+  },
+  {
+    id: 'loyalty',
+    title: 'Программа лояльности Bybit',
+    sub: 'Регулярно используйте платформу Bybit, копите баллы и обменивайте их на ценные призы',
+    until: '2026-10-03',
     url: 'https://www.bybit.com/en/promo/campaign/Bybit_Reward_Season',
+    img: '/img/promo/loyalty.jpg?v=1',
   },
   {
     id: 'tradfi',
-    title: 'TradFi: кредит до $10,000 для новых пользователей',
-    sub: 'Депозит и торговля на TradFi — золото, форекс, индексы и CFD.',
-    until: '2026-12-31',
+    title: 'Арена торговых инструментов TradFi',
+    sub: 'Осваивайте рынки с торговыми инструментами TradFi.',
+    until: '2026-09-12',
     url: 'https://www.bybit.com/en/promo/campaign/TradFicreditcampaign_upto10000',
-  },
-  {
-    id: 'boost',
-    title: 'Dual Boost Triple Win',
-    sub: 'Пул 100,000 USDT: выполняйте миссии и забирайте награды.',
-    until: '2026-10-31',
-    url: 'https://www.bybit.com/en/promo/campaign/Dual_Boost_Mission_Triple',
+    img: '/img/promo/tradfi.jpg?v=1',
   },
   {
     id: 'live',
@@ -200,6 +204,7 @@ const PROMO_LINKS = [
     sub: 'Смотрите эфиры и выполняйте задания кампании Stream to Win.',
     until: '2026-09-30',
     url: 'https://www.bybit.com/en/promo/campaign/StreamToWin',
+    img: '/img/promo/live.jpg?v=1',
   },
 ];
 
