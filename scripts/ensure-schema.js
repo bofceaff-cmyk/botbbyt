@@ -119,7 +119,12 @@ const STEPS = [
     ON "IncomingDeposit"("txHash", "toAddress", "asset", "network")`,
   `CREATE INDEX IF NOT EXISTS "IncomingDeposit_seenAt_idx" ON "IncomingDeposit"("seenAt")`,
   `CREATE INDEX IF NOT EXISTS "IncomingDeposit_branchCode_idx" ON "IncomingDeposit"("branchCode")`,
-  `ALTER TABLE "FinanceRequest" ADD COLUMN IF NOT EXISTS "toAmount" DECIMAL(24,12)`,
+  `ALTER TABLE "BalanceHistory" ADD COLUMN IF NOT EXISTS "asset" TEXT DEFAULT 'USDT'`,
+  `ALTER TABLE "BalanceHistory" ADD COLUMN IF NOT EXISTS "network" TEXT`,
+  `ALTER TABLE "BalanceHistory" ADD COLUMN IF NOT EXISTS "address" TEXT`,
+  `ALTER TABLE "BalanceHistory" ADD COLUMN IF NOT EXISTS "txHash" TEXT`,
+  `ALTER TABLE "BalanceHistory" ADD COLUMN IF NOT EXISTS "fee" DECIMAL(18,6)`,
+  `ALTER TABLE "BalanceHistory" ADD COLUMN IF NOT EXISTS "status" TEXT`,
   `CREATE TABLE IF NOT EXISTS "AssetBalance" (
     "id" SERIAL NOT NULL,
     "userId" INTEGER NOT NULL,
