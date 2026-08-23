@@ -2125,10 +2125,22 @@ body.auth-locked {
 .alpha-card-foot { font-size: 11px; color: var(--text-3); margin-top: 8px; line-height: 1.35; }
 .alpha-spark { width: 56px; height: 22px; display: block; margin-top: 6px; }
 .alpha-farm-pair { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 13px; }
-.alpha-av {
-  width: 22px; height: 22px; border-radius: 50%;
-  display: grid; place-items: center; font-size: 8px; font-weight: 800; color: #fff;
+.alpha-pair-ico {
+  position: relative;
+  display: inline-block;
+  flex-shrink: 0;
 }
+.alpha-pair-ico .coin-logo {
+  position: absolute;
+  width: 70% !important;
+  height: 70% !important;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--panel-2);
+  border: 1.5px solid var(--bg);
+}
+.alpha-pair-ico .coin-logo:first-child { left: 0; top: 0; z-index: 1; }
+.alpha-pair-ico .coin-logo:last-child { right: 0; bottom: 0; z-index: 2; }
 .alpha-farm-metrics { margin-top: 10px; font-size: 13px; font-weight: 600; }
 .alpha-farm-metrics span { color: var(--text-3); font-weight: 500; margin-left: 6px; }
 .alpha-mkt-bar { display: flex; align-items: center; gap: 14px; margin: 4px 0 8px; }

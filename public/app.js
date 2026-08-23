@@ -975,11 +975,18 @@ function coinSrc(symbol) {
   return `/api/market/icon/${coinTicker(symbol)}`;
 }
 
-function coinLogoHtml(symbol, size = 32) {
+function coinLogoHtml(symbol, size = 32, image) {
   const id = coinTicker(symbol);
-  const src = `/api/market/icon/${id}`;
-  const fb = `https://assets.coincap.io/assets/icons/${id.toLowerCase()}@2x.png`;
+  const q = image ? `?img=${encodeURIComponent(image)}` : '';
+  const src = `/api/market/icon/${encodeURIComponent(id)}${q}`;
+  const fb = `/api/market/icon/${encodeURIComponent(id)}`;
   return `<img class="coin-logo quote-logo" src="${src}" alt="${id}" width="${size}" height="${size}" loading="lazy" referrerpolicy="no-referrer" onerror="if(!this.dataset.f){this.dataset.f=1;this.src='${fb}';}else{this.onerror=null;}">`;
+}
+
+function farmPairHtml(f, size = 32) {
+  const a = coinLogoHtml(f.aId || f.a || 'SPCX', Math.round(size * 0.72), f.logoA);
+  const b = coinLogoHtml('USDC', Math.round(size * 0.72));
+  return `<span class="alpha-pair-ico" style="width:${size}px;height:${size}px">${a}${b}</span>`;
 }
 
 function coinIconHtml(a, size = 22) {
@@ -3766,7 +3773,7 @@ function renderAlpha() {
       : `${fmtCompact(a.marketCap)} рыночная капитал<br>Объем, 24H: ${fmtCompact(a.volume24h)}`;
     return `<button type="button" class="alpha-card" data-alpha-sym="${escapeHtml(a.symbol)}">
       <div class="alpha-card-tag">${escapeHtml(a.tag || 'Новые')}</div>
-      <div class="alpha-card-name">${coinLogoHtml(a.symbol, 20)} ${escapeHtml(a.symbol)}
+      <div class="alpha-card-name">${coinLogoHtml(a.symbol, 22, a.image)} ${escapeHtml(a.symbol)}
         ${a.popular ? '<span class="alpha-pop">Популярно</span>' : ''}</div>
       <div class="alpha-card-px">${fmtUsdPrice(a.price)} <span class="${chg.up ? 'chg-up' : 'chg-down'}">${chg.text}</span></div>
       ${alphaSpark(chg.up)}
@@ -3778,8 +3785,7 @@ function renderAlpha() {
     <button type="button" class="alpha-card" data-alpha-farm="${escapeHtml(f.pair)}">
       <div class="alpha-card-tag">${escapeHtml(f.tag || 'Farm')}</div>
       <div class="alpha-farm-pair">
-        <span class="alpha-av" style="background:${escapeHtml(f.aBg || '#333')}">${escapeHtml(f.a || '?')}</span>
-        ${coinLogoHtml('USDC', 18)}
+        ${farmPairHtml(f, 32)}
         ${escapeHtml(f.pair)}
         ${f.popular ? '<span class="alpha-pop">Популярно</span>' : ''}
       </div>
@@ -3792,7 +3798,7 @@ function renderAlpha() {
     document.getElementById('alpha-list').innerHTML = farms.map((f) => `
       <button type="button" class="alpha-row" data-alpha-farm="${escapeHtml(f.pair)}">
         <div class="alpha-row-l">
-          <span class="alpha-av" style="background:${escapeHtml(f.aBg || '#333')}">${escapeHtml(f.a || '?')}</span>
+          ${farmPairHtml(f, 36)}
           <div><div class="hist-sym">${escapeHtml(f.pair)}</div>
             <div class="alpha-row-meta">${escapeHtml(f.tag)} · ${fmtCompact(f.tvl)} TVL</div></div>
         </div>
@@ -3824,7 +3830,7 @@ function renderAlpha() {
     document.getElementById('alpha-list').innerHTML = farms.filter((f) => /stock|rwa|nvda|tsla|spcx/i.test(`${f.tag} ${f.pair}`)).map((f) => `
       <button type="button" class="alpha-row" data-alpha-farm="${escapeHtml(f.pair)}">
         <div class="alpha-row-l">
-          <span class="alpha-av" style="background:${escapeHtml(f.aBg || '#333')}">${escapeHtml(f.a || '?')}</span>
+          ${farmPairHtml(f, 36)}
           <div><div class="hist-sym">${escapeHtml(f.pair)}</div>
             <div class="alpha-row-meta">${fmtCompact(f.tvl)} TVL</div></div>
         </div>
@@ -3847,7 +3853,7 @@ function renderAlpha() {
     return `<button type="button" class="alpha-row" data-alpha-sym="${escapeHtml(a.symbol)}" data-alpha-chg="${a.change24h ?? ''}">
       <div class="alpha-row-l">
         <span class="alpha-star ${on ? 'on' : ''}" data-alpha-fav="${escapeHtml(a.symbol)}">${on ? '★' : '☆'}</span>
-        ${coinLogoHtml(a.symbol, 28)}
+        ${coinLogoHtml(a.symbol, 28, a.image)}
         <div>
           <div class="hist-sym">${escapeHtml(a.symbol)}</div>
           <div class="alpha-row-meta">${fmtCompact(a.volume24h)} | ${fmtCompact(a.marketCap)}</div>
