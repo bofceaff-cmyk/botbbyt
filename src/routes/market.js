@@ -39,8 +39,8 @@ function allowImgUrl(url) {
   try {
     const u = new URL(url);
     if (u.protocol !== 'https:') return false;
-    return /(coingecko\.com|coincap\.io|bnbstatic\.com|clearbit\.com|cryptologos\.cc|coinmarketcap\.com)$/i.test(u.hostname)
-      || /\.(coingecko|coincap|bnbstatic|clearbit|cryptologos|coinmarketcap)\./i.test(u.hostname);
+    return /(coingecko\.com|coincap\.io|bnbstatic\.com|clearbit\.com|cryptologos\.cc|coinmarketcap\.com|unsplash\.com|bybit\.com)$/i.test(u.hostname)
+      || /\.(coingecko|coincap|bnbstatic|clearbit|cryptologos|coinmarketcap|unsplash|bybit)\./i.test(u.hostname);
   } catch {
     return false;
   }
@@ -161,7 +161,7 @@ let quotesCache = { at: 0, data: null };
 let newsCache = { at: 0, data: null };
 
 const QUOTES_TTL = 45 * 1000;
-const NEWS_TTL = 90 * 1000;
+const NEWS_TTL = 45 * 1000;
 const NEWS_MAX_AGE_MS = 36 * 60 * 60 * 1000;
 
 const FETCH_HEADERS = {
@@ -230,6 +230,8 @@ function normalizeItem({ id, title, url, source, image, publishedAt, body }) {
   const titleClean = stripHtml(decodeXml(title)).trim();
   const href = String(url || '').trim();
   if (!titleClean || !href || !/^https?:\/\//i.test(href)) return null;
+  const { newsSymbols } = require('../feed');
+  const symbols = newsSymbols(titleClean, body);
   return {
     id: String(id || href),
     title: titleClean.slice(0, 180),
@@ -238,6 +240,7 @@ function normalizeItem({ id, title, url, source, image, publishedAt, body }) {
     image: image || null,
     publishedAt: toIso(publishedAt),
     body: stripHtml(decodeXml(body)).slice(0, 180),
+    symbols,
   };
 }
 
@@ -303,20 +306,25 @@ async function newsFromBinance() {
   return out.filter(Boolean).slice(0, 24);
 }
 
-async function newsFromCryptoCompare() {
+async function newsFromCryptoCompare(symbol) {
   const key = String(process.env.CRYPTOCOMPARE_KEY || '').trim();
-  if (!key) return [];
-  const raw = await fetchJson(`https://min-api.cryptocompare.com/data/v2/news/?lang=EN&api_key=${encodeURIComponent(key)}`);
-  const list = raw?.Data || [];
-  return list.slice(0, 20).map((n, i) => normalizeItem({
-    id: n.id || n.guid || `cc-${i}`,
-    title: n.title,
-    url: n.url || n.guid,
-    source: n.source_info?.name || n.source || 'CryptoCompare',
-    image: n.imageurl || null,
-    publishedAt: n.published_on,
-    body: n.body,
-  })).filter(Boolean);
+  const cat = symbol ? `&categories=${encodeURIComponent(String(symbol).toUpperCase())}` : '';
+  const qs = key ? `&api_key=${encodeURIComponent(key)}` : '';
+  try {
+    const raw = await fetchJson(`https://min-api.cryptocompare.com/data/v2/news/?lang=EN${cat}${qs}`, 8000);
+    const list = raw?.Data || [];
+    return list.slice(0, 24).map((n, i) => normalizeItem({
+      id: n.id || n.guid || `cc-${i}`,
+      title: n.title,
+      url: n.url || n.guid,
+      source: n.source_info?.name || n.source || 'CryptoCompare',
+      image: n.imageurl || null,
+      publishedAt: n.published_on,
+      body: n.body,
+    })).filter(Boolean);
+  } catch {
+    return [];
+  }
 }
 
 function mergeNews(lists) {
@@ -493,20 +501,46 @@ router.get('/stream', (req, res) => {
   req.on('close', () => sseClients.delete(res));
 });
 
-router.get('/news', async (_req, res) => {
-  res.set('Cache-Control', 'no-store');
-  try {
-    if (newsCache.data && Date.now() - newsCache.at < NEWS_TTL) {
-      return res.json(newsCache.data);
-    }
+const tokenNewsCache = new Map();
 
-    const items = await loadFreshNews();
-    if (items.length) {
-      newsCache = { at: Date.now(), data: items };
-      return res.json(items);
+router.get('/news', async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const symbol = String(req.query.symbol || '').toUpperCase().replace(/USDT$/, '');
+  try {
+    let items;
+    if (newsCache.data && Date.now() - newsCache.at < NEWS_TTL) {
+      items = newsCache.data;
+    } else {
+      items = await loadFreshNews();
+      if (items.length) newsCache = { at: Date.now(), data: items };
+      else items = newsCache.data || [];
     }
-    if (newsCache.data) return res.json(newsCache.data);
-    res.json([]);
+    if (symbol) {
+      const hit = tokenNewsCache.get(symbol);
+      let extra = [];
+      if (hit && Date.now() - hit.at < NEWS_TTL) extra = hit.data;
+      else {
+        extra = await newsFromCryptoCompare(symbol);
+        tokenNewsCache.set(symbol, { at: Date.now(), data: extra });
+      }
+      const merged = [...extra, ...items].filter((n) => {
+        const tags = (n.symbols || []).map((s) => String(s).toUpperCase());
+        const blob = `${n.title || ''} ${n.body || ''}`;
+        return tags.includes(symbol) || new RegExp(`\\b${symbol}\\b`, 'i').test(blob)
+          || (symbol === 'BTC' && /bitcoin|биткоин/i.test(blob))
+          || (symbol === 'ETH' && /ethereum|эфир/i.test(blob));
+      });
+      const seen = new Set();
+      const out = [];
+      for (const n of merged) {
+        if (seen.has(n.id) || seen.has(n.url)) continue;
+        seen.add(n.id);
+        seen.add(n.url);
+        out.push(n);
+      }
+      return res.json(out.slice(0, 24));
+    }
+    res.json(items);
   } catch (e) {
     if (newsCache.data) return res.json(newsCache.data);
     res.json([]);
@@ -832,6 +866,53 @@ router.get('/alpha', async (_req, res) => {
     if (alphaCache.data) return res.json(alphaCache.data);
     res.json({ sniping: ALPHA_FALLBACK.slice(0, 2), farms: ALPHA_FARMS, market: ALPHA_FALLBACK });
   }
+});
+
+router.get('/feed', (_req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const { buildFeed } = require('../feed');
+  res.json(buildFeed(Date.now()));
+});
+
+router.get('/feed/chart', async (req, res) => {
+  const symbol = String(req.query.symbol || 'BTC').toUpperCase().replace(/USDT$/, '');
+  const pair = `${symbol}USDT`;
+  let candles = [];
+  try {
+    candles = await klinesFromBinance(pair, '1h');
+  } catch {
+    try { candles = await klinesFromGecko((await resolveCoin(symbol)).id, '1h'); } catch { candles = []; }
+  }
+  const w = 640;
+  const h = 280;
+  const slice = candles.slice(-48);
+  const max = Math.max(...slice.map((c) => c.high), 1);
+  const min = Math.min(...slice.map((c) => c.low), 0);
+  const span = max - min || 1;
+  const bw = slice.length ? (w - 40) / slice.length : 8;
+  const body = slice.map((c, i) => {
+    const x = 20 + i * bw;
+    const yHigh = 20 + ((max - c.high) / span) * (h - 40);
+    const yLow = 20 + ((max - c.low) / span) * (h - 40);
+    const yO = 20 + ((max - c.open) / span) * (h - 40);
+    const yC = 20 + ((max - c.close) / span) * (h - 40);
+    const up = c.close >= c.open;
+    const top = Math.min(yO, yC);
+    const bh = Math.max(2, Math.abs(yC - yO));
+    const col = up ? '#0ecb81' : '#f6465d';
+    return `<line x1="${x}" x2="${x}" y1="${yHigh}" y2="${yLow}" stroke="${col}" stroke-width="1"/>`
+      + `<rect x="${x - bw * 0.28}" y="${top}" width="${Math.max(2, bw * 0.55)}" height="${bh}" fill="${col}"/>`;
+  }).join('');
+  const last = slice[slice.length - 1];
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">`
+    + `<rect width="100%" height="100%" fill="#0b0e11"/>`
+    + `<text x="24" y="36" fill="#3a4250" font-size="42" font-family="Arial" font-weight="700">BYBIT</text>`
+    + body
+    + `<text x="24" y="${h - 18}" fill="#eaecef" font-size="18" font-family="Arial">${symbol}USDT ${last ? last.close.toFixed(2) : ''}</text>`
+    + `</svg>`;
+  res.type('image/svg+xml');
+  res.set('Cache-Control', 'public, max-age=60');
+  res.send(svg);
 });
 
 let fxCache = { at: 0, data: { USD: 1, EUR: 0.92, RUB: 92 } };
