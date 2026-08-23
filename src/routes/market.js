@@ -22,15 +22,67 @@ const GECKO_ICONS = {
   AVAX: 'https://assets.coingecko.com/coins/images/12559/small/Avalanche_Circle_RedWhite_Trans.png',
   LINK: 'https://assets.coingecko.com/coins/images/877/small/chainlink-new-logo.png',
   TRX: 'https://assets.coingecko.com/coins/images/1094/small/tron-logo.png',
+  ZEC: 'https://assets.coingecko.com/coins/images/486/small/circle-zcash-color.png',
+  TRUMP: 'https://assets.coingecko.com/coins/images/53746/small/trump.png',
+  HYPE: 'https://assets.coingecko.com/coins/images/50882/small/hyperliquid.jpg',
+  PEPE: 'https://assets.coingecko.com/coins/images/29850/small/pepe-token.jpeg',
+  BONK: 'https://assets.coingecko.com/coins/images/28600/small/bonk.jpg',
+  WIF: 'https://assets.coingecko.com/coins/images/33566/small/dogwifhat.jpg',
+  FLOKI: 'https://assets.coingecko.com/coins/images/16746/small/PNG_image.png',
+  PENGU: 'https://assets.coingecko.com/coins/images/52622/small/PUDGY_PENGUINS_PENGU_PFP.png',
+  WLD: 'https://assets.coingecko.com/coins/images/31069/small/worldcoin.jpeg',
 };
 
 const iconMem = new Map();
 
+function allowImgUrl(url) {
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'https:') return false;
+    return /(coingecko\.com|coincap\.io|bnbstatic\.com|clearbit\.com|cryptologos\.cc|coinmarketcap\.com)$/i.test(u.hostname)
+      || /\.(coingecko|coincap|bnbstatic|clearbit|cryptologos|coinmarketcap)\./i.test(u.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function letterIconBuf(id) {
+  const letters = String(id || '?').slice(0, 3);
+  const hue = [...String(id)].reduce((s, c) => s + c.charCodeAt(0), 0) % 360;
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">` +
+    `<circle cx="32" cy="32" r="32" fill="hsl(${hue} 42% 32%)"/>` +
+    `<text x="32" y="39" text-anchor="middle" fill="#fff" font-size="${letters.length > 2 ? 14 : 18}" ` +
+    `font-family="Arial,sans-serif" font-weight="700">${letters.replace(/[<&]/g, '')}</text></svg>`;
+  return Buffer.from(svg);
+}
+
+async function fetchImageBuf(url) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 8000);
+  try {
+    const r = await fetch(url, {
+      signal: ctrl.signal,
+      headers: { Accept: 'image/*,*/*', 'User-Agent': 'Mozilla/5.0' },
+    });
+    if (!r.ok) return null;
+    const buf = Buffer.from(await r.arrayBuffer());
+    if (buf.length < 80) return null;
+    return { buf, ctype: r.headers.get('content-type') || 'image/png' };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 router.get('/icon/:symbol', async (req, res) => {
   let id = String(req.params.symbol || '').toUpperCase().replace(/\.PNG$/i, '');
   if (id.endsWith('USDT') && id !== 'USDT') id = id.replace(/USDT$/, '');
-  id = id || 'USDT';
-  const hit = iconMem.get(id);
+  id = id.replace(/[^A-Z0-9]/g, '') || 'USDT';
+  const extra = String(req.query.img || '').trim();
+  const cacheKey = extra ? `${id}::${extra}` : id;
+  const hit = iconMem.get(cacheKey) || iconMem.get(id);
   if (hit && Date.now() - hit.at < 24 * 3600 * 1000) {
     res.set('Cache-Control', 'public, max-age=86400');
     res.type(hit.ctype);
@@ -38,27 +90,43 @@ router.get('/icon/:symbol', async (req, res) => {
   }
   const slug = id.toLowerCase();
   const urls = [
+    allowImgUrl(extra) ? extra : null,
     GECKO_ICONS[id],
     `https://assets.coincap.io/assets/icons/${slug}@2x.png`,
     `https://bin.bnbstatic.com/static/assets/logos/${id}.png`,
   ].filter(Boolean);
   for (const url of urls) {
-    try {
-      const ctrl = new AbortController();
-      const t = setTimeout(() => ctrl.abort(), 8000);
-      const r = await fetch(url, { signal: ctrl.signal, headers: { Accept: 'image/*', 'User-Agent': 'Mozilla/5.0' } });
-      clearTimeout(t);
-      if (!r.ok) continue;
-      const buf = Buffer.from(await r.arrayBuffer());
-      if (buf.length < 80) continue;
-      const rec = { buf, ctype: r.headers.get('content-type') || 'image/png', at: Date.now() };
-      iconMem.set(id, rec);
-      res.set('Cache-Control', 'public, max-age=86400');
-      res.type(rec.ctype);
-      return res.send(rec.buf);
-    } catch { /* try next */ }
+    const rec = await fetchImageBuf(url);
+    if (!rec) continue;
+    const stored = { ...rec, at: Date.now() };
+    iconMem.set(cacheKey, stored);
+    iconMem.set(id, stored);
+    res.set('Cache-Control', 'public, max-age=86400');
+    res.type(rec.ctype);
+    return res.send(rec.buf);
   }
-  res.status(404).end();
+  try {
+    const raw = await fetchJson(`https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(id)}`, 6000);
+    const coin = (raw.coins || []).find((c) => String(c.symbol || '').toUpperCase() === id) || (raw.coins || [])[0];
+    const gurl = coin?.large || coin?.thumb || coin?.small;
+    if (gurl) {
+      const rec = await fetchImageBuf(gurl);
+      if (rec) {
+        const stored = { ...rec, at: Date.now() };
+        iconMem.set(cacheKey, stored);
+        iconMem.set(id, stored);
+        res.set('Cache-Control', 'public, max-age=86400');
+        res.type(rec.ctype);
+        return res.send(rec.buf);
+      }
+    }
+  } catch { /* svg fallback */ }
+  const buf = letterIconBuf(id);
+  const stored = { buf, ctype: 'image/svg+xml', at: Date.now() };
+  iconMem.set(cacheKey, stored);
+  res.set('Cache-Control', 'public, max-age=3600');
+  res.type(stored.ctype);
+  return res.send(buf);
 });
 
 const COINS = [
@@ -585,9 +653,21 @@ const ALPHA_MARKET = [
 ];
 
 const ALPHA_FARMS = [
-  { pair: 'SPCX-USDC', tag: 'RWA', apr: 3.65, tvl: 158530, popular: true, a: 'SP', b: 'USDC', aBg: '#111827' },
-  { pair: 'NVDAx-USDC', tag: 'Популярное', apr: 1.67, tvl: 92140, popular: true, a: 'NV', b: 'USDC', aBg: '#76b900' },
-  { pair: 'TSLAx-USDC', tag: 'Stocks', apr: 2.14, tvl: 54010, popular: false, a: 'TS', b: 'USDC', aBg: '#cc0000' },
+  {
+    pair: 'SPCX-USDC', tag: 'RWA', apr: 3.65, tvl: 158530, popular: true,
+    a: 'SP', aId: 'SPCX', aBg: '#111827',
+    logoA: 'https://logo.clearbit.com/spacex.com',
+  },
+  {
+    pair: 'NVDAx-USDC', tag: 'Популярное', apr: 1.67, tvl: 92140, popular: true,
+    a: 'NV', aId: 'NVDA', aBg: '#76b900',
+    logoA: 'https://logo.clearbit.com/nvidia.com',
+  },
+  {
+    pair: 'TSLAx-USDC', tag: 'Stocks', apr: 2.14, tvl: 54010, popular: false,
+    a: 'TS', aId: 'TSLA', aBg: '#cc0000',
+    logoA: 'https://logo.clearbit.com/tesla.com',
+  },
 ];
 
 const ALPHA_FALLBACK = [
@@ -613,6 +693,7 @@ function mapAlphaRow(meta, row) {
     change24h: row.price_change_percentage_24h ?? row.change24h,
     volume24h: row.total_volume ?? row.volume24h,
     marketCap: row.market_cap ?? row.marketCap,
+    image: row.image || null,
   };
 }
 
@@ -643,17 +724,19 @@ router.get('/alpha', async (_req, res) => {
       const coins = (tr.coins || []).slice(0, 2).map((x) => x.item).filter(Boolean);
       if (coins.length) {
         sniping = coins.map((item, i) => {
-          const usd = item.data?.price != null ? Number(item.data.price) : null;
+          const rawPx = item.data?.price;
+          const usd = typeof rawPx === 'number' ? rawPx : Number(String(rawPx || '').replace(/[^0-9.-]/g, ''));
           return {
             symbol: String(item.symbol || '').toUpperCase(),
             name: item.name,
             tag: i === 0 ? 'Новые' : 'Мемы',
             popular: true,
-            price: usd,
+            price: Number.isFinite(usd) ? usd : null,
             change24h: Number(item.data?.price_change_percentage_24h?.usd ?? 0),
             volume24h: Number(String(item.data?.total_volume || '').replace(/[^0-9.]/g, '')) || null,
             marketCap: Number(String(item.data?.market_cap || '').replace(/[^0-9.]/g, '')) || null,
             created: i === 0 ? '8D' : null,
+            image: item.large || item.small || item.thumb || null,
           };
         });
       }
