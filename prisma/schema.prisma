@@ -166,6 +166,12 @@ model BalanceHistory {
   amount    Decimal  @db.Decimal(18, 6)
   balance   Decimal  @db.Decimal(18, 6)
   meta      String?
+  asset     String?  @default("USDT")
+  network   String?
+  address   String?
+  txHash    String?
+  fee       Decimal? @db.Decimal(18, 6)
+  status    String?
   createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id])
