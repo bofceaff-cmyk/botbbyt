@@ -920,6 +920,26 @@ router.get('/feed/chart', async (req, res) => {
   res.send(chartSvg(candles, symbol));
 });
 
+router.get('/feed/promo/:id', (req, res) => {
+  const fs = require('fs');
+  const path = require('path');
+  const raw = String(req.params.id || '').toLowerCase().replace(/[^a-z0-9_-]/g, '');
+  const aliases = { giveaway: 'cybertruck', rewards: 'loyalty', boost: 'galaxy' };
+  const id = aliases[raw] || raw || 'galaxy';
+  const file = path.join(__dirname, '..', '..', 'public', 'img', 'promo', `${id}.jpg`);
+  try {
+    if (fs.existsSync(file)) {
+      res.type('image/jpeg');
+      res.set('Cache-Control', 'public, max-age=86400');
+      return res.send(fs.readFileSync(file));
+    }
+  } catch { /* svg fallback */ }
+  const { promoSvg } = require('../feed');
+  res.type('image/svg+xml');
+  res.set('Cache-Control', 'public, max-age=3600');
+  res.send(promoSvg(id));
+});
+
 router.get('/feed/art', (req, res) => {
   const { avatarSvg, promoSvg, bannerSvg } = require('../feed');
   const kind = String(req.query.kind || 'banner');
