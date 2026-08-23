@@ -13,7 +13,7 @@
 <div id="login-view" class="login-wrap">
   <div class="login-card">
     <div class="admin-brand"><img class="bybit-logo-img" src="/img/bybit-logo.png?v=3" alt="BYBIT" height="24"> <span class="admin-tag">Admin</span></div>
-    <p class="muted">Админ: переменная <b>ADMIN_SECRET</b>. Сотрудник: <b>ADMIN_STAFF_SECRET</b> — всё кроме выдачи кошельков клиентам.</p>
+    <p class="muted">Админ: переменная <b>ADMIN_SECRET</b> на Railway. После смены секрета вставь <b>новый</b> — старый в браузере больше не подойдёт. Сотрудник: <b>ADMIN_STAFF_SECRET</b>.</p>
     <input type="password" id="secret-input" placeholder="Секрет" autocomplete="current-password">
     <div class="error" id="login-error"></div>
     <button class="btn-primary" id="login-btn">Войти</button>
@@ -325,6 +325,6 @@
   </div>
 </div>
 
-<script src="admin.js?v=9"></script>
+<script src="admin.js?v=10"></script>
 </body>
 </html>

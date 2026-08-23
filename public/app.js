@@ -2875,22 +2875,52 @@ function smaAt(candles, period, i) {
   return s / period;
 }
 
+let extraQuotes = {};
+
+function tradeQuote() {
+  const fromLive = lastQuotes.find((q) => String(q.symbol).toUpperCase() === tradeSymbol);
+  if (fromLive) return fromLive;
+  return extraQuotes[tradeSymbol] || null;
+}
+
+function rememberQuote(sym, q) {
+  if (!sym || !q) return;
+  extraQuotes[String(sym).toUpperCase()] = {
+    symbol: String(sym).toUpperCase(),
+    price: Number(q.price) || 0,
+    change24h: q.change24h == null ? null : Number(q.change24h),
+    volume24h: q.volume24h == null ? null : Number(q.volume24h),
+    high24h: q.high24h == null ? null : Number(q.high24h),
+    low24h: q.low24h == null ? null : Number(q.low24h),
+    name: q.name || sym,
+  };
+}
+
 function openTrade(symbol, change24h) {
   tradeSymbol = String(symbol || tradeSymbol || 'LINK').toUpperCase().replace(/USDT$/, '');
   chartSymbol = tradeSymbol;
-  if (change24h != null) chartChange24h = change24h;
-  document.getElementById('trade-pair-btn').innerHTML = `${coinLogoHtml(tradeSymbol, 22)} <span>${tradeSymbol}/USDT</span> ${ICO_CHEV}`;
+  if (change24h != null && change24h !== '') chartChange24h = Number(change24h);
+  const alphaHit = [
+    ...(alphaState?.data?.market || []),
+    ...(alphaState?.data?.sniping || []),
+  ].find((a) => String(a.symbol).toUpperCase() === tradeSymbol);
+  if (alphaHit) {
+    rememberQuote(tradeSymbol, alphaHit);
+    if (alphaHit.change24h != null) chartChange24h = Number(alphaHit.change24h);
+  }
+  document.getElementById('trade-pair-btn').innerHTML = `${coinLogoHtml(tradeSymbol, 22, alphaHit?.image)} <span>${tradeSymbol}/USDT</span> ${ICO_CHEV}`;
   const qtyIn = document.getElementById('trade-qty-input');
   if (qtyIn) qtyIn.placeholder = `0.001 ${tradeSymbol}`;
   document.querySelectorAll('.trade-tf').forEach((b) => {
     if (b.dataset.interval) b.classList.toggle('active', b.dataset.interval === chartInterval);
   });
   showScreen('trade');
+  setTradeProduct('spot');
+  paintTradeQuote(tradeQuote());
   loadTradeChart();
-}
-
-function tradeQuote() {
-  return lastQuotes.find((q) => String(q.symbol).toUpperCase() === tradeSymbol) || null;
+  if (!document.getElementById('trade-pane-overview')?.classList.contains('screen-hidden')) loadOverview();
+  if (!document.getElementById('trade-pane-news')?.classList.contains('screen-hidden')) renderTradeNews();
+  if (!document.getElementById('trade-pane-data')?.classList.contains('screen-hidden')) loadFlow();
 }
 
 function paintTradeQuote(q) {
@@ -2938,6 +2968,7 @@ async function loadTradeChart({ silent = false } = {}) {
     }
     drawTradeChart(canvas, chartCandles);
   } catch (e) {
+    chartCandles = [];
     if (!silent) console.error('[trade]', e);
   }
 }
@@ -3464,10 +3495,21 @@ document.getElementById('trade-depth')?.addEventListener('click', () => setTrade
 async function loadOverview() {
   const about = document.getElementById('ov-about');
   const metrics = document.getElementById('ov-metrics');
+  const want = String(tradeSymbol || '').toUpperCase();
+  about.textContent = 'Загрузка…';
   try {
-    const r = await fetch(`/api/market/coin?symbol=${encodeURIComponent(tradeSymbol)}`);
+    const r = await fetch(`/api/market/coin?symbol=${encodeURIComponent(want)}`);
     const d = await r.json();
-    about.textContent = d.description || 'Нет описания';
+    if (!r.ok) throw new Error(d.error || 'нет обзора');
+    const got = String(d.symbol || '').toUpperCase();
+    if (got && got !== want && !want.startsWith(got) && !got.startsWith(want)) {
+      about.textContent = `Нет обзора для ${want}`;
+      metrics.innerHTML = '';
+      return;
+    }
+    rememberQuote(want, d);
+    paintTradeQuote(tradeQuote());
+    about.textContent = d.description || `Нет описания для ${d.name || want}`;
     const n = (x) => x == null ? '—' : Number(x).toLocaleString('en-US', { maximumFractionDigits: 0 });
     metrics.innerHTML = `
       <div><span>Рын. капитализация</span><b>$${n(d.marketCap)}</b></div>
@@ -3478,7 +3520,7 @@ async function loadOverview() {
     const linksEl = document.getElementById('ov-links');
     if (linksEl) linksEl.innerHTML = '';
   } catch {
-    about.textContent = 'Не удалось загрузить обзор';
+    about.textContent = `Не удалось загрузить обзор ${want}`;
   }
 }
 
@@ -3526,8 +3568,8 @@ function renderTradeNews() {
     const bull = /bull|рост|etf|buy/i.test(n.title || '');
     const bear = /bear|пад|crash|sell/i.test(n.title || '');
     const tag = bull ? 'Бычьи' : bear ? 'Медвежий тренд' : 'Нейтральный';
-    return `<div class="news-item" style="display:block;padding:10px 0;border-bottom:1px solid #1a1a1a">
-      <div class="news-meta">${date} UTC · ${escapeHtml(n.source || '')} · ${tag}</div>
+    return `<div class="tnews-row">
+      <div class="news-meta">${escapeHtml(date)} UTC · ${escapeHtml(n.source || '')} · ${tag}</div>
       <div class="news-title">${escapeHtml(n.title || '')}</div></div>`;
   }).join('') || '<div class="muted">Нет новостей</div>';
 }
@@ -3957,7 +3999,7 @@ async function fetchKlines(symbol, interval) {
           low: Number(k[3]), close: Number(k[4]), volume: Number(k[5]),
         }));
         return {
-          symbol: pair.replace('USDT', ''),
+          symbol: pair.replace(/USDT$/, ''),
           pair,
           candles,
           last: candles[candles.length - 1].close,
@@ -3974,6 +4016,11 @@ async function fetchKlines(symbol, interval) {
   const data = await r2.json().catch(() => ({}));
   if (!r2.ok || !data.candles?.length) {
     throw new Error(data.error || 'Не удалось загрузить график');
+  }
+  const got = String(data.symbol || data.pair || '').toUpperCase().replace(/USDT$/, '');
+  const want = String(symbol || '').toUpperCase().replace(/USDT$/, '');
+  if (got && want && got !== want) {
+    throw new Error('график другой пары');
   }
   return data;
 }
