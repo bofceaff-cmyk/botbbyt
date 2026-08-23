@@ -3640,14 +3640,53 @@ document.getElementById('byx-feed')?.addEventListener('click', (e) => {
 });
 document.getElementById('byx-post-body')?.addEventListener('click', (e) => {
   const like = e.target.closest('[data-byx-like]');
-  if (!like) return;
-  e.preventDefault();
-  e.stopPropagation();
-  const id = like.getAttribute('data-byx-like');
-  byxVotes[id] = byxVotes[id] || {};
-  byxVotes[id].like = !byxVotes[id].like;
-  saveByxVotes();
-  openByxPost(id);
+  if (like) {
+    e.preventDefault();
+    e.stopPropagation();
+    const id = like.getAttribute('data-byx-like');
+    byxVotes[id] = byxVotes[id] || {};
+    byxVotes[id].like = !byxVotes[id].like;
+    saveByxVotes();
+    openByxPost(id);
+    return;
+  }
+  const cLike = e.target.closest('[data-cmt-like]');
+  if (cLike) {
+    e.preventDefault();
+    const key = cLike.getAttribute('data-cmt-like');
+    byxMine.cmtLikes[key] = !byxMine.cmtLikes[key];
+    saveByxMine();
+    const post = document.getElementById('byx-post-body')?.querySelector('[data-byx-post]');
+    if (post) openByxPost(post.getAttribute('data-byx-post'));
+    return;
+  }
+  const tr = e.target.closest('[data-cmt-tr]');
+  if (tr) {
+    e.preventDefault();
+    const key = tr.getAttribute('data-cmt-tr');
+    byxMine.cmtTr[key] = !byxMine.cmtTr[key];
+    saveByxMine();
+    const post = document.getElementById('byx-post-body')?.querySelector('[data-byx-post]');
+    if (post) openByxPost(post.getAttribute('data-byx-post'));
+    return;
+  }
+  const reply = e.target.closest('[data-cmt-reply]');
+  if (reply) {
+    e.preventDefault();
+    const postEl = document.getElementById('byx-post-body')?.querySelector('[data-byx-post]');
+    byxReply = {
+      post: postEl?.getAttribute('data-byx-post') || '',
+      id: reply.getAttribute('data-cmt-reply'),
+      name: reply.getAttribute('data-cmt-name') || '',
+    };
+    const input = document.getElementById('byx-cmt-input');
+    const hint = document.getElementById('byx-cmt-reply-hint');
+    if (hint) hint.textContent = `Ответ ${byxReply.name}`;
+    if (input) {
+      input.placeholder = `Ответ ${byxReply.name}`;
+      input.focus();
+    }
+  }
 });
 
 async function loadFutures() {
@@ -4440,6 +4479,9 @@ try { byxVotes = JSON.parse(localStorage.getItem('byxVotes') || '{}'); } catch {
 try { byxMine = JSON.parse(localStorage.getItem('byxMine') || '{"comments":{},"posts":[]}'); } catch { byxMine = { comments: {}, posts: [] }; }
 if (!byxMine.comments) byxMine.comments = {};
 if (!Array.isArray(byxMine.posts)) byxMine.posts = [];
+if (!byxMine.cmtLikes) byxMine.cmtLikes = {};
+if (!byxMine.cmtTr) byxMine.cmtTr = {};
+let byxReply = null;
 
 function saveByxVotes() {
   localStorage.setItem('byxVotes', JSON.stringify(byxVotes));
@@ -4602,16 +4644,71 @@ function renderHomeFeed() {
   box.innerHTML = mine + (byxData.posts || []).map((p) => renderByxPost(p)).join('') + fab;
 }
 
+function formatAgo(ts, fallback) {
+  if (!ts) return fallback || 'недавно';
+  const sec = Math.max(0, Math.floor((Date.now() - Number(ts)) / 1000));
+  if (sec < 50) return 'только что';
+  const m = Math.floor(sec / 60);
+  if (m < 60) return `${m} мин. назад`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} ч. назад`;
+  return `${Math.floor(h / 24)} дн. назад`;
+}
+
+function looksLatin(text) {
+  const t = String(text || '').replace(/^Ответ [^:]+:\s*/, '');
+  const lat = (t.match(/[A-Za-z]/g) || []).length;
+  const cyr = (t.match(/[А-Яа-яЁё]/g) || []).length;
+  return lat >= 8 && lat > cyr;
+}
+
+function translateComment(text) {
+  const dict = [
+    [/i believe you are wrong/i, 'я думаю, вы неправы'],
+    [/yes a slight retracement/i, 'да, небольшая коррекция'],
+    [/look at the history of gold since 2020 post covid/i, 'посмотрите историю золота с 2020 после ковида'],
+    [/it will tell you more then your smaller timeframe/i, 'это скажет больше, чем младший таймфрейм'],
+    [/exactly you're right/i, 'именно, вы правы'],
+    [/smaller timeframe is just noise/i, 'младший таймфрейм — просто шум'],
+    [/not financial advice but structure is clean/i, 'не инвестрек, но структура чистая'],
+    [/looks like a liquidity grab tbh/i, 'похоже на сбор ликвидности'],
+    [/exactly you\\'re right/i, 'именно, вы правы'],
+  ];
+  let out = String(text || '');
+  for (const [re, ru] of dict) out = out.replace(re, ru);
+  if (out === text) {
+    out = text
+      .replace(/\btimeframe\b/gi, 'таймфрейм')
+      .replace(/\bretracement\b/gi, 'откат')
+      .replace(/\bliquidity\b/gi, 'ликвидность')
+      .replace(/\bstructure\b/gi, 'структура');
+  }
+  return out;
+}
+
 function renderByxComments(p) {
-  return mergedThread(p).map((c) => `
-    <div class="byx-cmt">
+  return mergedThread(p).map((c) => {
+    const key = `${p.id}::${c.id}`;
+    const liked = Boolean(byxMine.cmtLikes[key]);
+    const likes = (c.likes || 0) + (liked ? 1 : 0);
+    const showTr = Boolean(byxMine.cmtTr[key]);
+    const canTr = looksLatin(c.text);
+    const shown = showTr && canTr ? translateComment(c.text) : c.text;
+    const isReply = /^Ответ /.test(c.text);
+    return `<div class="byx-cmt${isReply ? ' reply' : ''}" data-cmt-id="${escapeHtml(String(c.id))}">
       ${byxAvatar(c.user, 28)}
       <div>
         <b>${escapeHtml(c.user.name)}</b>${c.author ? ' <span class="byx-author">Автор</span>' : ''}
-        <div>${escapeHtml(c.text)}</div>
-        <div class="muted">${escapeHtml(c.ago || 'сейчас')} · Ответ · Перевести · 👍 ${c.likes || 0}</div>
+        <div>${escapeHtml(shown)}</div>
+        <div class="byx-cmt-meta">
+          <span>${escapeHtml(formatAgo(c.ts, c.ago))}</span>
+          <button type="button" data-cmt-reply="${escapeHtml(String(c.id))}" data-cmt-name="${escapeHtml(c.user.name)}">Ответ</button>
+          ${canTr ? `<button type="button" data-cmt-tr="${escapeHtml(key)}">${showTr ? 'Оригинал' : 'Перевести'}</button>` : ''}
+          <button type="button" class="${liked ? 'on' : ''}" data-cmt-like="${escapeHtml(key)}">👍 ${likes}</button>
+        </div>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 function openByxPost(id) {
@@ -4619,29 +4716,37 @@ function openByxPost(id) {
   if (!p) return;
   const body = document.getElementById('byx-post-body');
   const n = mergedThread(p).length;
+  const hint = byxReply && byxReply.post === p.id
+    ? `Ответ ${byxReply.name}`
+    : '';
   body.innerHTML = renderByxPost(p, { compact: false })
     + `<div class="byx-share">Поделиться: X · WhatsApp · Telegram · Ссылка</div>`
     + `<div class="byx-cmt-h">Комментариев: ${n}</div>`
+    + `<div class="byx-cmt-reply" id="byx-cmt-reply-hint">${escapeHtml(hint)}</div>`
     + `<form class="byx-cmt-form" id="byx-cmt-form">
-        <input id="byx-cmt-input" maxlength="280" placeholder="Оставить комментарий" autocomplete="off">
+        <input id="byx-cmt-input" maxlength="280" placeholder="${hint ? escapeHtml(hint) : 'Оставить комментарий'}" autocomplete="off">
         <button type="submit">Отправить</button>
       </form>`
     + `<div id="byx-cmt-list">${renderByxComments(p)}</div>`;
   document.getElementById('byx-cmt-form')?.addEventListener('submit', (e) => {
     e.preventDefault();
     const input = document.getElementById('byx-cmt-input');
-    const text = (input?.value || '').trim();
-    if (!text) return;
+    const raw = (input?.value || '').trim();
+    if (!raw) return;
+    const replyName = byxReply && byxReply.post === p.id ? byxReply.name : '';
+    const text = replyName && !raw.startsWith('Ответ ') ? `Ответ ${replyName}: ${raw}` : raw;
     byxMine.comments[p.id] = byxMine.comments[p.id] || [];
     byxMine.comments[p.id].push({
       id: `me-${Date.now()}`,
       user: byxMeUser(),
       author: false,
       text,
-      ago: 'сейчас',
+      ts: Date.now(),
+      ago: 'только что',
       likes: 0,
     });
     saveByxMine();
+    byxReply = null;
     input.value = '';
     openByxPost(p.id);
   });

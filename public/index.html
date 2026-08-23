@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=28">
+<link rel="stylesheet" href="style.css?v=30">
 </head>
 <body>
 <div id="auth-gate" class="auth-gate">
@@ -198,10 +198,30 @@
     </div>
 
     <div class="home-quick">
-      <button type="button" class="home-quick-item" id="home-q-deposit"><span>↓</span>Депозит</button>
-      <button type="button" class="home-quick-item" id="home-q-transfer"><span>⇄</span>Перевод</button>
-      <button type="button" class="home-quick-item" id="home-q-markets"><span>◈</span>Рынки</button>
-      <button type="button" class="home-quick-item" id="home-q-profile"><span>◎</span>Профиль</button>
+      <button type="button" class="home-quick-item" id="home-q-deposit">
+        <span class="home-quick-ico primary">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+        </span>
+        Депозит
+      </button>
+      <button type="button" class="home-quick-item" id="home-q-transfer">
+        <span class="home-quick-ico">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10h14l-4-4M17 14H3l4 4"/></svg>
+        </span>
+        Перевод
+      </button>
+      <button type="button" class="home-quick-item" id="home-q-markets">
+        <span class="home-quick-ico">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V9M10 19V5M16 19v-7M22 19V3"/></svg>
+        </span>
+        Рынки
+      </button>
+      <button type="button" class="home-quick-item" id="home-q-profile">
+        <span class="home-quick-ico">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.5"/><path d="M5 19c1.2-3.2 3.8-5 7-5s5.8 1.8 7 5"/></svg>
+        </span>
+        Профиль
+      </button>
     </div>
 
     <div class="section-head">
@@ -1294,6 +1314,6 @@
   </div>
 </div>
 <script src="geo.js?v=1"></script>
-<script src="app.js?v=35"></script>
+<script src="app.js?v=36"></script>
 </body>
 </html>
