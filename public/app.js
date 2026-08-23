@@ -3647,44 +3647,54 @@ document.getElementById('byx-post-body')?.addEventListener('click', (e) => {
     byxVotes[id] = byxVotes[id] || {};
     byxVotes[id].like = !byxVotes[id].like;
     saveByxVotes();
-    openByxPost(id);
+    const p = (byxMine.posts || []).find((x) => x.id === id) || (byxData.posts || []).find((x) => x.id === id);
+    const n = (p?.likes || 0) + (byxVotes[id].like ? 1 : 0);
+    like.classList.toggle('on', Boolean(byxVotes[id].like));
+    like.innerHTML = `${byxIco('like')} ${n}`;
     return;
   }
   const cLike = e.target.closest('[data-cmt-like]');
   if (cLike) {
     e.preventDefault();
+    e.stopPropagation();
     const key = cLike.getAttribute('data-cmt-like');
     byxMine.cmtLikes[key] = !byxMine.cmtLikes[key];
     saveByxMine();
-    const post = document.getElementById('byx-post-body')?.querySelector('[data-byx-post]');
-    if (post) openByxPost(post.getAttribute('data-byx-post'));
+    const base = Number(cLike.getAttribute('data-base-likes') || '0');
+    const on = Boolean(byxMine.cmtLikes[key]);
+    cLike.classList.toggle('on', on);
+    cLike.textContent = `👍 ${base + (on ? 1 : 0)}`;
     return;
   }
   const tr = e.target.closest('[data-cmt-tr]');
   if (tr) {
     e.preventDefault();
+    e.stopPropagation();
     const key = tr.getAttribute('data-cmt-tr');
     byxMine.cmtTr[key] = !byxMine.cmtTr[key];
     saveByxMine();
-    const post = document.getElementById('byx-post-body')?.querySelector('[data-byx-post]');
-    if (post) openByxPost(post.getAttribute('data-byx-post'));
+    const box = tr.closest('.byx-cmt')?.querySelector('.byx-cmt-text');
+    const on = Boolean(byxMine.cmtTr[key]);
+    if (box) box.textContent = on ? (box.getAttribute('data-tr') || box.getAttribute('data-orig')) : box.getAttribute('data-orig');
+    tr.textContent = on ? 'Оригинал' : 'Перевести';
     return;
   }
   const reply = e.target.closest('[data-cmt-reply]');
   if (reply) {
     e.preventDefault();
+    e.stopPropagation();
     const postEl = document.getElementById('byx-post-body')?.querySelector('[data-byx-post]');
     byxReply = {
       post: postEl?.getAttribute('data-byx-post') || '',
       id: reply.getAttribute('data-cmt-reply'),
       name: reply.getAttribute('data-cmt-name') || '',
     };
-    const input = document.getElementById('byx-cmt-input');
     const hint = document.getElementById('byx-cmt-reply-hint');
     if (hint) hint.textContent = `Ответ ${byxReply.name}`;
+    const input = document.getElementById('byx-cmt-input');
     if (input) {
       input.placeholder = `Ответ ${byxReply.name}`;
-      input.focus();
+      input.value = '';
     }
   }
 });
@@ -4566,7 +4576,7 @@ function renderHomeFeed() {
   if (byxTab === 'promo') {
     box.innerHTML = (byxData.promos || []).map((p) => `
       <article class="promo-card">
-        <img class="promo-art" src="/api/market/feed/art?kind=promo&id=${encodeURIComponent(p.id)}" alt="">
+        <img class="promo-art" src="${escapeHtml(p.img || `/api/market/feed/art?kind=promo&id=${encodeURIComponent(p.id)}`)}" alt="">
         <div class="promo-body">
           <div class="promo-title">${escapeHtml(p.title)}</div>
           <div class="promo-sub">${escapeHtml(p.sub)}</div>
@@ -4580,7 +4590,7 @@ function renderHomeFeed() {
   }
   if (byxTab === 'live') {
     box.innerHTML = `<div class="promo-card">
-      <img class="promo-art" src="/api/market/feed/art?kind=promo&id=live" alt="">
+      <img class="promo-art" src="/img/promo/live.jpg?v=1" alt="">
       <div class="promo-body">
         <div class="promo-title">Bybit Live</div>
         <div class="promo-sub">Прямые эфиры и Watch &amp; Earn на официальной странице Bybit.</div>
@@ -4699,22 +4709,25 @@ function renderByxComments(p) {
       ${byxAvatar(c.user, 28)}
       <div>
         <b>${escapeHtml(c.user.name)}</b>${c.author ? ' <span class="byx-author">Автор</span>' : ''}
-        <div>${escapeHtml(shown)}</div>
+        <div class="byx-cmt-text" data-orig="${escapeHtml(c.text)}" data-tr="${escapeHtml(canTr ? translateComment(c.text) : c.text)}">${escapeHtml(shown)}</div>
         <div class="byx-cmt-meta">
           <span>${escapeHtml(formatAgo(c.ts, c.ago))}</span>
           <button type="button" data-cmt-reply="${escapeHtml(String(c.id))}" data-cmt-name="${escapeHtml(c.user.name)}">Ответ</button>
           ${canTr ? `<button type="button" data-cmt-tr="${escapeHtml(key)}">${showTr ? 'Оригинал' : 'Перевести'}</button>` : ''}
-          <button type="button" class="${liked ? 'on' : ''}" data-cmt-like="${escapeHtml(key)}">👍 ${likes}</button>
+          <button type="button" class="${liked ? 'on' : ''}" data-cmt-like="${escapeHtml(key)}" data-base-likes="${c.likes || 0}">👍 ${likes}</button>
         </div>
       </div>
     </div>`;
   }).join('');
 }
 
-function openByxPost(id) {
+function openByxPost(id, opts = {}) {
   const p = (byxMine.posts || []).find((x) => x.id === id) || (byxData.posts || []).find((x) => x.id === id);
   if (!p) return;
   const body = document.getElementById('byx-post-body');
+  const shell = document.getElementById('app-shell');
+  const already = Boolean(document.getElementById('screen-byx-post') && !document.getElementById('screen-byx-post').classList.contains('screen-hidden'));
+  const y = already ? (shell?.scrollTop || 0) : 0;
   const n = mergedThread(p).length;
   const hint = byxReply && byxReply.post === p.id
     ? `Ответ ${byxReply.name}`
@@ -4748,9 +4761,10 @@ function openByxPost(id) {
     saveByxMine();
     byxReply = null;
     input.value = '';
-    openByxPost(p.id);
+    openByxPost(p.id, { keepScroll: true });
   });
-  showScreen('byx-post');
+  if (!already) showScreen('byx-post');
+  else if (opts.keepScroll !== false && shell) shell.scrollTop = y;
 }
 
 function openByxSheet() {
