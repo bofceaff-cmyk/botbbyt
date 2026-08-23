@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=23">
+<link rel="stylesheet" href="style.css?v=24">
 </head>
 <body>
 <div id="auth-gate" class="auth-gate">
@@ -409,11 +409,46 @@
     </div>
 
     <div id="trade-body-alpha" class="trade-body screen-hidden trade-scroll">
-      <div class="alpha-top">Alpha-активы</div>
-      <div class="alpha-bal" id="alpha-bal">0.00 USD</div>
-      <div class="alpha-cards" id="alpha-new"></div>
-      <div class="cv-orders-h">Рынок</div>
+      <div class="alpha-head">
+        <div class="alpha-head-row">
+          <span class="alpha-head-title">Alpha-активы <span class="alpha-chev">›</span></span>
+          <button type="button" class="assets-eye" id="alpha-eye" aria-label="Скрыть баланс">
+            <svg class="alpha-eye-open" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>
+            <svg class="alpha-eye-closed screen-hidden" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A10.94 10.94 0 0 1 12 5c7 0 11 7 11 7a18.5 18.5 0 0 1-2.16 3.19M1 1l22 22"/><path d="M14.12 14.12A3 3 0 0 1 9.88 9.88"/></svg>
+          </button>
+        </div>
+        <div class="alpha-bal" id="alpha-bal">0.00 USD</div>
+        <button type="button" class="alpha-pnl" id="alpha-pnl">P&amp;L за сегодня <span>--</span> <span class="alpha-chev">›</span></button>
+      </div>
+
+      <div class="alpha-sec-h">Снайпинг новых монет</div>
+      <div class="alpha-snip" id="alpha-new"></div>
+
+      <div class="alpha-sec-h">Farm <span class="alpha-chev">›</span></div>
+      <div class="alpha-farms" id="alpha-farms"></div>
+
+      <div class="alpha-mkt-bar">
+        <button type="button" class="alpha-mkt-tab active" data-alpha-pane="market">Рынок</button>
+        <button type="button" class="alpha-mkt-tab" data-alpha-pane="farm">Farm</button>
+        <button type="button" class="alpha-mkt-tab" data-alpha-pane="balance">Баланс</button>
+        <span class="alpha-mkt-tools">
+          <button type="button" class="alpha-tool" id="alpha-search-btn" aria-label="Поиск">⌕</button>
+          <button type="button" class="alpha-tool" id="alpha-sort-btn" aria-label="Фильтр">☰</button>
+        </span>
+      </div>
+      <input type="search" id="alpha-search" class="alpha-search screen-hidden" placeholder="Поиск монеты" autocomplete="off">
+      <div class="alpha-chips" id="alpha-chips">
+        <button type="button" class="alpha-chip" data-alpha-chip="fav">Избранное</button>
+        <button type="button" class="alpha-chip active" data-alpha-chip="new">New Listed</button>
+        <button type="button" class="alpha-chip" data-alpha-chip="hot">Hot</button>
+        <button type="button" class="alpha-chip" data-alpha-chip="stocks">Stocks</button>
+      </div>
+      <div class="alpha-cols" id="alpha-cols">
+        <span>Объем / Рыночная капитализация</span>
+        <span>Цена / 24h Изменение</span>
+      </div>
       <div id="alpha-list"></div>
+      <div id="alpha-empty" class="hist-empty screen-hidden">Нет активов</div>
     </div>
   </section>
 
@@ -1233,6 +1268,6 @@
   </div>
 </div>
 <script src="geo.js?v=1"></script>
-<script src="app.js?v=30"></script>
+<script src="app.js?v=31"></script>
 </body>
 </html>

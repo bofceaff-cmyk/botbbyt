@@ -689,6 +689,12 @@ function renderWalletAmounts(available, earn) {
   }
   const total = lastWalletBalance + lastEarnBalance + cryptoUsd;
   const usdTotal = fmtUsdt(total);
+  try {
+    const alphaBal = document.getElementById('alpha-bal');
+    if (alphaBal) alphaBal.textContent = maskBal('0.00 USD');
+    document.querySelectorAll('.alpha-eye-open').forEach((el) => el.classList.toggle('screen-hidden', balanceHidden));
+    document.querySelectorAll('.alpha-eye-closed').forEach((el) => el.classList.toggle('screen-hidden', !balanceHidden));
+  } catch { /* alpha pane may be absent */ }
   const usdAvail = fmtUsdt(lastWalletBalance + cryptoUsd);
   const usdEarn = fmtUsdt(lastEarnBalance);
   const btc = lastBtcPrice > 0 ? (total / lastBtcPrice) : 0;
@@ -3698,30 +3704,224 @@ async function subscribeOption(target) {
   }
 }
 
+const alphaState = {
+  pane: 'market',
+  chip: 'new',
+  q: '',
+  data: { sniping: [], farms: [], market: [] },
+};
+
 async function loadAlpha() {
-  document.getElementById('alpha-bal').textContent = `${fmtUsdPrice(walletAmt('USDT'))} USD`;
+  try {
+    applyBalanceVisibility();
+  } catch { /* ignore */ }
+  const pnl = document.getElementById('alpha-pnl');
+  if (pnl) pnl.innerHTML = `P&amp;L за сегодня <span>--</span> <span class="alpha-chev">›</span>`;
   try {
     const r = await fetch('/api/market/alpha');
-    const list = await r.json();
-    const cards = list.slice(0, 2);
-    document.getElementById('alpha-new').innerHTML = cards.map((a) => {
-      const chg = fmtChange(a.change24h);
-      return `<div class="alpha-card"><div class="muted">Новые</div>
-        <b>${escapeHtml(a.symbol)}</b>
-        <div>${fmtUsdPrice(a.price)} <span class="${chg.up ? 'chg-up' : 'chg-down'}">${chg.text}</span></div>
-        <div class="muted">Объём ${fmtCompact(a.volume24h)}</div></div>`;
-    }).join('');
-    document.getElementById('alpha-list').innerHTML = list.map((a) => {
-      const chg = fmtChange(a.change24h);
-      return `<div class="alpha-row">
-        <b>${escapeHtml(a.symbol)}</b>
-        <div>${fmtUsdPrice(a.price)} <span class="chg-pill ${chg.up ? 'up' : 'down'}">${chg.text}</span></div>
-      </div>`;
-    }).join('');
+    const data = await r.json();
+    if (Array.isArray(data)) {
+      alphaState.data = { sniping: data.slice(0, 2), farms: [], market: data };
+    } else if (data && Array.isArray(data.market)) {
+      alphaState.data = data;
+    } else {
+      alphaState.data = { sniping: [], farms: [], market: [] };
+    }
+    renderAlpha();
   } catch {
-    document.getElementById('alpha-list').textContent = 'Не удалось загрузить Alpha';
+    alphaState.data = { sniping: [], farms: [], market: [] };
+    document.getElementById('alpha-list').innerHTML = '<div class="hist-empty">Не удалось загрузить Alpha</div>';
   }
 }
+
+function alphaFavs() {
+  try { return JSON.parse(localStorage.getItem('alphaFavs') || '[]'); } catch { return []; }
+}
+function setAlphaFav(sym, on) {
+  const s = String(sym).toUpperCase();
+  const cur = new Set(alphaFavs());
+  if (on) cur.add(s); else cur.delete(s);
+  localStorage.setItem('alphaFavs', JSON.stringify([...cur]));
+}
+
+function alphaSpark(up) {
+  const d = up
+    ? 'M1 16C8 14 14 8 22 9C30 10 36 4 49 5'
+    : 'M1 5C10 7 16 13 24 11C32 9 38 18 49 17';
+  const c = up ? '#0ecb81' : '#f6465d';
+  return `<svg class="alpha-spark" viewBox="0 0 50 22" preserveAspectRatio="none"><path d="${d}" fill="none" stroke="${c}" stroke-width="1.7" stroke-linecap="round"/></svg>`;
+}
+
+function renderAlpha() {
+  const data = alphaState.data || {};
+  const sniping = Array.isArray(data.sniping) ? data.sniping : [];
+  const farms = Array.isArray(data.farms) ? data.farms : [];
+  const market = Array.isArray(data.market) ? data.market : [];
+  const fav = new Set(alphaFavs());
+
+  document.getElementById('alpha-new').innerHTML = sniping.slice(0, 2).map((a) => {
+    const chg = fmtChange(a.change24h);
+    const foot = a.created
+      ? `Создан:${escapeHtml(a.created)}`
+      : `${fmtCompact(a.marketCap)} рыночная капитал<br>Объем, 24H: ${fmtCompact(a.volume24h)}`;
+    return `<button type="button" class="alpha-card" data-alpha-sym="${escapeHtml(a.symbol)}">
+      <div class="alpha-card-tag">${escapeHtml(a.tag || 'Новые')}</div>
+      <div class="alpha-card-name">${coinLogoHtml(a.symbol, 20)} ${escapeHtml(a.symbol)}
+        ${a.popular ? '<span class="alpha-pop">Популярно</span>' : ''}</div>
+      <div class="alpha-card-px">${fmtUsdPrice(a.price)} <span class="${chg.up ? 'chg-up' : 'chg-down'}">${chg.text}</span></div>
+      ${alphaSpark(chg.up)}
+      <div class="alpha-card-foot">${foot}</div>
+    </button>`;
+  }).join('') || '<div class="hist-empty">Нет новинок</div>';
+
+  document.getElementById('alpha-farms').innerHTML = farms.slice(0, 2).map((f) => `
+    <button type="button" class="alpha-card" data-alpha-farm="${escapeHtml(f.pair)}">
+      <div class="alpha-card-tag">${escapeHtml(f.tag || 'Farm')}</div>
+      <div class="alpha-farm-pair">
+        <span class="alpha-av" style="background:${escapeHtml(f.aBg || '#333')}">${escapeHtml(f.a || '?')}</span>
+        ${coinLogoHtml('USDC', 18)}
+        ${escapeHtml(f.pair)}
+        ${f.popular ? '<span class="alpha-pop">Популярно</span>' : ''}
+      </div>
+      <div class="alpha-farm-metrics">${Number(f.apr).toFixed(2)}% APR <span>${fmtCompact(f.tvl)} TVL</span></div>
+    </button>`).join('');
+
+  const q = alphaState.q.trim().toUpperCase();
+  let rows = market.slice();
+  if (alphaState.pane === 'farm') {
+    document.getElementById('alpha-list').innerHTML = farms.map((f) => `
+      <button type="button" class="alpha-row" data-alpha-farm="${escapeHtml(f.pair)}">
+        <div class="alpha-row-l">
+          <span class="alpha-av" style="background:${escapeHtml(f.aBg || '#333')}">${escapeHtml(f.a || '?')}</span>
+          <div><div class="hist-sym">${escapeHtml(f.pair)}</div>
+            <div class="alpha-row-meta">${escapeHtml(f.tag)} · ${fmtCompact(f.tvl)} TVL</div></div>
+        </div>
+        <div class="alpha-row-r"><div class="alpha-row-px">${Number(f.apr).toFixed(2)}% APR</div></div>
+      </button>`).join('');
+    document.getElementById('alpha-empty').classList.add('screen-hidden');
+    document.getElementById('alpha-cols')?.classList.add('screen-hidden');
+    document.getElementById('alpha-chips')?.classList.add('screen-hidden');
+    return;
+  }
+  if (alphaState.pane === 'balance') {
+    document.getElementById('alpha-list').innerHTML = '';
+    document.getElementById('alpha-empty').classList.remove('screen-hidden');
+    document.getElementById('alpha-empty').textContent = 'Нет Alpha-активов на балансе';
+    document.getElementById('alpha-cols')?.classList.add('screen-hidden');
+    document.getElementById('alpha-chips')?.classList.add('screen-hidden');
+    return;
+  }
+  document.getElementById('alpha-empty').classList.add('screen-hidden');
+  document.getElementById('alpha-cols')?.classList.remove('screen-hidden');
+  document.getElementById('alpha-chips')?.classList.remove('screen-hidden');
+
+  if (alphaState.chip === 'fav') rows = rows.filter((a) => fav.has(String(a.symbol).toUpperCase()));
+  else if (alphaState.chip === 'hot') rows = rows.filter((a) => a.chip === 'hot');
+  else if (alphaState.chip === 'stocks') rows = [];
+  if (q) rows = rows.filter((a) => String(a.symbol).toUpperCase().includes(q) || String(a.name || '').toUpperCase().includes(q));
+
+  if (alphaState.chip === 'stocks') {
+    document.getElementById('alpha-list').innerHTML = farms.filter((f) => /stock|rwa|nvda|tsla|spcx/i.test(`${f.tag} ${f.pair}`)).map((f) => `
+      <button type="button" class="alpha-row" data-alpha-farm="${escapeHtml(f.pair)}">
+        <div class="alpha-row-l">
+          <span class="alpha-av" style="background:${escapeHtml(f.aBg || '#333')}">${escapeHtml(f.a || '?')}</span>
+          <div><div class="hist-sym">${escapeHtml(f.pair)}</div>
+            <div class="alpha-row-meta">${fmtCompact(f.tvl)} TVL</div></div>
+        </div>
+        <div class="alpha-row-r"><div class="alpha-chg up">${Number(f.apr).toFixed(2)}%</div></div>
+      </button>`).join('') || '';
+    document.getElementById('alpha-empty').classList.toggle('screen-hidden', Boolean(document.getElementById('alpha-list').innerHTML));
+    document.getElementById('alpha-empty').textContent = 'Нет Stocks';
+    return;
+  }
+
+  if (!rows.length) {
+    document.getElementById('alpha-list').innerHTML = '';
+    document.getElementById('alpha-empty').classList.remove('screen-hidden');
+    document.getElementById('alpha-empty').textContent = 'Нет монет';
+    return;
+  }
+  document.getElementById('alpha-list').innerHTML = rows.map((a) => {
+    const chg = fmtChange(a.change24h);
+    const on = fav.has(String(a.symbol).toUpperCase());
+    return `<button type="button" class="alpha-row" data-alpha-sym="${escapeHtml(a.symbol)}" data-alpha-chg="${a.change24h ?? ''}">
+      <div class="alpha-row-l">
+        <span class="alpha-star ${on ? 'on' : ''}" data-alpha-fav="${escapeHtml(a.symbol)}">${on ? '★' : '☆'}</span>
+        ${coinLogoHtml(a.symbol, 28)}
+        <div>
+          <div class="hist-sym">${escapeHtml(a.symbol)}</div>
+          <div class="alpha-row-meta">${fmtCompact(a.volume24h)} | ${fmtCompact(a.marketCap)}</div>
+        </div>
+      </div>
+      <div class="alpha-row-r">
+        <div class="alpha-row-px">${fmtUsdPrice(a.price)}</div>
+        <div class="alpha-chg ${chg.up ? 'up' : 'down'}">${chg.text}</div>
+      </div>
+    </button>`;
+  }).join('');
+}
+
+document.getElementById('alpha-eye')?.addEventListener('click', () => {
+  balanceHidden = !balanceHidden;
+  applyBalanceVisibility();
+});
+document.getElementById('alpha-pnl')?.addEventListener('click', () => showScreen('history'));
+document.querySelectorAll('#alpha-chips [data-alpha-chip]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    alphaState.chip = btn.getAttribute('data-alpha-chip') || 'new';
+    document.querySelectorAll('#alpha-chips [data-alpha-chip]').forEach((b) => {
+      b.classList.toggle('active', b === btn);
+    });
+    renderAlpha();
+  });
+});
+document.querySelectorAll('[data-alpha-pane]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    alphaState.pane = btn.getAttribute('data-alpha-pane') || 'market';
+    document.querySelectorAll('[data-alpha-pane]').forEach((b) => {
+      b.classList.toggle('active', b === btn);
+    });
+    renderAlpha();
+  });
+});
+document.getElementById('alpha-search-btn')?.addEventListener('click', () => {
+  document.getElementById('alpha-search')?.classList.toggle('screen-hidden');
+});
+document.getElementById('alpha-search')?.addEventListener('input', (e) => {
+  alphaState.q = e.target.value || '';
+  renderAlpha();
+});
+document.getElementById('alpha-sort-btn')?.addEventListener('click', () => {
+  const order = ['new', 'hot', 'fav', 'stocks'];
+  const i = order.indexOf(alphaState.chip);
+  alphaState.chip = order[(i + 1) % order.length];
+  document.querySelectorAll('#alpha-chips [data-alpha-chip]').forEach((b) => {
+    b.classList.toggle('active', b.getAttribute('data-alpha-chip') === alphaState.chip);
+  });
+  renderAlpha();
+});
+document.getElementById('trade-body-alpha')?.addEventListener('click', (e) => {
+  const favBtn = e.target.closest('[data-alpha-fav]');
+  if (favBtn) {
+    e.preventDefault();
+    e.stopPropagation();
+    const sym = favBtn.getAttribute('data-alpha-fav');
+    setAlphaFav(sym, !alphaFavs().includes(String(sym).toUpperCase()));
+    renderAlpha();
+    return;
+  }
+  const farm = e.target.closest('[data-alpha-farm]');
+  if (farm) {
+    showScreen('earn');
+    return;
+  }
+  const row = e.target.closest('[data-alpha-sym]');
+  if (row) {
+    const chg = Number(row.getAttribute('data-alpha-chg'));
+    setTradeProduct('spot');
+    openTrade(row.getAttribute('data-alpha-sym'), Number.isFinite(chg) ? chg : undefined);
+  }
+});
 
 document.querySelectorAll('.tab').forEach((tab) => {
   if (tab.dataset.tab === 'trade') {
