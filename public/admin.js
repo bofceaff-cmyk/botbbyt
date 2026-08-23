@@ -1,1010 +1,937 @@
-const STORAGE_KEY = 'byx_admin_secret';
+const express = require('express');
+const fs = require('fs');
+const prisma = require('../db');
+const MSG = require('../messages');
+const { transfersBlocked, conversionsBlocked } = require('../restrictions');
+const { clearSession } = require('../session');
+const { absolutePath, supportAbsolutePath, supportUpload } = require('../upload');
+const { serializeHistory, explorerUrl } = require('../history');
 
-let secret = localStorage.getItem(STORAGE_KEY) || '';
-let adminRole = 'admin';
-let currentThreadId = null;
-let currentKycUserId = null;
-let editingUserId = null;
-let editBalMode = 'credit';
+const router = express.Router();
 
-const NETWORK_BY_ASSET = {
-  USDT: ['TRC20', 'ERC20'],
-  BTC: ['BTC'],
-};
-
-function $(id) { return document.getElementById(id); }
-
-function escapeHtml(str) {
-  const d = document.createElement('div');
-  d.textContent = str == null ? '' : String(str);
-  return d.innerHTML;
-}
-
-async function adminFetch(path, options = {}) {
-  let res;
-  try {
-    const isForm = options.body instanceof FormData;
-    res = await fetch('/api/admin' + path, {
-      ...options,
-      headers: {
-        ...(isForm ? {} : { 'Content-Type': 'application/json' }),
-        'X-Admin-Secret': secret,
-        ...(options.headers || {}),
-      },
-    });
-  } catch {
-    throw new Error('Нет связи с сервером Railway');
+function requireAdmin(req, res, next) {
+  const admin = String(process.env.ADMIN_SECRET || '');
+  const staff = String(process.env.ADMIN_STAFF_SECRET || '');
+  const given = String(req.header('X-Admin-Secret') || req.query.secret || '');
+  if (!admin && !staff) return res.status(503).json({ error: 'ADMIN_SECRET не настроен' });
+  if (admin && given && given === admin) {
+    req.adminRole = 'admin';
+    return next();
   }
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `Ошибка сервера (${res.status})`);
-  return data;
-}
-
-function fileUrl(path) {
-  const sep = path.includes('?') ? '&' : '?';
-  return `/api/admin${path}${sep}secret=${encodeURIComponent(secret)}`;
-}
-
-function showApp(ok) {
-  $('login-view').classList.toggle('screen-hidden', ok);
-  $('app-view').classList.toggle('screen-hidden', !ok);
-}
-
-function canAssignWallets() {
-  return adminRole === 'admin';
-}
-
-function applyAdminRole() {
-  const full = canAssignWallets();
-  document.querySelectorAll('.full-admin-only').forEach((el) => {
-    el.classList.toggle('screen-hidden', !full);
-  });
-  const tag = $('role-badge') || document.querySelector('.admin-tag');
-  if (tag) tag.textContent = full ? 'Admin' : 'Staff';
-}
-
-async function tryLogin(value) {
-  secret = value.trim();
-  $('login-error').textContent = '';
-  try {
-    const sess = await adminFetch('/session');
-    adminRole = sess.role === 'staff' ? 'staff' : 'admin';
-    localStorage.setItem(STORAGE_KEY, secret);
-    applyAdminRole();
-    showApp(true);
-    loadUsers();
-    loadAccountRequests();
-    loadCardRequests();
-    loadFinanceRequests();
-    loadKycQueue();
-    loadThreads();
-    loadWalletPool();
-    loadDeposits();
-  } catch (e) {
-    secret = '';
-    localStorage.removeItem(STORAGE_KEY);
-    showApp(false);
-    $('login-error').textContent = e.message || 'Неверный секрет';
+  if (staff && given && given === staff) {
+    req.adminRole = 'staff';
+    return next();
   }
+  return res.status(401).json({ error: 'неверный секрет' });
 }
 
-$('login-btn').addEventListener('click', () => tryLogin($('secret-input').value));
-$('secret-input').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') tryLogin($('secret-input').value);
-});
-$('logout-btn').addEventListener('click', () => {
-  secret = '';
-  localStorage.removeItem(STORAGE_KEY);
-  showApp(false);
-});
+function requireFullAdmin(req, res, next) {
+  if (req.adminRole !== 'admin') {
+    return res.status(403).json({ error: 'недостаточно прав: кошельки пользователям выдаёт только админ' });
+  }
+  next();
+}
 
-document.querySelectorAll('.nav-btn').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.nav-btn').forEach((b) => b.classList.remove('active'));
-    btn.classList.add('active');
-    document.querySelectorAll('.view').forEach((v) => v.classList.add('screen-hidden'));
-    $(`view-${btn.dataset.view}`).classList.remove('screen-hidden');
-    if (btn.dataset.view === 'wallets') loadWalletPool().catch(console.error);
-    if (btn.dataset.view === 'deposits') loadDeposits().catch(console.error);
-    if (btn.dataset.view === 'support') startAdminSupportPoll();
-    else stopAdminSupportPoll();
+router.use(requireAdmin);
+
+router.get('/session', (req, res) => {
+  res.json({
+    role: req.adminRole,
+    canAssignWallets: req.adminRole === 'admin',
   });
 });
 
-function statusChip(status) {
-  const map = { pending: 'ожидает', assigned: 'назначен', none: 'нет' };
-  return `<span class="chip ${escapeHtml(status)}">${map[status] || status}</span>`;
-}
-
-function kycChip(status) {
-  const map = {
-    none: 'нет', pending: 'проверка', approved: 'ok', rejected: 'отклонён',
+function serializeUser(u) {
+  return {
+    id: u.id,
+    uid: u.uid,
+    telegramId: u.telegramId.toString(),
+    usernameTg: u.usernameTg,
+    firstNameTg: u.firstNameTg,
+    displayName: u.displayName,
+    fullName: u.fullName,
+    email: u.email,
+    phone: u.phone,
+    country: u.country,
+    registered: Boolean(u.registered),
+    usdtBalance: Number(u.usdtBalance),
+    earnBalance: Number(u.earnBalance || 0),
+    accountNumber: u.accountNumber,
+    accountRequestStatus: u.accountRequestStatus,
+    cardNumber: u.cardNumber,
+    cardRequestStatus: u.cardRequestStatus,
+    kycStatus: u.kycStatus,
+    kycRejectReason: u.kycRejectReason,
+    verified: u.verified || u.kycStatus === 'approved',
+    banned: Boolean(u.banned),
+    banReason: u.banReason || null,
+    opsLocked: Boolean(u.opsLocked),
+    opsLockReason: u.opsLockReason || null,
+    transfersDisabled: Boolean(u.transfersDisabled),
+    conversionsDisabled: Boolean(u.conversionsDisabled),
+    transferLockReason: u.transferLockReason || null,
+    convertLockReason: u.convertLockReason || null,
+    passwordHoldUntil: u.passwordHoldUntil || null,
+    passwordHoldActive: Boolean(u.passwordHoldUntil && new Date(u.passwordHoldUntil).getTime() > Date.now()),
+    totpEnabled: Boolean(u.totpEnabled),
+    authEpoch: Number(u.authEpoch || 0),
+    walletBranch: u.walletBranch || null,
+    createdAt: u.createdAt,
   };
-  return `<span class="chip ${status === 'approved' ? 'assigned' : status === 'pending' ? 'pending' : 'none'}">${map[status] || status}</span>`;
 }
 
-async function loadUsers() {
-  const q = $('users-search').value.trim();
-  const users = await adminFetch('/users?q=' + encodeURIComponent(q));
-  const tbody = $('users-tbody');
-  if (!users.length) {
-    tbody.innerHTML = '<tr><td colspan="7" class="muted">Никого не найдено</td></tr>';
-    return;
-  }
-  tbody.innerHTML = users.map((u) => `
-    <tr>
-      <td class="mono">${u.id}<div class="muted">UID ${escapeHtml(u.uid || '—')}</div></td>
-      <td>
-        <div>${escapeHtml(u.displayName || '—')} ${u.registered ? '' : '<span class="muted">(не рег.)</span>'}</div>
-        <div class="muted">${escapeHtml(u.fullName || '')}</div>
-        <div class="muted">${escapeHtml(u.email || '')}</div>
-      </td>
-      <td>@${escapeHtml(u.usernameTg || '—')}<div class="muted">${escapeHtml(u.phone || '')}</div></td>
-      <td class="mono">${escapeHtml(u.accountNumber || '—')}<div class="muted">${u.cardNumber ? 'карта ···' + escapeHtml(String(u.cardNumber).slice(-4)) : (u.cardRequestStatus === 'pending' ? 'карта: заявка' : '')}</div></td>
-      <td>${kycChip(u.kycStatus)}${u.banned ? ' <span class="chip none">бан</span>' : ''}${u.opsLocked ? ' <span class="chip pending">lock</span>' : ''}</td>
-      <td class="mono">${Number(u.usdtBalance).toFixed(2)}</td>
-      <td><button class="btn-link" data-edit="${u.id}">Открыть</button></td>
-    </tr>
-  `).join('');
-
-  tbody.querySelectorAll('[data-edit]').forEach((btn) => {
-    btn.addEventListener('click', () => openEdit(Number(btn.dataset.edit)));
-  });
-}
-
-let searchTimer = null;
-$('users-search').addEventListener('input', () => {
-  clearTimeout(searchTimer);
-  searchTimer = setTimeout(() => loadUsers().catch(console.error), 250);
-});
-
-async function loadAccountRequests() {
-  const users = await adminFetch('/users?pendingAccounts=1');
-  const tbody = $('accounts-tbody');
-  if (!users.length) {
-    tbody.innerHTML = '<tr><td colspan="5" class="muted">Нет активных заявок</td></tr>';
-    return;
-  }
-  tbody.innerHTML = users.map((u) => `
-    <tr>
-      <td class="mono">${u.id}</td>
-      <td>${escapeHtml(u.displayName || '—')}</td>
-      <td>@${escapeHtml(u.usernameTg || '—')}</td>
-      <td>${statusChip(u.accountRequestStatus)}</td>
-      <td>
-        <div class="inline-assign">
-          <input class="mono" data-acc-input="${u.id}" placeholder="номер счёта">
-          <button class="btn-primary" data-acc-save="${u.id}">Сохранить</button>
-        </div>
-      </td>
-    </tr>
-  `).join('');
-
-  tbody.querySelectorAll('[data-acc-save]').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      const id = btn.dataset.accSave;
-      const input = tbody.querySelector(`[data-acc-input="${id}"]`);
-      const accountNumber = input.value.trim();
-      if (!accountNumber) return alert('Укажите номер счёта');
-      try {
-        await adminFetch(`/users/${id}`, {
-          method: 'PATCH',
-          body: JSON.stringify({ accountNumber }),
-        });
-        await loadAccountRequests();
-        await loadUsers();
-      } catch (e) {
-        alert(e.message);
-      }
-    });
-  });
-}
-
-$('refresh-accounts').addEventListener('click', () => loadAccountRequests().catch(console.error));
-
-async function loadCardRequests() {
-  const users = await adminFetch('/users?pendingCards=1');
-  const tbody = $('cards-tbody');
-  if (!users.length) {
-    tbody.innerHTML = '<tr><td colspan="5" class="muted">Нет заявок на карту</td></tr>';
-    return;
-  }
-  tbody.innerHTML = users.map((u) => `
-    <tr>
-      <td class="mono">${u.id}</td>
-      <td>${escapeHtml(u.displayName || '—')}<div class="muted">${escapeHtml(u.fullName || '')}</div></td>
-      <td>@${escapeHtml(u.usernameTg || '—')}</td>
-      <td>${statusChip(u.cardRequestStatus)}</td>
-      <td>
-        <div class="inline-assign">
-          <input class="mono" data-card-input="${u.id}" placeholder="ACCT-000003" maxlength="32">
-          <button class="btn-primary" data-card-save="${u.id}">Выдать</button>
-        </div>
-      </td>
-    </tr>
-  `).join('');
-
-  tbody.querySelectorAll('[data-card-save]').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      const id = btn.dataset.cardSave;
-      const input = tbody.querySelector(`[data-card-input="${id}"]`);
-      const cardNumber = input.value.trim();
-      if (!cardNumber) return alert('Укажите номер карты');
-      try {
-        await adminFetch(`/users/${id}`, {
-          method: 'PATCH',
-          body: JSON.stringify({ cardNumber }),
-        });
-        await loadCardRequests();
-        await loadUsers();
-      } catch (e) {
-        alert(e.message);
-      }
-    });
-  });
-}
-
-$('refresh-cards').addEventListener('click', () => loadCardRequests().catch(console.error));
-
-const FINANCE_LABELS = {
-  withdraw_onchain: 'Вывод on-chain',
-  withdraw_card: 'Вывод на карту',
-  convert: 'Конвертация',
-  earn: 'Earn',
-};
-
-async function loadFinanceRequests() {
-  const status = $('finance-status-filter')?.value || 'pending';
-  const rows = await adminFetch('/finance/requests?status=' + encodeURIComponent(status));
-  const box = $('finance-list');
-  if (!rows.length) {
-    box.innerHTML = '<div class="muted">Заявок нет</div>';
-    return;
-  }
-  box.innerHTML = rows.map((r) => {
-    const u = r.user || {};
-    const details = [
-      r.amount != null ? `<b>${Number(r.amount)} ${escapeHtml(r.asset || 'USDT')}</b>` : '',
-      r.toAsset ? `→ ${r.toAmount != null ? Number(r.toAmount) + ' ' : ''}${escapeHtml(r.toAsset)}` : '',
-      r.network ? `сеть ${escapeHtml(r.network)}` : '',
-      r.toAddress ? `<span class="mono">${escapeHtml(r.toAddress)}</span>` : '',
-      r.meta ? escapeHtml(r.meta) : '',
-    ].filter(Boolean).join(' · ');
-    const actions = r.status === 'pending'
-      ? `<div class="finance-actions">
-          <input type="text" data-note="${r.id}" placeholder="Комментарий (опц.)">
-          ${String(r.type || '').startsWith('withdraw') ? `<input type="text" data-hash="${r.id}" class="mono" placeholder="TXID хеш для истории">` : ''}
-          <button class="btn-primary" data-fin-ok="${r.id}">Одобрить</button>
-          <button class="btn-secondary" data-fin-no="${r.id}">Отклонить</button>
-        </div>`
-      : `<div class="muted">Статус: ${escapeHtml(r.status)}${r.adminNote ? ' · ' + escapeHtml(r.adminNote) : ''}</div>`;
-    return `
-      <div class="finance-item">
-        <div class="finance-item-head">
-          <span class="chip pending">${escapeHtml(FINANCE_LABELS[r.type] || r.type)}</span>
-          <span class="muted mono">#${r.id} · ${new Date(r.createdAt).toLocaleString('ru-RU')}</span>
-        </div>
-        <div><b>${escapeHtml(u.displayName || '—')}</b> · @${escapeHtml(u.usernameTg || '—')} · id ${u.id || '—'}</div>
-        <div class="finance-details">${details}</div>
-        ${actions}
-      </div>`;
-  }).join('');
-
-  async function review(id, action) {
-    const note = box.querySelector(`[data-note="${id}"]`)?.value.trim() || '';
-    const txHash = box.querySelector(`[data-hash="${id}"]`)?.value.trim() || '';
-    try {
-      await adminFetch(`/finance/requests/${id}/review`, {
-        method: 'POST',
-        body: JSON.stringify({ action, adminNote: note, txHash }),
-      });
-      await loadFinanceRequests();
-      await loadUsers();
-    } catch (e) {
-      alert(e.message);
-    }
-  }
-
-  box.querySelectorAll('[data-fin-ok]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      if (!confirm('Одобрить заявку?')) return;
-      review(btn.dataset.finOk, 'approve');
-    });
-  });
-  box.querySelectorAll('[data-fin-no]').forEach((btn) => {
-    btn.addEventListener('click', () => review(btn.dataset.finNo, 'reject'));
-  });
-}
-
-$('refresh-finance')?.addEventListener('click', () => loadFinanceRequests().catch(console.error));
-$('finance-status-filter')?.addEventListener('change', () => loadFinanceRequests().catch(console.error));
-
-function syncNetworkOptions() {
-  const asset = $('addr-asset').value;
-  const nets = NETWORK_BY_ASSET[asset] || [];
-  $('addr-network').innerHTML = nets.map((n) => `<option value="${n}">${n}</option>`).join('');
-}
-$('addr-asset').addEventListener('change', syncNetworkOptions);
-
-async function openEdit(id) {
-  editingUserId = id;
-  const user = await adminFetch(`/users/${id}`);
-  $('edit-title-id').textContent = `#${user.id}`;
-  $('edit-id').value = user.id;
-  $('edit-account').value = user.accountNumber || '';
-  $('edit-card').value = user.cardNumber || '';
-  $('edit-balance-now').textContent =
-    `${Number(user.usdtBalance).toFixed(2)} доступно` +
-    (Number(user.earnBalance) > 0 ? ` · ${Number(user.earnBalance).toFixed(2)} Earn` : '') +
-    ` USDT`;
-  $('edit-credit-amount').value = '';
-  $('edit-credit-comment').value = '';
-  if ($('edit-credit-hash')) $('edit-credit-hash').value = '';
-  if ($('edit-credit-network')) $('edit-credit-network').value = 'TRC20';
-  if ($('edit-credit-address')) $('edit-credit-address').value = '';
-  if ($('edit-credit-fee')) $('edit-credit-fee').value = '';
-  setEditBalMode('credit');
-  $('edit-verified').checked = user.kycStatus === 'approved' || user.verified;
-  $('edit-banned').checked = Boolean(user.banned);
-  $('edit-ban-reason').value = user.banReason || '';
-  $('edit-transfers-off').checked = Boolean(user.transfersDisabled);
-  $('edit-transfer-reason').value = user.transferLockReason || '';
-  $('edit-convert-off').checked = Boolean(user.conversionsDisabled);
-  $('edit-convert-reason').value = user.convertLockReason || '';
-  $('edit-ops-locked').checked = Boolean(user.opsLocked);
-  $('edit-ops-reason').value = user.opsLockReason || '';
-  const holdEl = $('edit-hold-status');
-  if (holdEl) {
-    if (user.passwordHoldActive && user.passwordHoldUntil) {
-      holdEl.textContent = `24ч холд после смены пароля до ${new Date(user.passwordHoldUntil).toLocaleString('ru-RU')}`;
-    } else {
-      holdEl.textContent = '24ч холд после смены пароля: нет';
-    }
-  }
-  $('edit-error').textContent = '';
-  $('edit-error').style.color = '';
-  $('addr-value').value = '';
-  syncNetworkOptions();
-  renderAddrList(user.depositAddresses || []);
-  await loadEditHistory(id);
-  $('edit-modal').classList.remove('screen-hidden');
-}
-
-async function loadEditHistory(id) {
-  const box = $('edit-balance-history');
+router.get('/users', async (req, res) => {
   try {
-    const rows = await adminFetch(`/users/${id}/history`);
-    if (!rows.length) {
-      box.innerHTML = '<div class="muted">Пока пусто</div>';
-      return;
+    const q = (req.query.q || '').trim();
+    const pendingOnly = req.query.pendingAccounts === '1';
+    const pendingCards = req.query.pendingCards === '1';
+    const kycPending = req.query.kycPending === '1';
+
+    const where = {};
+    if (pendingOnly) where.accountRequestStatus = 'pending';
+    if (pendingCards) where.cardRequestStatus = 'pending';
+    if (kycPending) where.kycStatus = 'pending';
+    if (q) {
+      where.OR = [
+        { displayName: { contains: q, mode: 'insensitive' } },
+        { fullName: { contains: q, mode: 'insensitive' } },
+        { usernameTg: { contains: q, mode: 'insensitive' } },
+        { accountNumber: { contains: q, mode: 'insensitive' } },
+        { cardNumber: { contains: q, mode: 'insensitive' } },
+        { email: { contains: q, mode: 'insensitive' } },
+        { phone: { contains: q, mode: 'insensitive' } },
+        { uid: { contains: q, mode: 'insensitive' } },
+      ];
+      if (/^\d+$/.test(q)) {
+        where.OR.push({ id: Number(q) });
+        where.OR.push({ uid: q });
+      }
     }
-    box.innerHTML = rows.map((h) => {
-      const sign = h.amount >= 0 ? '+' : '';
-      const when = new Date(h.createdAt).toLocaleString('ru-RU');
-      const titleMap = {
-        deposit: 'Внести',
-        bonus: 'Внести',
-        withdraw_admin: 'Вывод',
-        withdraw_onchain: 'Вывод',
-        withdraw_card: 'Вывод',
-        admin_adjust: 'Корректировка',
-        earn: 'Earn',
-        convert: 'Конвертация',
-        transfer_in: 'Перевод',
-        transfer_out: 'Перевод',
-      };
-      const title = `${titleMap[h.type] || h.type} ${h.asset || 'USDT'}`;
-      return `<div class="bal-row" data-hid="${h.id}">
-        <div class="bal-row-top">
-          <span>${escapeHtml(title)}</span>
-          <span class="mono">${sign}${Number(h.amount)}</span>
-        </div>
-        <div class="muted">${escapeHtml(when)}${h.meta ? ' · ' + escapeHtml(h.meta) : ''}</div>
-        <div class="muted">${h.txHash ? 'TX: ' + escapeHtml(h.txHash) : 'хеш не прикреплён'}</div>
-        <div class="bal-hash-row">
-          <input type="text" data-hash="${h.id}" class="mono" placeholder="TXID / хеш" value="${escapeHtml(h.txHash || '')}">
-          <input type="text" data-net="${h.id}" placeholder="сеть" value="${escapeHtml(h.network || '')}" style="max-width:88px">
-          <button type="button" class="btn-primary" data-save-hash="${h.id}">Сохранить</button>
-        </div>
-      </div>`;
-    }).join('');
-    box.querySelectorAll('[data-save-hash]').forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        const hid = btn.getAttribute('data-save-hash');
-        const txHash = box.querySelector(`[data-hash="${hid}"]`)?.value.trim() || '';
-        const network = box.querySelector(`[data-net="${hid}"]`)?.value.trim() || '';
-        try {
-          await adminFetch(`/users/${id}/history/${hid}`, {
-            method: 'PATCH',
-            body: JSON.stringify({ txHash, network }),
-          });
-          btn.textContent = 'OK';
-          setTimeout(() => { btn.textContent = 'Сохранить'; }, 1200);
-        } catch (e) {
-          alert(e.message);
-        }
-      });
+
+    const users = await prisma.user.findMany({
+      where,
+      orderBy: [{ kycStatus: 'desc' }, { accountRequestStatus: 'desc' }, { id: 'desc' }],
+      take: 200,
     });
+    res.json(users.map(serializeUser));
   } catch (e) {
-    box.innerHTML = `<div class="muted">${escapeHtml(e.message)}</div>`;
+    console.error('[admin/users]', e);
+    res.status(500).json({
+      error: /column|does not exist|P2022/i.test(String(e.message))
+        ? 'База не обновлена. Перезадеплойте сервис (migrate deploy).'
+        : (e.message || 'ошибка БД'),
+    });
   }
-}
+});
 
-function getEditBalMode() {
-  const active = document.querySelector('#edit-bal-mode .seg-btn.active');
-  return (active && active.getAttribute('data-bal-mode')) || editBalMode || 'credit';
-}
-
-function setEditBalMode(mode) {
-  editBalMode = mode || 'credit';
-  document.querySelectorAll('#edit-bal-mode .seg-btn').forEach((b) => {
-    b.classList.toggle('active', b.getAttribute('data-bal-mode') === editBalMode);
+router.get('/users/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  const user = await prisma.user.findUnique({
+    where: { id },
+    include: {
+      depositAddresses: true,
+      kycDocuments: true,
+    },
   });
-  const label = $('edit-credit-amount-label');
-  const hint = $('edit-bal-hint');
-  const input = $('edit-credit-amount');
-  if (!label || !input) return;
-  if (editBalMode === 'adjust') {
-    label.textContent = 'Новый баланс (USDT)';
-    input.placeholder = 'итоговый баланс, напр. 1800';
-    if (hint) hint.textContent = 'Сейчас: установить точный баланс';
-  } else if (editBalMode === 'debit') {
-    label.textContent = 'Списать (USDT)';
-    input.placeholder = 'сумма списания, напр. 50';
-    if (hint) hint.textContent = 'Сейчас: списать с доступного баланса';
-  } else {
-    label.textContent = 'Внести (USDT)';
-    input.placeholder = 'сумма пополнения, напр. 200';
-    if (hint) hint.textContent = 'Сейчас: внести на баланс';
-  }
-}
+  if (!user) return res.status(404).json({ error: 'пользователь не найден' });
 
-document.querySelectorAll('#edit-bal-mode [data-bal-mode]').forEach((btn) => {
-  btn.addEventListener('click', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setEditBalMode(btn.getAttribute('data-bal-mode') || 'credit');
+  res.json({
+    ...serializeUser(user),
+    depositAddresses: user.depositAddresses,
+    kycDocuments: user.kycDocuments.map((d) => ({
+      id: d.id,
+      type: d.type,
+      mimeType: d.mimeType,
+      createdAt: d.createdAt,
+      url: `/api/admin/users/${id}/kyc/docs/${d.type}/file`,
+    })),
   });
 });
 
-$('edit-credit-btn')?.addEventListener('click', async () => {
-  const id = $('edit-id').value;
-  const mode = getEditBalMode();
-  $('edit-error').textContent = '';
-  const amount = Number($('edit-credit-amount').value);
-  const comment = $('edit-credit-comment').value.trim();
-  if (!Number.isFinite(amount) || amount < 0) {
-    $('edit-error').textContent = 'Укажите сумму';
-    return;
+router.patch('/users/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  const {
+    accountNumber, usdtBalance, accountRequestStatus, verified,
+    kycStatus, kycRejectReason, fullName, cardNumber, cardRequestStatus,
+    banned, banReason, opsLocked, opsLockReason,
+    transfersDisabled, conversionsDisabled, transferLockReason, convertLockReason,
+    passwordHoldUntil, clearRestrictions,
+  } = req.body;
+
+  const user = await prisma.user.findUnique({ where: { id } });
+  if (!user) return res.status(404).json({ error: 'пользователь не найден' });
+
+  const data = {};
+
+  if (accountNumber !== undefined) {
+    const num = accountNumber === null || accountNumber === ''
+      ? null
+      : String(accountNumber).trim();
+    if (num) {
+      const taken = await prisma.user.findFirst({
+        where: { accountNumber: num, NOT: { id } },
+      });
+      if (taken) return res.status(400).json({ error: 'этот номер счёта уже занят' });
+      data.accountNumber = num;
+      data.accountRequestStatus = 'assigned';
+    } else {
+      data.accountNumber = null;
+      data.accountRequestStatus = 'none';
+    }
+  }
+
+  if (cardNumber !== undefined) {
+    const num = cardNumber === null || cardNumber === ''
+      ? null
+      : String(cardNumber).replace(/\s+/g, '');
+    if (num) {
+      if (!/^\d{12,19}$/.test(num)) {
+        return res.status(400).json({ error: 'номер карты: 12–19 цифр' });
+      }
+      data.cardNumber = num;
+      data.cardRequestStatus = 'assigned';
+    } else {
+      data.cardNumber = null;
+      data.cardRequestStatus = 'none';
+    }
+  }
+
+  if (cardRequestStatus !== undefined) data.cardRequestStatus = cardRequestStatus;
+  if (accountRequestStatus !== undefined) data.accountRequestStatus = accountRequestStatus;
+  if (fullName !== undefined) data.fullName = String(fullName || '').trim() || null;
+
+  if (kycStatus !== undefined) {
+    const st = String(kycStatus);
+    if (!['none', 'pending', 'approved', 'rejected'].includes(st)) {
+      return res.status(400).json({ error: 'неверный статус KYC' });
+    }
+    data.kycStatus = st;
+    if (st === 'approved') {
+      data.verified = true;
+      data.verifiedAt = new Date();
+      data.kycRejectReason = null;
+    } else if (st === 'rejected') {
+      data.verified = false;
+      data.kycRejectReason = String(kycRejectReason || 'Отклонено').trim();
+    } else if (st === 'none' || st === 'pending') {
+      data.verified = false;
+      if (st === 'pending') data.kycRejectReason = null;
+    }
+  } else if (verified !== undefined) {
+    data.verified = Boolean(verified);
+    if (data.verified) {
+      data.verifiedAt = new Date();
+      data.kycStatus = 'approved';
+    }
+  }
+
+  if (kycRejectReason !== undefined && data.kycStatus === undefined) {
+    data.kycRejectReason = String(kycRejectReason || '').trim() || null;
+  }
+
+  if (banned !== undefined) {
+    data.banned = Boolean(banned);
+    if (data.banned) {
+      const reason = String(banReason != null ? banReason : '').trim();
+      if (!reason) return res.status(400).json({ error: MSG.BAN_REASON_REQUIRED });
+      data.banReason = reason;
+      data.authEpoch = Number(user.authEpoch || 0) + 1;
+      data.sessionTokenHash = null;
+    } else {
+      data.banReason = null;
+    }
+  } else if (banReason !== undefined) {
+    data.banReason = String(banReason || '').trim() || null;
+  }
+
+  if (opsLocked !== undefined) {
+    data.opsLocked = Boolean(opsLocked);
+    if (data.opsLocked) {
+      const reason = String(opsLockReason != null ? opsLockReason : '').trim();
+      data.opsLockReason = reason || MSG.TRANSFERS_DISABLED;
+    } else {
+      data.opsLockReason = null;
+    }
+  } else if (opsLockReason !== undefined) {
+    data.opsLockReason = String(opsLockReason || '').trim() || null;
+  }
+
+  if (transfersDisabled !== undefined) {
+    data.transfersDisabled = Boolean(transfersDisabled);
+    if (!data.transfersDisabled) data.transferLockReason = null;
+  }
+  if (transferLockReason !== undefined) {
+    data.transferLockReason = String(transferLockReason || '').trim() || null;
+  }
+  if (conversionsDisabled !== undefined) {
+    data.conversionsDisabled = Boolean(conversionsDisabled);
+    if (!data.conversionsDisabled) data.convertLockReason = null;
+  }
+  if (convertLockReason !== undefined) {
+    data.convertLockReason = String(convertLockReason || '').trim() || null;
+  }
+  if (passwordHoldUntil !== undefined) {
+    if (passwordHoldUntil === null || passwordHoldUntil === '' || passwordHoldUntil === false) {
+      data.passwordHoldUntil = null;
+    } else {
+      const d = new Date(passwordHoldUntil);
+      data.passwordHoldUntil = Number.isNaN(d.getTime()) ? null : d;
+    }
+  }
+  if (clearRestrictions) {
+    data.banned = false;
+    data.banReason = null;
+    data.opsLocked = false;
+    data.opsLockReason = null;
+    data.transfersDisabled = false;
+    data.transferLockReason = null;
+    data.conversionsDisabled = false;
+    data.convertLockReason = null;
+    data.passwordHoldUntil = null;
+  }
+
+  let balanceDelta = null;
+  if (usdtBalance !== undefined) {
+    const next = Number(usdtBalance);
+    if (!Number.isFinite(next) || next < 0) {
+      return res.status(400).json({ error: 'некорректный баланс' });
+    }
+    const rounded = Math.round(next * 1e6) / 1e6;
+    balanceDelta = rounded - Number(user.usdtBalance);
+    data.usdtBalance = rounded;
+  }
+
+  const balanceComment = String(req.body.balanceComment || '').trim();
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const u = await tx.user.update({ where: { id }, data });
+    if (balanceDelta !== null && balanceDelta !== 0) {
+      await tx.balanceHistory.create({
+        data: {
+          userId: id,
+          type: 'admin_adjust',
+          amount: balanceDelta,
+          balance: u.usdtBalance,
+          meta: balanceComment || 'изменение баланса администратором',
+        },
+      });
+    }
+    return u;
+  });
+
+  res.json(serializeUser(updated));
+});
+
+router.post('/users/:id/kick', async (req, res) => {
+  const id = Number(req.params.id);
+  const user = await prisma.user.findUnique({ where: { id } });
+  if (!user) return res.status(404).json({ error: 'пользователь не найден' });
+  const updated = await clearSession(prisma, id, true);
+  res.json(serializeUser(updated));
+});
+
+router.delete('/users/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  const user = await prisma.user.findUnique({ where: { id } });
+  if (!user) return res.status(404).json({ error: 'пользователь не найден' });
+  try {
+    await prisma.$transaction(async (tx) => {
+      const threads = await tx.supportThread.findMany({ where: { userId: id }, select: { id: true } });
+      const tids = threads.map((t) => t.id);
+      if (tids.length) {
+        await tx.supportMessage.deleteMany({ where: { threadId: { in: tids } } });
+      }
+      await tx.supportThread.deleteMany({ where: { userId: id } });
+      await tx.kycDocument.deleteMany({ where: { userId: id } });
+      await tx.depositAddress.deleteMany({ where: { userId: id } });
+      await tx.assetBalance.deleteMany({ where: { userId: id } });
+      await tx.financeRequest.deleteMany({ where: { userId: id } });
+      await tx.balanceHistory.deleteMany({ where: { userId: id } });
+      await tx.transfer.deleteMany({ where: { OR: [{ fromUserId: id }, { toUserId: id }] } });
+      await tx.$executeRaw`DELETE FROM "PaperPosition" WHERE "userId" = ${id}`;
+      await tx.user.delete({ where: { id } });
+    });
+    res.json({ ok: true, id });
+  } catch (e) {
+    console.error('[admin-delete-user]', e);
+    res.status(500).json({ error: 'не удалось удалить аккаунт: ' + (e.message || 'ошибка БД') });
+  }
+});
+
+// Изменить баланс: credit (внести) / debit (списать) / adjust (установить итог)
+router.post('/users/:id/credit', async (req, res) => {
+  const id = Number(req.params.id);
+  const mode = String(req.body.mode || req.body.action || 'credit')
+    .toLowerCase()
+    .trim(); // credit | debit | adjust
+  const amountRaw = Number(req.body.amount);
+  const amount = Math.abs(amountRaw);
+  const comment = String(req.body.comment || '').trim();
+
+  if (!['credit', 'debit', 'adjust'].includes(mode)) {
+    return res.status(400).json({ error: 'mode: credit, debit или adjust' });
+  }
+  if (!Number.isFinite(amountRaw) || amountRaw < 0) {
+    return res.status(400).json({ error: 'укажите корректную сумму' });
   }
   if (mode !== 'adjust' && amount <= 0) {
-    $('edit-error').textContent = 'Укажите сумму больше 0';
-    return;
+    return res.status(400).json({ error: 'укажите сумму больше 0' });
   }
-  if (!comment) {
-    $('edit-error').textContent = 'Укажите комментарий';
-    return;
+  if (!comment || comment.length < 2) {
+    return res.status(400).json({ error: 'укажите комментарий' });
   }
-  try {
-    const updated = await adminFetch(`/users/${id}/credit`, {
-      method: 'POST',
-      body: JSON.stringify({
-        mode,
-        amount,
-        comment,
-        txHash: $('edit-credit-hash')?.value.trim() || '',
-        network: $('edit-credit-network')?.value.trim() || '',
-        address: $('edit-credit-address')?.value.trim() || '',
-        fee: $('edit-credit-fee')?.value === '' ? undefined : Number($('edit-credit-fee').value),
-      }),
-    });
-    $('edit-balance-now').textContent =
-      `${Number(updated.usdtBalance).toFixed(2)} доступно` +
-      (Number(updated.earnBalance) > 0 ? ` · ${Number(updated.earnBalance).toFixed(2)} Earn` : '') +
-      ` USDT`;
-    $('edit-credit-amount').value = '';
-    $('edit-credit-comment').value = '';
-    if ($('edit-credit-hash')) $('edit-credit-hash').value = '';
-    const done =
-      mode === 'debit' ? `Списано ${amount} USDT`
-        : mode === 'adjust' ? `Баланс установлен: ${amount} USDT`
-          : `Внесено +${amount} USDT`;
-    $('edit-error').style.color = 'var(--green)';
-    $('edit-error').textContent = done;
-    setTimeout(() => {
-      $('edit-error').style.color = '';
-      if ($('edit-error').textContent === done) $('edit-error').textContent = '';
-    }, 2500);
-    await loadEditHistory(id);
-    await loadUsers();
-  } catch (e) {
-    $('edit-error').style.color = '';
-    $('edit-error').textContent = e.message;
+  if (comment.length > 200) {
+    return res.status(400).json({ error: 'комментарий слишком длинный' });
   }
-});
 
-function renderAddrList(list) {
-  const box = $('addr-list');
-  if (!list.length) {
-    box.innerHTML = '<div class="muted">Адресов пока нет</div>';
-    return;
-  }
-  box.innerHTML = list.map((a) => `
-    <div class="addr-item">
-      <div class="meta">${escapeHtml(a.asset)} · ${escapeHtml(a.network)}</div>
-      <div class="mono">${escapeHtml(a.address)}</div>
-      ${canAssignWallets() ? `<button class="btn-link" data-del-addr="${a.id}">Удалить</button>` : ''}
-    </div>
-  `).join('');
-  box.querySelectorAll('[data-del-addr]').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      await adminFetch(`/users/${editingUserId}/deposit-addresses/${btn.dataset.delAddr}`, {
-        method: 'DELETE',
-      });
-      openEdit(editingUserId);
-    });
-  });
-}
+  const user = await prisma.user.findUnique({ where: { id } });
+  if (!user) return res.status(404).json({ error: 'пользователь не найден' });
 
-$('addr-save').addEventListener('click', async () => {
-  try {
-    await adminFetch(`/users/${editingUserId}/deposit-addresses`, {
-      method: 'PUT',
-      body: JSON.stringify({
-        asset: $('addr-asset').value,
-        network: $('addr-network').value,
-        address: $('addr-value').value.trim(),
-      }),
-    });
-    $('addr-value').value = '';
-    await openEdit(editingUserId);
-  } catch (e) {
-    $('edit-error').textContent = e.message;
-  }
-});
+  const current = Number(user.usdtBalance);
+  let next;
+  let delta;
+  let type;
 
-$('edit-clear-locks')?.addEventListener('click', async () => {
-  const id = $('edit-id').value;
-  $('edit-error').textContent = '';
-  if (!id) return;
-  if (!confirm('Снять бан, локи и 24-часовой холд после пароля?')) return;
-  try {
-    await adminFetch(`/users/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ clearRestrictions: true }),
-    });
-    $('edit-banned').checked = false;
-    $('edit-ban-reason').value = '';
-    $('edit-transfers-off').checked = false;
-    $('edit-transfer-reason').value = '';
-    $('edit-convert-off').checked = false;
-    $('edit-convert-reason').value = '';
-    $('edit-ops-locked').checked = false;
-    $('edit-ops-reason').value = '';
-    const holdEl = $('edit-hold-status');
-    if (holdEl) holdEl.textContent = '24ч холд после смены пароля: нет';
-    $('edit-error').style.color = 'var(--green)';
-    $('edit-error').textContent = 'Все ограничения сняты.';
-    setTimeout(() => { $('edit-error').style.color = ''; }, 2500);
-  } catch (e) {
-    $('edit-error').style.color = '';
-    $('edit-error').textContent = e.message;
-  }
-});
-$('edit-cancel').addEventListener('click', () => $('edit-modal').classList.add('screen-hidden'));
-$('edit-kick-btn')?.addEventListener('click', async () => {
-  const id = $('edit-id').value;
-  $('edit-error').textContent = '';
-  if (!id) return;
-  if (!confirm('Разлогинить этого пользователя? Ему нужно будет снова ввести пароль.')) return;
-  try {
-    await adminFetch(`/users/${id}/kick`, { method: 'POST' });
-    $('edit-error').style.color = 'var(--green)';
-    $('edit-error').textContent = 'Сессия сброшена. Пользователь выйдет при следующем запросе.';
-    setTimeout(() => { $('edit-error').style.color = ''; }, 2500);
-  } catch (e) {
-    $('edit-error').style.color = '';
-    $('edit-error').textContent = e.message;
-  }
-});
-document.querySelectorAll('.preset-row button').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    const id = btn.parentElement?.dataset.target;
-    if (id && $(id)) $(id).value = btn.dataset.preset || btn.textContent;
-  });
-});
-$('edit-delete-btn')?.addEventListener('click', async () => {
-  const id = $('edit-id').value;
-  $('edit-error').textContent = '';
-  if (!id) return;
-  const uid = $('edit-title-id').textContent || id;
-  if (!confirm(`Удалить аккаунт ${uid} из базы полностью? Это нельзя отменить.`)) return;
-  const typed = prompt('Введите DELETE для подтверждения');
-  if (typed !== 'DELETE') return;
-  try {
-    await adminFetch(`/users/${id}`, { method: 'DELETE' });
-    $('edit-modal').classList.add('screen-hidden');
-    await loadUsers();
-    await loadAccountRequests();
-    await loadCardRequests();
-    await loadKycQueue();
-  } catch (e) {
-    $('edit-error').textContent = e.message;
-  }
-});
-$('edit-save').addEventListener('click', async () => {
-  const id = $('edit-id').value;
-  $('edit-error').textContent = '';
-  try {
-    const verified = $('edit-verified').checked;
-    const banned = $('edit-banned').checked;
-    const banReason = $('edit-ban-reason').value.trim();
-    if (banned && !banReason) {
-      $('edit-error').textContent = 'Укажите причину блокировки — её увидит пользователь.';
-      return;
+  if (mode === 'credit') {
+    delta = Math.round(amount * 1e6) / 1e6;
+    next = Math.round((current + delta) * 1e6) / 1e6;
+    type = 'deposit';
+    if (!String(req.body.network || '').trim()) req.body.network = 'TRC20';
+  } else if (mode === 'debit') {
+    delta = -Math.round(amount * 1e6) / 1e6;
+    next = Math.round((current + delta) * 1e6) / 1e6;
+    if (next < -1e-9) {
+      return res.status(400).json({ error: 'недостаточно средств для списания' });
     }
-    await adminFetch(`/users/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({
-        accountNumber: $('edit-account').value.trim(),
-        cardNumber: $('edit-card').value.trim(),
-        kycStatus: verified ? 'approved' : undefined,
-        verified,
-        banned,
-        banReason,
-        transfersDisabled: $('edit-transfers-off').checked,
-        transferLockReason: $('edit-transfer-reason').value.trim(),
-        conversionsDisabled: $('edit-convert-off').checked,
-        convertLockReason: $('edit-convert-reason').value.trim(),
-        opsLocked: $('edit-ops-locked').checked,
-        opsLockReason: $('edit-ops-reason').value.trim(),
-      }),
+    if (next < 0) next = 0;
+    type = 'withdraw_admin';
+    if (!String(req.body.network || '').trim()) req.body.network = 'TRC20';
+  } else {
+    next = Math.round(amount * 1e6) / 1e6;
+    delta = Math.round((next - current) * 1e6) / 1e6;
+    if (delta === 0) return res.status(400).json({ error: 'баланс уже такой' });
+    type = 'admin_adjust';
+  }
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const u = await tx.user.update({
+      where: { id },
+      data: { usdtBalance: next },
     });
-    $('edit-modal').classList.add('screen-hidden');
-    await loadUsers();
-    await loadAccountRequests();
-    await loadCardRequests();
-    await loadKycQueue();
-  } catch (e) {
-    $('edit-error').textContent = e.message;
-  }
+    await tx.balanceHistory.create({
+      data: {
+        userId: id,
+        type,
+        amount: delta,
+        balance: u.usdtBalance,
+        meta: comment,
+        asset: String(req.body.asset || 'USDT').toUpperCase(),
+        network: String(req.body.network || '').trim() || null,
+        address: String(req.body.address || '').trim() || null,
+        txHash: String(req.body.txHash || '').trim() || null,
+        fee: Number.isFinite(Number(req.body.fee)) ? Number(req.body.fee) : null,
+        status: mode === 'credit' ? 'success' : 'completed',
+      },
+    });
+    return u;
+  });
+
+  res.json({ ...serializeUser(updated), appliedMode: mode, appliedDelta: delta });
 });
 
-async function loadKycQueue() {
-  const users = await adminFetch('/users?kycPending=1');
-  const box = $('kyc-list');
-  if (!users.length) {
-    box.innerHTML = '<div class="muted">Нет заявок на проверке</div>';
-    return;
-  }
-  box.innerHTML = users.map((u) => `
-    <div class="kyc-card">
-      <h3>${escapeHtml(u.fullName || u.displayName || '—')}</h3>
-      <div class="muted mono">UID ${escapeHtml(u.uid || '—')} · #${u.id}</div>
-      <div class="muted">${escapeHtml(u.email || 'нет email')} · ${escapeHtml(u.phone || 'нет телефона')}</div>
-      <div class="muted">ID ${u.id} · @${escapeHtml(u.usernameTg || '—')}</div>
-      <div class="muted">${escapeHtml(u.country || '')}</div>
-      <div style="margin-top:10px">
-        <button class="btn-primary" data-kyc-open="${u.id}">Открыть</button>
-      </div>
-    </div>
-  `).join('');
-  box.querySelectorAll('[data-kyc-open]').forEach((btn) => {
-    btn.addEventListener('click', () => openKyc(Number(btn.dataset.kycOpen)));
+router.get('/users/:id/history', async (req, res) => {
+  const id = Number(req.params.id);
+  const rows = await prisma.balanceHistory.findMany({
+    where: { userId: id },
+    orderBy: { createdAt: 'desc' },
+    take: 200,
   });
-}
-
-$('refresh-kyc').addEventListener('click', () => loadKycQueue().catch(console.error));
-
-async function openKyc(id) {
-  currentKycUserId = id;
-  const user = await adminFetch(`/users/${id}`);
-  $('kyc-modal-meta').textContent =
-    `${user.fullName || '—'} · ${user.country || '—'} · @${user.usernameTg || '—'} · ID ${user.id}`;
-  $('kyc-reject-reason').value = '';
-
-  const labels = { id_front: 'Документ (лицевая)', id_back: 'Документ (оборот)', selfie: 'Селфи' };
-  $('kyc-modal-docs').innerHTML = (user.kycDocuments || []).map((d) => `
-    <div class="kyc-doc">
-      <img src="${fileUrl(`/users/${id}/kyc/docs/${d.type}/file`)}" alt="">
-      <div class="cap">${labels[d.type] || d.type}</div>
-    </div>
-  `).join('') || '<div class="muted">Документы не загружены</div>';
-
-  $('kyc-modal').classList.remove('screen-hidden');
-}
-
-$('kyc-modal-close').addEventListener('click', () => $('kyc-modal').classList.add('screen-hidden'));
-
-$('kyc-approve-btn').addEventListener('click', async () => {
-  await adminFetch(`/users/${currentKycUserId}`, {
-    method: 'PATCH',
-    body: JSON.stringify({ kycStatus: 'approved' }),
-  });
-  $('kyc-modal').classList.add('screen-hidden');
-  await loadKycQueue();
-  await loadUsers();
+  res.json(rows.map(serializeHistory));
 });
 
-$('kyc-reject-btn').addEventListener('click', async () => {
-  const reason = $('kyc-reject-reason').value.trim() || 'Отклонено';
-  await adminFetch(`/users/${currentKycUserId}`, {
-    method: 'PATCH',
-    body: JSON.stringify({ kycStatus: 'rejected', kycRejectReason: reason }),
-  });
-  $('kyc-modal').classList.add('screen-hidden');
-  await loadKycQueue();
-  await loadUsers();
+router.patch('/users/:id/history/:hid', async (req, res) => {
+  const id = Number(req.params.id);
+  const hid = Number(req.params.hid);
+  const row = await prisma.balanceHistory.findFirst({ where: { id: hid, userId: id } });
+  if (!row) return res.status(404).json({ error: 'транзакция не найдена' });
+  const data = {};
+  if (req.body.txHash !== undefined) data.txHash = String(req.body.txHash || '').trim() || null;
+  if (req.body.network !== undefined) data.network = String(req.body.network || '').trim() || null;
+  if (req.body.address !== undefined) data.address = String(req.body.address || '').trim() || null;
+  if (req.body.asset !== undefined) data.asset = String(req.body.asset || 'USDT').trim().toUpperCase();
+  if (req.body.fee !== undefined) {
+    const fee = Number(req.body.fee);
+    data.fee = Number.isFinite(fee) ? fee : null;
+  }
+  if (req.body.status !== undefined) data.status = String(req.body.status || '').trim() || null;
+  if (!Object.keys(data).length) return res.status(400).json({ error: 'нечего обновить' });
+  const updated = await prisma.balanceHistory.update({ where: { id: hid }, data });
+  res.json(serializeHistory(updated));
 });
 
-let adminSupportPoll = null;
-let adminThreadSig = '';
+// Адреса депозита
+router.put('/users/:id/deposit-addresses', requireFullAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  const { asset, network, address, label } = req.body;
+  const a = String(asset || '').toUpperCase();
+  const n = String(network || '').toUpperCase();
+  const addr = String(address || '').trim();
 
-function stopAdminSupportPoll() {
-  if (adminSupportPoll) {
-    clearInterval(adminSupportPoll);
-    adminSupportPoll = null;
+  const allowed = {
+    USDT: ['TRC20', 'ERC20'],
+    BTC: ['BTC'],
+  };
+  if (!allowed[a] || !allowed[a].includes(n)) {
+    return res.status(400).json({ error: 'неверная пара asset/network' });
   }
-}
-
-function startAdminSupportPoll() {
-  stopAdminSupportPoll();
-  adminSupportPoll = setInterval(() => {
-    const onSupport = !$('view-support').classList.contains('screen-hidden');
-    if (!onSupport || !secret) return;
-    loadThreads({ silent: true }).catch(() => {});
-    if (currentThreadId) openThread(currentThreadId, { silent: true }).catch(() => {});
-  }, 2500);
-}
-
-function renderAdminMsg(m) {
-  const text = m.text && m.text !== '📎 Вложение' ? `<div>${escapeHtml(m.text)}</div>` : '';
-  let file = '';
-  if (m.hasFile && m.fileUrl) {
-    const url = fileUrl(m.fileUrl.replace(/^\/api\/admin/, ''));
-    if ((m.mimeType || '').startsWith('image/')) {
-      file = `<a href="${url}" target="_blank" rel="noopener"><img class="msg-img" src="${url}" alt=""></a>`;
-    } else {
-      file = `<a class="msg-file" href="${url}" target="_blank" rel="noopener">📄 ${escapeHtml(m.originalName || 'файл')}</a>`;
-    }
+  if (!addr || addr.length < 10 || addr.length > 128) {
+    return res.status(400).json({ error: 'некорректный адрес' });
   }
-  return `<div class="msg ${m.sender}">${text}${file}</div>`;
-}
 
-function updateSupportNavDot(threads) {
-  const unread = (threads || []).filter((t) => t.unread).length;
-  const dot = $('support-nav-dot');
-  if (!dot) return;
-  dot.classList.toggle('screen-hidden', unread === 0);
-  dot.textContent = unread > 9 ? '9+' : String(unread || '');
-}
+  const user = await prisma.user.findUnique({ where: { id } });
+  if (!user) return res.status(404).json({ error: 'пользователь не найден' });
 
-async function loadThreads({ silent = false } = {}) {
-  const threads = await adminFetch('/support/threads');
-  updateSupportNavDot(threads);
-  const list = $('threads-list');
-  if (!threads.length) {
-    list.innerHTML = '<div class="muted">Открытых тикетов нет</div>';
-    return threads;
-  }
-  list.innerHTML = threads.map((t) => {
-    const preview = t.lastMessage?.hasFile && (!t.lastMessage.text || t.lastMessage.text === '📎 Вложение')
-      ? '📎 Вложение'
-      : (t.lastMessage?.text || 'нет сообщений');
-    return `
-    <button class="thread-item ${t.id === currentThreadId ? 'active' : ''} ${t.unread ? 'unread' : ''}" data-thread="${t.id}">
-      <div class="t-id">
-        ${t.unread ? '<span class="unread-dot"></span>' : ''}
-        #${t.id} · ${escapeHtml(t.user.displayName || t.user.usernameTg || t.user.id)}
-      </div>
-      <div class="t-preview">${escapeHtml(preview)}</div>
-    </button>`;
-  }).join('');
-  list.querySelectorAll('[data-thread]').forEach((btn) => {
-    btn.addEventListener('click', () => openThread(Number(btn.dataset.thread)));
+  const row = await prisma.depositAddress.upsert({
+    where: { userId_asset_network: { userId: id, asset: a, network: n } },
+    create: { userId: id, asset: a, network: n, address: addr, label: label || null },
+    update: { address: addr, label: label || null },
   });
-  return threads;
-}
 
-$('refresh-threads').addEventListener('click', () => loadThreads().catch(console.error));
-
-async function openThread(id, { silent = false } = {}) {
-  currentThreadId = id;
-  const thread = await adminFetch(`/support/threads/${id}`);
-  const sig = thread.messages.map((m) => m.id).join(',');
-  if (silent && sig === adminThreadSig) {
-    loadThreads({ silent: true }).catch(() => {});
-    return;
-  }
-  adminThreadSig = sig;
-
-  $('thread-empty').classList.add('screen-hidden');
-  $('thread-panel').classList.remove('screen-hidden');
-  $('thread-title').textContent = `Тикет #${thread.id}`;
-  $('thread-user').textContent =
-    `${thread.user.displayName || '—'} · @${thread.user.usernameTg || '—'} · id ${thread.user.id}` +
-    (thread.user.accountNumber ? ` · счёт ${thread.user.accountNumber}` : '');
-
-  const box = $('thread-messages');
-  const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
-  box.innerHTML = thread.messages.map(renderAdminMsg).join('');
-  if (!silent || nearBottom) box.scrollTop = box.scrollHeight;
-  loadThreads({ silent: true }).catch(() => {});
-}
-
-$('reply-file').addEventListener('change', () => {
-  const f = $('reply-file').files?.[0];
-  $('reply-file-name').textContent = f ? f.name : '';
+  res.json(row);
 });
 
-$('reply-btn').addEventListener('click', async () => {
-  if (!currentThreadId) return;
-  const text = $('reply-text').value.trim();
-  const file = $('reply-file').files?.[0];
-  if (!text && !file) return;
+router.delete('/users/:id/deposit-addresses/:addrId', requireFullAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  const addrId = Number(req.params.addrId);
+  await prisma.depositAddress.deleteMany({ where: { id: addrId, userId: id } });
+  res.json({ ok: true });
+});
+
+const POOL_SLOTS = [
+  { asset: 'USDT', network: 'TRC20', key: 'usdtTrc20' },
+  { asset: 'USDT', network: 'ERC20', key: 'usdtErc20' },
+  { asset: 'BTC', network: 'BTC', key: 'btc' },
+];
+
+function serializePool(row) {
+  return {
+    id: row.id,
+    code: row.code,
+    asset: row.asset,
+    network: row.network,
+    address: row.address,
+    label: row.label || row.code,
+    active: row.active,
+    createdAt: row.createdAt,
+  };
+}
+
+function groupBranches(rows) {
+  const map = new Map();
+  for (const r of rows) {
+    const code = r.code || r.label || '—';
+    if (!map.has(code)) map.set(code, { code, items: [] });
+    map.get(code).items.push(serializePool(r));
+  }
+  return [...map.values()].sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
+}
+
+async function nextBranchCode() {
+  const rows = await prisma.walletPool.findMany({ select: { code: true } });
+  const nums = rows
+    .map((r) => Number(String(r.code || '').replace(/^BO/i, '')))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  const max = nums.length ? Math.max(...nums) : 0;
+  return `BO${max + 1}`;
+}
+
+router.get('/wallet-pool', async (_req, res) => {
+  const rows = await prisma.walletPool.findMany({
+    orderBy: [{ code: 'asc' }, { asset: 'asc' }, { network: 'asc' }],
+  });
+  res.json({ branches: groupBranches(rows), nextCode: await nextBranchCode() });
+});
+
+router.post('/wallet-pool', requireFullAdmin, async (req, res) => {
+  let code = String(req.body.code || '').trim().toUpperCase();
+  if (!code) code = await nextBranchCode();
+  if (!/^BO[A-Z0-9_-]{1,12}$/i.test(code)) {
+    return res.status(400).json({ error: 'название ветки: BO1, BO2…' });
+  }
+
+  const body = req.body || {};
+  const slots = [
+    { asset: 'USDT', network: 'TRC20', address: body.usdtTrc20 || body.trc20 },
+    { asset: 'USDT', network: 'ERC20', address: body.usdtErc20 || body.erc20 },
+    { asset: 'BTC', network: 'BTC', address: body.btc },
+  ].map((s) => ({ ...s, address: String(s.address || '').trim() }))
+    .filter((s) => s.address);
+
+  if (!slots.length) {
+    return res.status(400).json({ error: 'укажите хотя бы один адрес: USDT TRC-20 или BTC' });
+  }
+
+  const created = [];
   try {
-    const fd = new FormData();
-    if (text) fd.append('text', text);
-    if (file) fd.append('file', file);
-    await adminFetch(`/support/threads/${currentThreadId}/reply`, {
-      method: 'POST',
-      body: fd,
-    });
-    $('reply-text').value = '';
-    $('reply-file').value = '';
-    $('reply-file-name').textContent = '';
-    adminThreadSig = '';
-    await openThread(currentThreadId);
-  } catch (e) {
-    alert(e.message);
-  }
-});
-
-$('close-thread-btn').addEventListener('click', async () => {
-  if (!currentThreadId) return;
-  if (!confirm('Закрыть тикет?')) return;
-  await adminFetch(`/support/threads/${currentThreadId}/close`, { method: 'POST' });
-  currentThreadId = null;
-  adminThreadSig = '';
-  $('thread-panel').classList.add('screen-hidden');
-  $('thread-empty').classList.remove('screen-hidden');
-  await loadThreads();
-});
-
-// красная точка в меню — даже вне вкладки поддержки
-setInterval(() => {
-  if (!secret) return;
-  loadThreads({ silent: true }).catch(() => {});
-}, 8000);
-
-function syncPoolNetworks() {
-  const asset = $('pool-asset')?.value;
-  if (!asset) return;
-  const nets = NETWORK_BY_ASSET[asset] || [];
-  $('pool-network').innerHTML = nets.map((n) => `<option value="${n}">${n}</option>`).join('');
-}
-$('pool-asset')?.addEventListener('change', syncPoolNetworks);
-
-async function loadWalletPool() {
-  const box = $('pool-list');
-  if (!box) return;
-  const data = await adminFetch('/wallet-pool');
-  const branches = Array.isArray(data) ? [] : (data.branches || []);
-  if (data.nextCode && $('pool-code') && !$('pool-code').value) {
-    $('pool-code').placeholder = data.nextCode;
-  }
-  if (!branches.length) {
-    box.innerHTML = '<div class="muted">Веток нет. Создайте BO1 с адресами USDT TRC-20 и BTC.</div>';
-    return;
-  }
-  box.innerHTML = branches.map((b) => {
-    const lines = (b.items || []).map((r) =>
-      `<div class="mono" style="margin:4px 0">${escapeHtml(r.asset)} ${escapeHtml(r.network)} · ${escapeHtml(r.address)}</div>`
-    ).join('');
-    const ids = (b.items || []).map((r) => r.id).join(',');
-    return `<div class="addr-item">
-      <div class="meta" style="font-weight:700">${escapeHtml(b.code)}</div>
-      ${lines}
-      ${canAssignWallets() ? '<button class="btn-link" data-del-branch="' + escapeHtml(ids) + '">Удалить ветку</button>' : ''}
-    </div>`;
-  }).join('');
-  box.querySelectorAll('[data-del-branch]').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      if (!confirm('Удалить ветку из пула? Уже выданные пользователям адреса не изменятся.')) return;
-      const ids = String(btn.dataset.delBranch || '').split(',').filter(Boolean);
-      for (const id of ids) {
-        await adminFetch(`/wallet-pool/${id}`, { method: 'DELETE' });
+    for (const s of slots) {
+      if (s.address.length < 10 || s.address.length > 128) {
+        return res.status(400).json({ error: `некорректный адрес ${s.asset} ${s.network}` });
       }
-      await loadWalletPool();
-    });
-  });
-}
-
-$('refresh-pool')?.addEventListener('click', () => loadWalletPool().catch(console.error));
-$('pool-add')?.addEventListener('click', async () => {
-  const err = $('pool-error');
-  if (err) err.textContent = '';
-  try {
-    const res = await adminFetch('/wallet-pool', {
-      method: 'POST',
-      body: JSON.stringify({
-        code: $('pool-code').value.trim(),
-        usdtTrc20: $('pool-trc20').value.trim(),
-        usdtErc20: $('pool-erc20').value.trim(),
-        btc: $('pool-btc').value.trim(),
-      }),
-    });
-    $('pool-code').value = '';
-    $('pool-trc20').value = '';
-    $('pool-erc20').value = '';
-    $('pool-btc').value = '';
-    if (err) err.textContent = `Сохранена ветка ${res.code}`;
-    await loadWalletPool();
-  } catch (e) {
-    if (err) err.textContent = e.message;
-  }
-});
-
-async function loadDeposits() {
-  const box = $('deposits-list');
-  if (!box) return;
-  try {
-    const rows = await adminFetch('/deposits');
-    if (!rows.length) {
-      box.innerHTML = '<div class="muted">Пока нет входящих. Нажмите «Проверить сейчас» — смотрим TRC-20 / ERC-20 / BTC по адресам из пула.</div>';
-      return;
-    }
-    box.innerHTML = rows.map((r) => {
-      const usd = r.usdAmount != null ? `${Number(r.usdAmount).toLocaleString('en-US')} $` : `${Number(r.amount)} ${r.asset}`;
-      const hash = r.explorer
-        ? `<a href="${escapeHtml(r.explorer)}" target="_blank" rel="noopener">${escapeHtml(r.txHash)}</a>`
-        : escapeHtml(r.txHash);
-      return `<div class="finance-item">
-        <div class="finance-item-head">
-          <strong>${escapeHtml(r.branchCode)} Пополнение — ${escapeHtml(usd)}</strong>
-          <span class="chip ${r.confirmed ? 'assigned' : 'pending'}">${r.confirmed ? 'подтверждено' : 'в сети'}</span>
-        </div>
-        <div class="muted">валюта ${escapeHtml(r.asset)} (${escapeHtml(r.network)})</div>
-        <div class="finance-details">
-          С: <span class="mono">${escapeHtml(r.fromAddress || '—')}</span><br>
-          На: <span class="mono">${escapeHtml(r.toAddress)}</span><br>
-          Хеш: ${hash}<br>
-          ${escapeHtml(new Date(r.seenAt).toLocaleString('ru-RU'))}
-        </div>
-      </div>`;
-    }).join('');
-  } catch (e) {
-    box.innerHTML = `<div class="error">${escapeHtml(e.message || 'не удалось загрузить')}</div>`;
-  }
-}
-
-$('refresh-deposits')?.addEventListener('click', () => {
-  const box = $('deposits-list');
-  if (box) box.innerHTML = '<div class="muted">Обновление…</div>';
-  loadDeposits().catch((e) => {
-    if (box) box.innerHTML = `<div class="error">${escapeHtml(e.message)}</div>`;
-  });
-});
-$('scan-deposits')?.addEventListener('click', async () => {
-  const btn = $('scan-deposits');
-  const box = $('deposits-list');
-  if (btn) btn.disabled = true;
-  if (box) box.innerHTML = '<div class="muted">Проверяем сеть по адресам из пула… Это может занять до минуты.</div>';
-  try {
-    const res = await adminFetch('/deposits/scan', { method: 'POST' });
-    await loadDeposits();
-    const note = `Проверено адресов: ${res.scanned || 0}. Новых: ${res.newCount || 0}.`;
-    if (box && !box.querySelector('.finance-item')) {
-      box.innerHTML = `<div class="muted">${note} Входящих пока нет.</div>`;
-    } else if (box) {
-      box.insertAdjacentHTML('afterbegin', `<div class="muted" style="margin-bottom:8px">${note}</div>`);
+      const row = await prisma.walletPool.upsert({
+        where: { code_asset_network: { code, asset: s.asset, network: s.network } },
+        create: { code, asset: s.asset, network: s.network, address: s.address, label: code, active: true },
+        update: { address: s.address, label: code, active: true },
+      });
+      created.push(serializePool(row));
     }
   } catch (e) {
-    if (box) box.innerHTML = `<div class="error">${escapeHtml(e.message)}</div>`;
-  } finally {
-    if (btn) btn.disabled = false;
+    if (/unique|P2002/i.test(String(e.message || e))) {
+      return res.status(400).json({ error: 'этот адрес уже есть в другой ветке' });
+    }
+    throw e;
+  }
+  res.json({ ok: true, code, items: created });
+});
+
+router.delete('/wallet-pool/:id', requireFullAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  await prisma.walletPool.deleteMany({ where: { id } });
+  res.json({ ok: true });
+});
+
+router.delete('/wallet-pool/branch/:code', requireFullAdmin, async (req, res) => {
+  const code = String(req.params.code || '').trim();
+  await prisma.walletPool.deleteMany({ where: { code } });
+  res.json({ ok: true });
+});
+
+router.get('/deposits', async (_req, res) => {
+  try {
+    if (!prisma.incomingDeposit) {
+      return res.status(500).json({ error: 'модель IncomingDeposit не сгенерирована. Перезадеплойте сервис.' });
+    }
+    const rows = await prisma.incomingDeposit.findMany({
+      orderBy: { seenAt: 'desc' },
+      take: 200,
+    });
+    res.json(rows.map((r) => ({
+      id: r.id,
+      branchCode: r.branchCode,
+      asset: r.asset,
+      network: r.network,
+      amount: Number(r.amount),
+      usdAmount: r.usdAmount == null ? null : Number(r.usdAmount),
+      fromAddress: r.fromAddress,
+      toAddress: r.toAddress,
+      txHash: r.txHash,
+      confirmed: r.confirmed,
+      seenAt: r.seenAt,
+      explorer: explorerUrl(r.network, r.txHash),
+      title: `${r.branchCode} Пополнение — ${r.usdAmount != null ? Number(r.usdAmount) : Number(r.amount)}$ валюта ${r.asset} (${r.network})`,
+    })));
+  } catch (e) {
+    console.error('[admin/deposits]', e);
+    res.status(500).json({ error: e.message || 'не удалось загрузить пополнения' });
   }
 });
 
-if (secret) tryLogin(secret);
-else showApp(false);
+router.post('/deposits/scan', async (_req, res) => {
+  try {
+    const { scanOnce } = require('../deposit-watch');
+    const result = await scanOnce();
+    res.json({ ok: true, scanned: result.scanned || 0, newCount: result.newCount || 0 });
+  } catch (e) {
+    console.error('[admin/deposits/scan]', e);
+    res.status(500).json({ error: e.message || 'не удалось проверить сеть' });
+  }
+});
+
+router.get('/users/:id/kyc/docs/:type/file', async (req, res) => {
+  const id = Number(req.params.id);
+  const type = req.params.type;
+  const doc = await prisma.kycDocument.findUnique({
+    where: { userId_type: { userId: id, type } },
+  });
+  if (!doc) return res.status(404).json({ error: 'документ не найден' });
+  const filePath = absolutePath(doc.filename);
+  if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'файл отсутствует' });
+  res.setHeader('Content-Type', doc.mimeType || 'image/jpeg');
+  fs.createReadStream(filePath).pipe(res);
+});
+
+router.get('/support/threads', async (_req, res) => {
+  const threads = await prisma.supportThread.findMany({
+    where: { status: 'open' },
+    include: {
+      user: true,
+      messages: { orderBy: { createdAt: 'desc' }, take: 1 },
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 100,
+  });
+
+  res.json(threads.map((t) => {
+    const last = t.messages[0] || null;
+    const unread = Boolean(
+      last
+      && last.sender === 'user'
+      && (!t.adminReadAt || new Date(last.createdAt) > new Date(t.adminReadAt))
+    );
+    return {
+      id: t.id,
+      status: t.status,
+      createdAt: t.createdAt,
+      adminReadAt: t.adminReadAt,
+      unread,
+      user: serializeUser(t.user),
+      lastMessage: last
+        ? {
+          sender: last.sender,
+          text: last.text,
+          createdAt: last.createdAt,
+          hasFile: Boolean(last.filename),
+        }
+        : null,
+    };
+  }));
+});
+
+router.get('/support/threads/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  const thread = await prisma.supportThread.findUnique({
+    where: { id },
+    include: {
+      user: true,
+      messages: { orderBy: { createdAt: 'asc' } },
+    },
+  });
+  if (!thread) return res.status(404).json({ error: 'тикет не найден' });
+
+  // помечаем как прочитанное админом
+  await prisma.supportThread.update({
+    where: { id },
+    data: { adminReadAt: new Date() },
+  }).catch(() => {});
+
+  res.json({
+    id: thread.id,
+    status: thread.status,
+    createdAt: thread.createdAt,
+    user: serializeUser(thread.user),
+    messages: thread.messages.map((m) => ({
+      id: m.id,
+      sender: m.sender,
+      text: m.text || '',
+      filename: m.filename,
+      originalName: m.originalName,
+      mimeType: m.mimeType,
+      createdAt: m.createdAt,
+      hasFile: Boolean(m.filename),
+      fileUrl: m.filename ? `/api/admin/support/messages/${m.id}/file` : null,
+    })),
+  });
+});
+
+router.get('/support/messages/:id/file', async (req, res) => {
+  const id = Number(req.params.id);
+  const msg = await prisma.supportMessage.findUnique({ where: { id } });
+  if (!msg?.filename) return res.status(404).json({ error: 'файл не найден' });
+  const filePath = supportAbsolutePath(msg.filename);
+  if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'файл отсутствует' });
+  res.setHeader('Content-Type', msg.mimeType || 'application/octet-stream');
+  if (msg.originalName) {
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(msg.originalName)}"`);
+  }
+  fs.createReadStream(filePath).pipe(res);
+});
+
+router.post('/support/threads/:id/reply', (req, res) => {
+  supportUpload.single('file')(req, res, async (err) => {
+    if (err) return res.status(400).json({ error: err.message || 'ошибка загрузки' });
+    try {
+      const id = Number(req.params.id);
+      const text = String(req.body.text || '').trim();
+      if (!text && !req.file) {
+        return res.status(400).json({ error: 'пустое сообщение' });
+      }
+
+      const thread = await prisma.supportThread.findUnique({
+        where: { id },
+        include: { user: true },
+      });
+      if (!thread) return res.status(404).json({ error: 'тикет не найден' });
+
+      const message = await prisma.supportMessage.create({
+        data: {
+          threadId: id,
+          sender: 'admin',
+          text: text || (req.file ? '📎 Вложение' : ''),
+          filename: req.file?.filename || null,
+          originalName: req.file?.originalname || null,
+          mimeType: req.file?.mimetype || null,
+        },
+      });
+
+      await prisma.supportThread.update({
+        where: { id },
+        data: { adminReadAt: new Date() },
+      }).catch(() => {});
+
+      res.json(message);
+    } catch (e) {
+      console.error('[admin/reply]', e);
+      res.status(500).json({ error: 'не удалось ответить' });
+    }
+  });
+});
+
+router.post('/support/threads/:id/close', async (req, res) => {
+  const id = Number(req.params.id);
+  const thread = await prisma.supportThread.update({
+    where: { id },
+    data: { status: 'closed' },
+  }).catch(() => null);
+  if (!thread) return res.status(404).json({ error: 'тикет не найден' });
+  res.json({ ok: true });
+});
+
+// ---------- finance requests ----------
+function serializeFinance(r) {
+  return {
+    id: r.id,
+    type: r.type,
+    status: r.status,
+    amount: r.amount == null ? null : Number(r.amount),
+    asset: r.asset,
+    network: r.network,
+    toAddress: r.toAddress,
+    toAsset: r.toAsset,
+    toAmount: r.toAmount == null ? null : Number(r.toAmount),
+    meta: r.meta,
+    adminNote: r.adminNote,
+    createdAt: r.createdAt,
+    reviewedAt: r.reviewedAt,
+    user: r.user ? serializeUser(r.user) : null,
+  };
+}
+
+router.get('/finance/requests', async (req, res) => {
+  const status = String(req.query.status || 'pending');
+  const where = status === 'all' ? {} : { status };
+  const rows = await prisma.financeRequest.findMany({
+    where,
+    include: { user: true },
+    orderBy: { createdAt: 'desc' },
+    take: 150,
+  });
+  res.json(rows.map(serializeFinance));
+});
+
+router.post('/finance/requests/:id/review', async (req, res) => {
+  const id = Number(req.params.id);
+  const action = String(req.body.action || '').toLowerCase(); // approve | reject
+  const adminNote = String(req.body.adminNote || '').trim() || null;
+  if (!['approve', 'reject'].includes(action)) {
+    return res.status(400).json({ error: 'action: approve или reject' });
+  }
+
+  const row = await prisma.financeRequest.findUnique({
+    where: { id },
+    include: { user: true },
+  });
+  if (!row) return res.status(404).json({ error: 'заявка не найдена' });
+  if (row.status !== 'pending') {
+    return res.status(400).json({ error: 'заявка уже обработана' });
+  }
+
+  const status = action === 'approve' ? 'approved' : 'rejected';
+  // Earn / Convert уже применены к балансам при подаче
+  const deductTypes = ['withdraw_onchain', 'withdraw_card'];
+  const shouldDeduct = action === 'approve' && deductTypes.includes(row.type) && row.amount;
+  const shouldRefundEarn = action === 'reject' && row.type === 'earn' && row.amount;
+  const shouldRefundConvert = action === 'reject' && row.type === 'convert' && row.amount && row.toAsset && row.toAmount != null;
+
+  let updated;
+  try {
+    updated = await prisma.$transaction(async (tx) => {
+      if (shouldDeduct) {
+        const user = await tx.user.findUnique({ where: { id: row.userId } });
+        const bal = Number(user.usdtBalance);
+        const amt = Number(row.amount);
+        if (amt > bal) throw new Error('недостаточно средств у пользователя');
+        const next = Math.round((bal - amt) * 1e6) / 1e6;
+        const u = await tx.user.update({
+          where: { id: row.userId },
+          data: { usdtBalance: next },
+        });
+        await tx.balanceHistory.create({
+          data: {
+            userId: row.userId,
+            type: row.type,
+            amount: -amt,
+            balance: u.usdtBalance,
+            meta: adminNote || row.meta || row.type,
+            asset: String(row.asset || 'USDT').toUpperCase(),
+            network: String(req.body.network || row.network || '').trim() || null,
+            address: String(row.toAddress || '').trim() || null,
+            txHash: String(req.body.txHash || '').trim() || null,
+            fee: Number.isFinite(Number(req.body.fee)) ? Number(req.body.fee) : null,
+            status: 'completed',
+          },
+        });
+      }
+      if (shouldRefundEarn) {
+        const user = await tx.user.findUnique({ where: { id: row.userId } });
+        const amt = Number(row.amount);
+        const earn = Number(user.earnBalance || 0);
+        if (amt > earn + 1e-9) throw new Error('некорректный Earn-баланс для возврата');
+        const nextAvail = Math.round((Number(user.usdtBalance) + amt) * 1e6) / 1e6;
+        const nextEarn = Math.round((earn - amt) * 1e6) / 1e6;
+        const u = await tx.user.update({
+          where: { id: row.userId },
+          data: { usdtBalance: nextAvail, earnBalance: nextEarn },
+        });
+        await tx.balanceHistory.create({
+          data: {
+            userId: row.userId,
+            type: 'earn',
+            amount: amt,
+            balance: u.usdtBalance,
+            meta: adminNote || 'Возврат из Earn (отклонено)',
+          },
+        });
+      }
+      if (shouldRefundConvert) {
+        const { setAssetDelta, getAssetAmount } = require('../balances');
+        const fromAsset = String(row.asset || 'USDT').toUpperCase();
+        const toAsset = String(row.toAsset).toUpperCase();
+        const fromAmt = Number(row.amount);
+        const toAmt = Number(row.toAmount || 0);
+        // откат: забрать toAsset, вернуть fromAsset
+        await setAssetDelta(tx, row.userId, toAsset, -toAmt);
+        await setAssetDelta(tx, row.userId, fromAsset, fromAmt);
+        const usdtAfter = await getAssetAmount(tx, row.userId, 'USDT');
+        await tx.balanceHistory.create({
+          data: {
+            userId: row.userId,
+            type: 'convert',
+            amount: fromAsset === 'USDT' ? fromAmt : (toAsset === 'USDT' ? -toAmt : 0),
+            balance: usdtAfter,
+            meta: adminNote || `Отмена конвертации: возврат ${fromAmt} ${fromAsset}`,
+          },
+        });
+      }
+      return tx.financeRequest.update({
+        where: { id },
+        data: { status, adminNote, reviewedAt: new Date() },
+        include: { user: true },
+      });
+    });
+  } catch (e) {
+    return res.status(400).json({ error: e.message || 'ошибка обработки' });
+  }
+
+  res.json(serializeFinance(updated));
+});
+
+module.exports = router;
