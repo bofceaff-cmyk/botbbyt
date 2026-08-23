@@ -12,6 +12,7 @@ const GECKO_ICONS = {
   BTC: 'https://assets.coingecko.com/coins/images/1/small/bitcoin.png',
   ETH: 'https://assets.coingecko.com/coins/images/279/small/ethereum.png',
   USDT: 'https://assets.coingecko.com/coins/images/325/small/Tether.png',
+  USDC: 'https://assets.coingecko.com/coins/images/6319/small/usdc.png',
   BNB: 'https://assets.coingecko.com/coins/images/825/small/bnb-icon2_2x.png',
   SOL: 'https://assets.coingecko.com/coins/images/4128/small/solana.png',
   XRP: 'https://assets.coingecko.com/coins/images/44/small/xrp-symbol-white-128.png',
@@ -572,27 +573,98 @@ router.get('/coin', async (req, res) => {
   }
 });
 
-const ALPHA_SYMS = ['TRUMPUSDT', 'HYPEUSDT', 'PEPEUSDT', 'BONKUSDT', 'WIFUSDT', '1000SATSUSDT'];
+const ALPHA_MARKET = [
+  { gecko: 'official-trump', symbol: 'TRUMP', name: 'TRUMP', chip: 'new' },
+  { gecko: 'hyperliquid', symbol: 'HYPE', name: 'HYPE', chip: 'hot' },
+  { gecko: 'pepe', symbol: 'PEPE', name: 'PEPE', chip: 'hot' },
+  { gecko: 'bonk', symbol: 'BONK', name: 'BONK', chip: 'new' },
+  { gecko: 'dogwifcoin', symbol: 'WIF', name: 'WIF', chip: 'hot' },
+  { gecko: 'floki', symbol: 'FLOKI', name: 'FLOKI', chip: 'new' },
+  { gecko: 'pudgy-penguins', symbol: 'PENGU', name: 'PENGU', chip: 'new' },
+  { gecko: 'worldcoin-wld', symbol: 'WLD', name: 'WLD', chip: 'hot' },
+];
+
+const ALPHA_FARMS = [
+  { pair: 'SPCX-USDC', tag: 'RWA', apr: 3.65, tvl: 158530, popular: true, a: 'SP', b: 'USDC', aBg: '#111827' },
+  { pair: 'NVDAx-USDC', tag: 'Популярное', apr: 1.67, tvl: 92140, popular: true, a: 'NV', b: 'USDC', aBg: '#76b900' },
+  { pair: 'TSLAx-USDC', tag: 'Stocks', apr: 2.14, tvl: 54010, popular: false, a: 'TS', b: 'USDC', aBg: '#cc0000' },
+];
+
+const ALPHA_FALLBACK = [
+  { symbol: 'TRUMP', name: 'TRUMP', price: 2.4107, change24h: 26.78, volume24h: 184580000, marketCap: 604570000, chip: 'new' },
+  { symbol: 'HYPE', name: 'HYPE', price: 80.1449, change24h: 6.55, volume24h: 99400000, marketCap: 56930000, chip: 'hot' },
+  { symbol: 'PEPE', name: 'PEPE', price: 0.0000124, change24h: 4.12, volume24h: 412000000, marketCap: 5200000000, chip: 'hot' },
+  { symbol: 'BONK', name: 'BONK', price: 0.000021, change24h: -3.4, volume24h: 88000000, marketCap: 1400000000, chip: 'new' },
+  { symbol: 'WIF', name: 'WIF', price: 1.82, change24h: 1.15, volume24h: 71490, marketCap: 391840, chip: 'hot' },
+  { symbol: 'FLOKI', name: 'FLOKI', price: 0.00018, change24h: -1.2, volume24h: 52000000, marketCap: 1750000000, chip: 'new' },
+  { symbol: 'PENGU', name: 'PENGU', price: 0.01402, change24h: -8.88, volume24h: 21000000, marketCap: 880000000, chip: 'new' },
+  { symbol: 'WLD', name: 'WLD', price: 2.05, change24h: 2.4, volume24h: 120000000, marketCap: 2100000000, chip: 'hot' },
+];
+
 let alphaCache = { at: 0, data: null };
+
+function mapAlphaRow(meta, row) {
+  if (!row) return { ...ALPHA_FALLBACK.find((f) => f.symbol === meta.symbol), ...meta };
+  return {
+    symbol: meta.symbol,
+    name: meta.name,
+    chip: meta.chip,
+    price: row.current_price ?? row.price,
+    change24h: row.price_change_percentage_24h ?? row.change24h,
+    volume24h: row.total_volume ?? row.volume24h,
+    marketCap: row.market_cap ?? row.marketCap,
+  };
+}
+
 router.get('/alpha', async (_req, res) => {
   try {
-    if (alphaCache.data && Date.now() - alphaCache.at < 8000) return res.json(alphaCache.data);
-    const raw = await fetchJson(
-      `https://api.binance.com/api/v3/ticker/24hr?symbols=${encodeURIComponent(JSON.stringify(ALPHA_SYMS))}`,
-      8000,
-    );
-    const list = (Array.isArray(raw) ? raw : []).map((r) => ({
-      symbol: String(r.symbol).replace(/USDT$/, ''),
-      pair: r.symbol,
-      price: Number(r.lastPrice),
-      change24h: Number(r.priceChangePercent),
-      volume24h: Number(r.quoteVolume),
+    if (alphaCache.data && Date.now() - alphaCache.at < 20000) return res.json(alphaCache.data);
+    let market = ALPHA_FALLBACK.map((x) => ({ ...x }));
+    try {
+      const ids = ALPHA_MARKET.map((c) => c.gecko).join(',');
+      const raw = await fetchJson(
+        `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${ids}&order=market_cap_desc&sparkline=false&price_change_percentage=24h`,
+        9000,
+      );
+      if (Array.isArray(raw) && raw.length) {
+        const byId = Object.fromEntries(raw.map((c) => [c.id, c]));
+        market = ALPHA_MARKET.map((meta) => mapAlphaRow(meta, byId[meta.gecko]));
+      }
+    } catch { /* fallback list */ }
+
+    let sniping = market.slice(0, 2).map((c, i) => ({
+      ...c,
+      tag: i === 0 ? 'Новые' : 'Мемы',
+      popular: true,
+      created: i === 0 ? '8D' : null,
     }));
-    alphaCache = { at: Date.now(), data: list };
-    res.json(list);
+    try {
+      const tr = await fetchJson('https://api.coingecko.com/api/v3/search/trending', 7000);
+      const coins = (tr.coins || []).slice(0, 2).map((x) => x.item).filter(Boolean);
+      if (coins.length) {
+        sniping = coins.map((item, i) => {
+          const usd = item.data?.price != null ? Number(item.data.price) : null;
+          return {
+            symbol: String(item.symbol || '').toUpperCase(),
+            name: item.name,
+            tag: i === 0 ? 'Новые' : 'Мемы',
+            popular: true,
+            price: usd,
+            change24h: Number(item.data?.price_change_percentage_24h?.usd ?? 0),
+            volume24h: Number(String(item.data?.total_volume || '').replace(/[^0-9.]/g, '')) || null,
+            marketCap: Number(String(item.data?.market_cap || '').replace(/[^0-9.]/g, '')) || null,
+            created: i === 0 ? '8D' : null,
+          };
+        });
+      }
+    } catch { /* keep sniping from market */ }
+
+    const data = { sniping, farms: ALPHA_FARMS, market };
+    alphaCache = { at: Date.now(), data };
+    res.json(data);
   } catch (e) {
     if (alphaCache.data) return res.json(alphaCache.data);
-    res.status(502).json({ error: 'alpha недоступен' });
+    res.json({ sniping: ALPHA_FALLBACK.slice(0, 2), farms: ALPHA_FARMS, market: ALPHA_FALLBACK });
   }
 });
 
