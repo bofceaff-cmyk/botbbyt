@@ -521,8 +521,10 @@ function showScreen(name, opts = {}) {
     ]);
     const tab = MAIN_TABS.has(name) ? name : (
       name === 'chart' ? 'trade' : (
+        name === 'byx-post' ? 'markets' : (
         walletScreens.has(name) ? 'wallet' : (
         name === 'profile' || name === 'support' || name === 'kyc' || name === 'edit-profile' || name === 'notif' ? 'wallet' : 'markets'
+        )
         )
       )
     );
@@ -541,7 +543,7 @@ function showScreen(name, opts = {}) {
     stopSupportPoll();
   }
   if (name === 'deposit') renderDepositNetworks();
-  if (name === 'markets') loadNews();
+  if (name === 'markets') { loadNews(); loadHomeFeed(); }
   if (name === 'chart') startChartLive();
   else if (name === 'trade') {
     startChartLive();
@@ -709,7 +711,7 @@ function renderWalletAmounts(available, earn) {
     if (el) el.textContent = val;
   };
 
-  set('wallet-balance', maskBal(usdTotal));
+  set('wallet-balance', maskBal(fmtUsdt(total, 2)));
   set('wallet-available', maskBal(fmtMoneyFiat(lastWalletBalance + cryptoUsd)));
   set('wallet-in-use', maskBal(fmtMoneyFiat(lastEarnBalance)));
   set('wallet-btc', balanceHidden ? '≈ **** BTC' : `≈ ${btcStr} BTC`);
@@ -724,7 +726,8 @@ function renderWalletAmounts(available, earn) {
       const px = a.id === 'USDT' ? 1 : (Number(prices[a.id]) || 0);
       const fiat = amt * px;
       const amtStr = typeof fmtAssetAmt === 'function' ? fmtAssetAmt(a.id, amt) : fmtUsdt(amt, 4);
-      const ch = a.id === 'USDT' ? 0 : (Number(assetChange24h[a.id]) || 0);
+      const rawCh = a.id === 'USDT' ? 0 : (Number(assetChange24h[a.id]) || 0);
+      const ch = Math.max(-10, Math.min(10, rawCh));
       const prevFiat = ch <= -99.999 ? fiat : fiat / (1 + ch / 100);
       const dFiat = fiat - prevFiat;
       const chgUp = dFiat >= 0;
@@ -788,7 +791,8 @@ function renderWalletAmounts(available, earn) {
     const amt = Number(bals[a.id]) || 0;
     const px = Number(prices[a.id]) || 0;
     const now = amt * px;
-    const ch = Number(assetChange24h[a.id]) || 0;
+    const rawCh = Number(assetChange24h[a.id]) || 0;
+    const ch = Math.max(-10, Math.min(10, rawCh));
     const prev = ch <= -99.999 ? now : now / (1 + ch / 100);
     pnlUsd += now - prev;
   }
@@ -1694,7 +1698,8 @@ function enterApp(me, { startScreen = 'markets' } = {}) {
     appReady = true;
     loadQuotes().finally(() => { if (appReady) startQuotesLive(); });
     loadNews();
-    newsTimer = setInterval(loadNews, 90 * 1000);
+    loadHomeFeed();
+    newsTimer = setInterval(() => { loadNews(); loadHomeFeed({ silent: true }); }, 45 * 1000);
     profileTimer = setInterval(() => loadProfile().catch(() => {}), 12_000);
   }
 }
@@ -3470,7 +3475,7 @@ document.querySelectorAll('#trade-subtabs .trade-sub').forEach((btn) => {
     document.getElementById('trade-pane-news').classList.toggle('screen-hidden', sub !== 'news');
     if (sub === 'overview') loadOverview();
     if (sub === 'data') loadFlow();
-    if (sub === 'news') renderTradeNews();
+    if (sub === 'news') loadTokenNews();
     if (sub === 'chart') setTimeout(() => loadTradeChart({ silent: true }), 50);
   });
 });
@@ -3557,10 +3562,15 @@ document.querySelectorAll('#data-tf button').forEach((b) => {
 function renderTradeNews() {
   const mini = document.getElementById('trade-news-mini');
   if (!mini) return;
-  const items = lastNewsItems.filter((n) => {
-    const t = `${n.title || ''} ${n.body || ''}`.toLowerCase();
-    if (newsFilter === 'token') return t.includes(tradeSymbol.toLowerCase()) || t.includes((tradeQuote()?.name || '').toLowerCase());
-    if (newsFilter === 'macro') return /fed|ставк|инфляц|macro|bank|цб|доллар/i.test(t);
+  const pool = (newsFilter === 'token' && lastTokenNews.length) ? lastTokenNews : lastNewsItems;
+  const items = pool.filter((n) => {
+    const t = `${n.title || ''} ${n.body || ''} ${(n.symbols || []).join(' ')}`.toLowerCase();
+    if (newsFilter === 'token') {
+      const s = tradeSymbol.toLowerCase();
+      return t.includes(s) || t.includes((tradeQuote()?.name || '').toLowerCase())
+        || (n.symbols || []).map((x) => String(x).toUpperCase()).includes(tradeSymbol);
+    }
+    if (newsFilter === 'macro') return /fed|ставк|инфляц|macro|bank|цб|доллар|фрс/i.test(t);
     return true;
   });
   mini.innerHTML = (items.length ? items : lastNewsItems).slice(0, 12).map((n) => {
@@ -3577,8 +3587,54 @@ document.querySelectorAll('.news-pills button').forEach((b) => {
   b.addEventListener('click', () => {
     newsFilter = b.dataset.nf;
     document.querySelectorAll('.news-pills button').forEach((x) => x.classList.toggle('active', x === b));
-    renderTradeNews();
+    if (newsFilter === 'token') loadTokenNews();
+    else renderTradeNews();
   });
+});
+
+document.querySelectorAll('#byx-tabs [data-byx]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    byxTab = btn.getAttribute('data-byx') || 'byx';
+    document.querySelectorAll('#byx-tabs [data-byx]').forEach((b) => b.classList.toggle('active', b === btn));
+    renderHomeFeed();
+    if (byxTab === 'news') loadNews();
+  });
+});
+document.getElementById('byx-feed')?.addEventListener('click', (e) => {
+  if (e.target.id === 'byx-fab' || e.target.closest('#byx-fab')) {
+    tg.showAlert('Публикация откроется после верификации аккаунта.');
+    return;
+  }
+  const join = e.target.closest('[data-promo-url]');
+  if (join) {
+    e.preventDefault();
+    const url = join.getAttribute('data-promo-url');
+    try { if (tg.openLink) tg.openLink(url); else window.open(url, '_blank'); } catch { window.open(url, '_blank'); }
+    return;
+  }
+  const like = e.target.closest('[data-byx-like]');
+  if (like) {
+    e.preventDefault();
+    e.stopPropagation();
+    const id = like.getAttribute('data-byx-like');
+    byxVotes[id] = byxVotes[id] || {};
+    byxVotes[id].like = !byxVotes[id].like;
+    saveByxVotes();
+    renderHomeFeed();
+    return;
+  }
+  const fc = e.target.closest('[data-fc]');
+  if (fc && !fc.disabled) {
+    const id = fc.getAttribute('data-fc');
+    byxVotes[id] = byxVotes[id] || {};
+    if (fc.hasAttribute('data-opt')) byxVotes[id].opt = Number(fc.getAttribute('data-opt'));
+    if (fc.hasAttribute('data-side')) byxVotes[id].side = fc.getAttribute('data-side');
+    saveByxVotes();
+    renderHomeFeed();
+    return;
+  }
+  const post = e.target.closest('[data-byx-post]');
+  if (post) openByxPost(post.getAttribute('data-byx-post'));
 });
 
 async function loadFutures() {
@@ -4362,6 +4418,192 @@ function startQuotesLive() {
   }
 }
 
+let lastTokenNews = [];
+let byxTab = 'byx';
+let byxData = { posts: [], promos: [], forecasts: [] };
+let byxVotes = {};
+try { byxVotes = JSON.parse(localStorage.getItem('byxVotes') || '{}'); } catch { byxVotes = {}; }
+
+function saveByxVotes() {
+  localStorage.setItem('byxVotes', JSON.stringify(byxVotes));
+}
+
+function byxAvatar(user, size = 36) {
+  if (!user || user.avatar === 'none') {
+    return `<span class="byx-av byx-av-empty" style="width:${size}px;height:${size}px"></span>`;
+  }
+  if (user.avatar === 'logo') {
+    return `<img class="byx-av" src="/img/bybit-logo.png?v=3" alt="" width="${size}" height="${size}">`;
+  }
+  const hue = [...String(user.id || user.name)].reduce((s, c) => s + c.charCodeAt(0), 0) % 360;
+  const letter = String(user.name || '?').slice(0, 1);
+  return `<span class="byx-av" style="width:${size}px;height:${size}px;background:hsl(${hue} 40% 28%)">${escapeHtml(letter)}</span>`;
+}
+
+function byxIco(kind) {
+  if (kind === 'like') return '👍';
+  if (kind === 'cmt') return '💬';
+  if (kind === 'rt') return '🔁';
+  return '↗';
+}
+
+function renderByxPost(p, { compact = true } = {}) {
+  const v = byxVotes[p.id] || {};
+  const likes = p.likes + (v.like ? 1 : 0);
+  const chg = fmtChange(p.change);
+  const media = p.chart
+    ? `<img class="byx-media" src="/api/market/feed/chart?symbol=${encodeURIComponent(p.coin || 'BTC')}&t=${p.id}" alt="">`
+    : (p.kind === 'promo' ? `<div class="byx-media byx-media-ai">BUILD YOUR AI FUTURE CITY · $2500</div>` : '');
+  const tag = p.tag ? `<span class="byx-tag">${escapeHtml(p.tag)}</span>` : '';
+  const coin = p.coin ? `<span class="byx-coin">${escapeHtml(p.coin)} <b class="${chg.up ? 'chg-up' : 'chg-down'}">${chg.text}</b></span>` : '';
+  const body = compact
+    ? `${escapeHtml(p.body).slice(0, 140)}${p.body.length > 140 ? '… <span class="byx-orig">Смотреть оригинал</span>' : ''}`
+    : escapeHtml(p.body);
+  return `<article class="byx-post" data-byx-post="${escapeHtml(p.id)}">
+    <div class="byx-head">
+      ${byxAvatar(p.user)}
+      <div class="byx-who"><b>${escapeHtml(p.user.name)}${p.user.verified ? ' <span class="byx-ver">✔</span>' : ''}</b>
+        <span>${escapeHtml(p.date)}</span></div>
+      <button type="button" class="byx-more">⋯</button>
+    </div>
+    <div class="byx-title">${escapeHtml(p.title)}</div>
+    <div class="byx-body">${body}</div>
+    ${tag}${media}${coin}
+    <div class="byx-bar">
+      <button type="button" class="byx-act ${v.like ? 'on' : ''}" data-byx-like="${escapeHtml(p.id)}">${byxIco('like')} ${likes}</button>
+      <span>${byxIco('cmt')} ${p.comments}</span>
+      <span>${byxIco('rt')} ${p.reposts}</span>
+      <span>${byxIco('share')} ${p.shares}</span>
+    </div>
+  </article>`;
+}
+
+function renderHomeFeed() {
+  const box = document.getElementById('byx-feed');
+  const news = document.getElementById('news-list');
+  if (!box) return;
+  news?.classList.toggle('screen-hidden', byxTab !== 'news');
+  box.classList.toggle('screen-hidden', byxTab === 'news');
+  if (byxTab === 'news') return;
+  if (byxTab === 'promo') {
+    box.innerHTML = (byxData.promos || []).map((p) => `
+      <article class="promo-card">
+        <div class="promo-art tone-${escapeHtml(p.tone || 'galaxy')}"></div>
+        <div class="promo-body">
+          <div class="promo-title">${escapeHtml(p.title)}</div>
+          <div class="promo-sub">${escapeHtml(p.sub)}</div>
+          <div class="promo-foot">
+            <span>Завершается ${escapeHtml(p.until)}</span>
+            <a class="promo-join" href="${escapeHtml(p.url)}" data-promo-url="${escapeHtml(p.url)}">Присоединиться</a>
+          </div>
+        </div>
+      </article>`).join('');
+    return;
+  }
+  if (byxTab === 'live') {
+    box.innerHTML = `<div class="promo-card">
+      <div class="promo-art tone-galaxy"></div>
+      <div class="promo-body">
+        <div class="promo-title">Bybit Live</div>
+        <div class="promo-sub">Прямые эфиры с аналитикой рынка. Откроется на bybit.com</div>
+        <div class="promo-foot"><span>Онлайн</span>
+          <a class="promo-join" href="https://www.bybit.com/en/promo/" data-promo-url="https://www.bybit.com/en/promo/">Смотреть</a>
+        </div>
+      </div></div>`;
+    return;
+  }
+  if (byxTab === 'forecast') {
+    box.innerHTML = (byxData.forecasts || []).map((f) => {
+      const vote = byxVotes[f.id] || {};
+      if (f.type === 'market') {
+        const chg = fmtChange(f.change);
+        const pair = String(f.pair || 'BTCUSDT');
+        const sym = pair.replace(/USDT$/, '');
+        return `<article class="fc-card">
+          <div class="fc-top">${coinLogoHtml(sym, 22)} <b>${escapeHtml(pair)}</b>
+            <span class="muted">${escapeHtml(f.timer)}</span>
+            <div class="fc-right"><span class="${chg.up ? 'chg-up' : 'chg-down'}">${chg.text}</span></div>
+          </div>
+          <div class="fc-people">Количество участников: ${escapeHtml(f.people)}</div>
+          <div class="fc-btns">
+            <button type="button" class="fc-yes ${vote.side === 'bull' ? 'on' : ''}" data-fc="${escapeHtml(f.id)}" data-side="bull">Бык</button>
+            <button type="button" class="fc-no ${vote.side === 'bear' ? 'on' : ''}" data-fc="${escapeHtml(f.id)}" data-side="bear">Медведь</button>
+          </div>
+        </article>`;
+      }
+      if (f.type === 'multi') {
+        return `<article class="fc-card">
+          <div class="muted">${escapeHtml(f.timer)}</div>
+          <div class="fc-q">${escapeHtml(f.question)}</div>
+          ${(f.options || []).map((o, i) => `
+            <button type="button" class="fc-opt ${vote.opt === i ? 'on' : ''}" data-fc="${escapeHtml(f.id)}" data-opt="${i}">
+              <span>${escapeHtml(o.label)}</span><span class="muted">${escapeHtml(o.odd)}</span>
+              <span class="alpha-chg up">${o.pct}%</span>
+            </button>`).join('')}
+          <div class="fc-people">Количество участников: ${escapeHtml(f.people)}</div>
+        </article>`;
+      }
+      const yes = vote.side === 'no' ? Math.max(1, f.yes - 3) : (vote.side === 'yes' ? Math.min(99, f.yes + 2) : f.yes);
+      return `<article class="fc-card">
+        <div class="muted">${escapeHtml(f.timer)}</div>
+        <div class="fc-row">
+          <div class="fc-q">${escapeHtml(f.question)}</div>
+          <div class="fc-donut">${yes}%</div>
+        </div>
+        <div class="fc-people">Количество участников: ${escapeHtml(f.people)}</div>
+        <div class="fc-btns">
+          <button type="button" class="fc-yes ${vote.side === 'yes' ? 'on' : ''}" data-fc="${escapeHtml(f.id)}" data-side="yes" ${f.status === 'closed' ? 'disabled' : ''}>Да</button>
+          <button type="button" class="fc-no ${vote.side === 'no' ? 'on' : ''}" data-fc="${escapeHtml(f.id)}" data-side="no" ${f.status === 'closed' ? 'disabled' : ''}>Нет</button>
+        </div>
+      </article>`;
+    }).join('');
+    return;
+  }
+  box.innerHTML = (byxData.posts || []).map((p) => renderByxPost(p)).join('')
+    + `<button type="button" class="byx-fab" id="byx-fab" aria-label="Пост">+</button>`;
+}
+
+function openByxPost(id) {
+  const p = (byxData.posts || []).find((x) => x.id === id);
+  if (!p) return;
+  const body = document.getElementById('byx-post-body');
+  const comments = (p.thread || []).map((c) => `
+    <div class="byx-cmt">
+      ${byxAvatar(c.user, 28)}
+      <div>
+        <b>${escapeHtml(c.user.name)}</b>${c.author ? ' <span class="byx-author">Автор</span>' : ''}
+        <div>${escapeHtml(c.text)}</div>
+        <div class="muted">${escapeHtml(c.ago)} · Ответ · Перевести · 👍 ${c.likes}</div>
+      </div>
+    </div>`).join('');
+  body.innerHTML = renderByxPost(p, { compact: false })
+    + `<div class="byx-share">Поделиться: X · WhatsApp · Telegram · Ссылка</div>`
+    + `<div class="byx-cmt-h">Комментариев: ${p.thread?.length || 0}</div>`
+    + `<div class="byx-cmt-in">Оставить комментарий</div>`
+    + comments;
+  showScreen('byx-post');
+}
+
+async function loadHomeFeed({ silent = false } = {}) {
+  try {
+    const r = await fetch('/api/market/feed?t=' + Date.now(), { cache: 'no-store' });
+    const d = await r.json();
+    if (d && Array.isArray(d.posts)) byxData = d;
+    renderHomeFeed();
+  } catch {
+    if (!silent) renderHomeFeed();
+  }
+}
+
+async function loadTokenNews() {
+  try {
+    const r = await fetch(`/api/market/news?symbol=${encodeURIComponent(tradeSymbol)}&t=${Date.now()}`, { cache: 'no-store' });
+    const news = await r.json();
+    lastTokenNews = Array.isArray(news) ? news : [];
+  } catch { lastTokenNews = []; }
+  renderTradeNews();
+}
+
 async function loadNews() {
   const list = document.getElementById('news-list');
   if (!list) return;
@@ -4374,23 +4616,31 @@ async function loadNews() {
       if (!hadItems) list.innerHTML = '<div class="empty">Новостей пока нет</div>';
       return;
     }
-    list.innerHTML = news.map((n) => {
-      const date = n.publishedAt
-        ? new Date(n.publishedAt).toLocaleString('ru-RU', {
-          day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
-        })
-        : '';
-      const img = n.image
-        ? `<img src="${escapeHtml(n.image)}" alt="" loading="lazy">`
-        : `<div style="width:64px;height:48px;border-radius:6px;background:var(--panel-2)"></div>`;
-      return `
-        <a class="news-item" href="${escapeHtml(n.url)}" target="_blank" rel="noopener">
-          ${img}
+    const byDay = {};
+    for (const n of news) {
+      const d = n.publishedAt ? new Date(n.publishedAt) : new Date();
+      const key = d.toISOString().slice(0, 10);
+      if (!byDay[key]) byDay[key] = [];
+      byDay[key].push(n);
+    }
+    list.innerHTML = Object.keys(byDay).sort((a, b) => b.localeCompare(a)).map((day) => {
+      const label = new Date(day + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      const rows = byDay[day].map((n) => {
+        const tm = n.publishedAt ? new Date(n.publishedAt).toISOString().slice(11, 16) : '';
+        const tags = (n.symbols || []).slice(0, 3).map((s) => {
+          const q = lastQuotes.find((x) => String(x.symbol).toUpperCase() === s);
+          const chg = fmtChange(q?.change24h);
+          return `<span class="byx-coin">${escapeHtml(s)} <b class="${chg.up ? 'chg-up' : 'chg-down'}">${chg.text}</b></span>`;
+        }).join('');
+        return `<a class="tl-item news-item" href="${escapeHtml(n.url)}" target="_blank" rel="noopener">
+          <span class="tl-time">${tm}</span>
           <div>
             <div class="news-title">${escapeHtml(n.title)}</div>
-            <div class="news-meta">${escapeHtml(n.source || '')}${date ? ' · ' + date : ''}</div>
+            ${tags}
           </div>
         </a>`;
+      }).join('');
+      return `<div class="tl-day">I ${escapeHtml(label)}</div>${rows}`;
     }).join('');
     lastNewsItems = news;
     const tick = document.getElementById('trade-ticker-text');
@@ -4408,6 +4658,7 @@ async function loadNews() {
       });
     });
     renderTradeNews();
+    if (tradeSymbol) loadTokenNews();
   } catch {
     if (!hadItems) {
       list.innerHTML = '<div class="empty">Не удалось загрузить новости</div>';

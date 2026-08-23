@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=26">
+<link rel="stylesheet" href="style.css?v=27">
 </head>
 <body>
 <div id="auth-gate" class="auth-gate">
@@ -213,10 +213,25 @@
       <div class="panel-title">Топ монеты</div>
       <div id="quotes-list" class="quotes-list"><div class="empty">Загрузка…</div></div>
     </div>
-    <div class="panel">
-      <div class="panel-title">Новости</div>
-      <div id="news-list" class="news-list"><div class="empty">Загрузка…</div></div>
+
+    <div class="byx-tabs" id="byx-tabs">
+      <button type="button" class="byx-tab active" data-byx="byx">ByX</button>
+      <button type="button" class="byx-tab" data-byx="promo">Промоакции</button>
+      <button type="button" class="byx-tab" data-byx="forecast">Прогноз</button>
+      <button type="button" class="byx-tab" data-byx="live">Прямой эфир</button>
+      <button type="button" class="byx-tab" data-byx="news">Новости</button>
     </div>
+    <div id="byx-feed" class="byx-feed"></div>
+    <div id="news-list" class="news-list byx-news-tl screen-hidden"><div class="empty">Загрузка…</div></div>
+  </section>
+
+  <section id="screen-byx-post" class="screen screen-hidden hist-screen">
+    <div class="hist-top">
+      <button type="button" class="back-ico" data-back="markets" aria-label="Назад">←</button>
+      <h1>ByX</h1>
+      <span class="hist-top-spacer"></span>
+    </div>
+    <div id="byx-post-body"></div>
   </section>
 
 
@@ -1268,6 +1283,6 @@
   </div>
 </div>
 <script src="geo.js?v=1"></script>
-<script src="app.js?v=33"></script>
+<script src="app.js?v=34"></script>
 </body>
 </html>
