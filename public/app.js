@@ -4576,7 +4576,7 @@ function renderHomeFeed() {
   if (byxTab === 'promo') {
     box.innerHTML = (byxData.promos || []).map((p) => `
       <article class="promo-card">
-        <img class="promo-art" src="${escapeHtml(p.img || `/api/market/feed/art?kind=promo&id=${encodeURIComponent(p.id)}`)}" alt="">
+        <img class="promo-art" src="/api/market/feed/promo/${encodeURIComponent(p.id)}" alt="" loading="lazy">
         <div class="promo-body">
           <div class="promo-title">${escapeHtml(p.title)}</div>
           <div class="promo-sub">${escapeHtml(p.sub)}</div>
@@ -4590,7 +4590,7 @@ function renderHomeFeed() {
   }
   if (byxTab === 'live') {
     box.innerHTML = `<div class="promo-card">
-      <img class="promo-art" src="/img/promo/live.jpg?v=1" alt="">
+      <img class="promo-art" src="/api/market/feed/promo/live" alt="" loading="lazy">
       <div class="promo-body">
         <div class="promo-title">Bybit Live</div>
         <div class="promo-sub">Прямые эфиры и Watch &amp; Earn на официальной странице Bybit.</div>
