@@ -13,7 +13,7 @@ function assertEnv() {
   if (missing.length) {
     console.error('[boot] Нет обязательных переменных:', missing.join(', '));
   }
-  if (!process.env.ADMIN_SECRET) {
+  if (!String(process.env.ADMIN_SECRET || '').trim()) {
     console.error('[boot] ADMIN_SECRET не задан — админка не откроется');
   }
   if (!process.env.ADMIN_STAFF_SECRET) {
@@ -45,7 +45,7 @@ app.get('/api/health', async (_req, res) => {
       ok: true,
       db: true,
       hasBotToken: Boolean(process.env.BOT_TOKEN),
-      hasAdminSecret: Boolean(process.env.ADMIN_SECRET),
+      hasAdminSecret: Boolean(String(process.env.ADMIN_SECRET || '').trim()),
       webapp: process.env.WEBAPP_URL || null,
       smtp: smtpStatus(),
     });
