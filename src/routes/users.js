@@ -11,6 +11,7 @@ const {
 const { qrSvg } = require('../qr');
 const { banMessage, transfersBlocked, conversionsBlocked, transferMessage, convertMessage } = require('../restrictions');
 const MSG = require('../messages');
+const { serializeHistory } = require('../history');
 const GEO = require('../../public/geo');
 
 const router = express.Router();
@@ -782,13 +783,9 @@ router.get('/me/history', async (req, res) => {
   const history = await prisma.balanceHistory.findMany({
     where: { userId: req.user.id },
     orderBy: { createdAt: 'desc' },
-    take: 50,
+    take: 200,
   });
-  res.json(history.map((h) => ({
-    ...h,
-    amount: toNum(h.amount),
-    balance: toNum(h.balance),
-  })));
+  res.json(history.map(serializeHistory));
 });
 
 router.post('/me/account-request', async (req, res) => {

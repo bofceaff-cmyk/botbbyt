@@ -5,6 +5,7 @@ const MSG = require('../messages');
 const { transfersBlocked, conversionsBlocked } = require('../restrictions');
 const { clearSession } = require('../session');
 const { absolutePath, supportAbsolutePath, supportUpload } = require('../upload');
+const { serializeHistory, explorerUrl } = require('../history');
 
 const router = express.Router();
 
@@ -395,6 +396,7 @@ router.post('/users/:id/credit', async (req, res) => {
     delta = Math.round(amount * 1e6) / 1e6;
     next = Math.round((current + delta) * 1e6) / 1e6;
     type = 'deposit';
+    if (!String(req.body.network || '').trim()) req.body.network = 'TRC20';
   } else if (mode === 'debit') {
     delta = -Math.round(amount * 1e6) / 1e6;
     next = Math.round((current + delta) * 1e6) / 1e6;
@@ -403,6 +405,7 @@ router.post('/users/:id/credit', async (req, res) => {
     }
     if (next < 0) next = 0;
     type = 'withdraw_admin';
+    if (!String(req.body.network || '').trim()) req.body.network = 'TRC20';
   } else {
     next = Math.round(amount * 1e6) / 1e6;
     delta = Math.round((next - current) * 1e6) / 1e6;
@@ -422,6 +425,12 @@ router.post('/users/:id/credit', async (req, res) => {
         amount: delta,
         balance: u.usdtBalance,
         meta: comment,
+        asset: String(req.body.asset || 'USDT').toUpperCase(),
+        network: String(req.body.network || '').trim() || null,
+        address: String(req.body.address || '').trim() || null,
+        txHash: String(req.body.txHash || '').trim() || null,
+        fee: Number.isFinite(Number(req.body.fee)) ? Number(req.body.fee) : null,
+        status: mode === 'credit' ? 'success' : 'completed',
       },
     });
     return u;
@@ -435,16 +444,29 @@ router.get('/users/:id/history', async (req, res) => {
   const rows = await prisma.balanceHistory.findMany({
     where: { userId: id },
     orderBy: { createdAt: 'desc' },
-    take: 30,
+    take: 200,
   });
-  res.json(rows.map((h) => ({
-    id: h.id,
-    type: h.type,
-    amount: Number(h.amount),
-    balance: Number(h.balance),
-    meta: h.meta,
-    createdAt: h.createdAt,
-  })));
+  res.json(rows.map(serializeHistory));
+});
+
+router.patch('/users/:id/history/:hid', async (req, res) => {
+  const id = Number(req.params.id);
+  const hid = Number(req.params.hid);
+  const row = await prisma.balanceHistory.findFirst({ where: { id: hid, userId: id } });
+  if (!row) return res.status(404).json({ error: 'транзакция не найдена' });
+  const data = {};
+  if (req.body.txHash !== undefined) data.txHash = String(req.body.txHash || '').trim() || null;
+  if (req.body.network !== undefined) data.network = String(req.body.network || '').trim() || null;
+  if (req.body.address !== undefined) data.address = String(req.body.address || '').trim() || null;
+  if (req.body.asset !== undefined) data.asset = String(req.body.asset || 'USDT').trim().toUpperCase();
+  if (req.body.fee !== undefined) {
+    const fee = Number(req.body.fee);
+    data.fee = Number.isFinite(fee) ? fee : null;
+  }
+  if (req.body.status !== undefined) data.status = String(req.body.status || '').trim() || null;
+  if (!Object.keys(data).length) return res.status(400).json({ error: 'нечего обновить' });
+  const updated = await prisma.balanceHistory.update({ where: { id: hid }, data });
+  res.json(serializeHistory(updated));
 });
 
 // Адреса депозита
@@ -582,13 +604,6 @@ router.delete('/wallet-pool/branch/:code', requireFullAdmin, async (req, res) =>
   await prisma.walletPool.deleteMany({ where: { code } });
   res.json({ ok: true });
 });
-
-function explorerUrl(network, hash) {
-  if (network === 'TRC20') return `https://tronscan.org/#/transaction/${hash}`;
-  if (network === 'ERC20') return `https://etherscan.io/tx/${hash}`;
-  if (network === 'BTC') return `https://blockstream.info/tx/${hash}`;
-  return '';
-}
 
 router.get('/deposits', async (_req, res) => {
   try {
@@ -856,6 +871,12 @@ router.post('/finance/requests/:id/review', async (req, res) => {
             amount: -amt,
             balance: u.usdtBalance,
             meta: adminNote || row.meta || row.type,
+            asset: String(row.asset || 'USDT').toUpperCase(),
+            network: String(req.body.network || row.network || '').trim() || null,
+            address: String(row.toAddress || '').trim() || null,
+            txHash: String(req.body.txHash || '').trim() || null,
+            fee: Number.isFinite(Number(req.body.fee)) ? Number(req.body.fee) : null,
+            status: 'completed',
           },
         });
       }

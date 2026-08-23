@@ -71,6 +71,8 @@ router.post('/', async (req, res) => {
         amount: -amountNum,
         balance: sender.usdtBalance,
         meta: `→ ${recipient.accountNumber || '@' + (recipient.usernameTg || recipient.id)}`,
+        asset: 'USDT',
+        status: 'success',
       },
     });
     await tx.balanceHistory.create({
@@ -80,6 +82,8 @@ router.post('/', async (req, res) => {
         amount: amountNum,
         balance: receiver.usdtBalance,
         meta: `← ${req.user.accountNumber || '@' + (req.user.usernameTg || req.user.id)}`,
+        asset: 'USDT',
+        status: 'success',
       },
     });
     return transfer;

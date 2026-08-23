@@ -207,9 +207,22 @@ router.post('/convert', async (req, res) => {
         data: {
           userId: req.user.id,
           type: 'convert',
-          amount: fromAsset === 'USDT' ? -fromAmt : (toAsset === 'USDT' ? toAmount : 0),
+          amount: -fromAmt,
           balance: usdtAfter,
           meta: `${fromAmt} ${fromAsset} → ${toAmount} ${toAsset}`,
+          asset: fromAsset,
+          status: 'success',
+        },
+      });
+      await tx.balanceHistory.create({
+        data: {
+          userId: req.user.id,
+          type: 'convert',
+          amount: toAmount,
+          balance: usdtAfter,
+          meta: `${fromAmt} ${fromAsset} → ${toAmount} ${toAsset}`,
+          asset: toAsset,
+          status: 'success',
         },
       });
 
@@ -282,6 +295,8 @@ router.post('/earn', async (req, res) => {
         amount: -amt,
         balance: avail,
         meta: `Earn · ${meta}`,
+        asset: 'USDT',
+        status: 'success',
       },
     });
     return tx.financeRequest.create({
