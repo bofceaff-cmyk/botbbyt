@@ -868,6 +868,31 @@ router.get('/alpha', async (_req, res) => {
   }
 });
 
+async function klinesFromBybit(symbol, interval) {
+  const map = { '15m': '15', '1h': '60', '4h': '240', '1d': 'D' };
+  const iv = map[interval] || '60';
+  const pair = `${String(symbol).toUpperCase()}USDT`;
+  for (const category of ['spot', 'linear']) {
+    try {
+      const raw = await fetchJson(
+        `https://api.bybit.com/v5/market/kline?category=${category}&symbol=${pair}&interval=${iv}&limit=80`,
+        8000,
+      );
+      const list = raw?.result?.list;
+      if (!Array.isArray(list) || !list.length) continue;
+      return list.slice().reverse().map((k) => ({
+        time: Number(k[0]),
+        open: Number(k[1]),
+        high: Number(k[2]),
+        low: Number(k[3]),
+        close: Number(k[4]),
+        volume: Number(k[5]),
+      }));
+    } catch { /* next category */ }
+  }
+  throw new Error('bybit empty');
+}
+
 router.get('/feed', (_req, res) => {
   res.set('Cache-Control', 'no-store');
   const { buildFeed } = require('../feed');
@@ -875,43 +900,37 @@ router.get('/feed', (_req, res) => {
 });
 
 router.get('/feed/chart', async (req, res) => {
+  const { chartSvg, syntheticCandles } = require('../feed');
   const symbol = String(req.query.symbol || 'BTC').toUpperCase().replace(/USDT$/, '');
-  const pair = `${symbol}USDT`;
+  const aliases = { XAUT: 'PAXG', MNT: 'MNT', NVDA: 'NVDA' };
+  const trySym = aliases[symbol] || symbol;
   let candles = [];
   try {
-    candles = await klinesFromBinance(pair, '1h');
+    candles = await klinesFromBybit(symbol, '1h');
   } catch {
-    try { candles = await klinesFromGecko((await resolveCoin(symbol)).id, '1h'); } catch { candles = []; }
+    try {
+      candles = await klinesFromBinance(`${trySym}USDT`, '1h');
+    } catch {
+      try { candles = await klinesFromGecko((await resolveCoin(trySym)).id, '1h'); } catch { candles = []; }
+    }
   }
-  const w = 640;
-  const h = 280;
-  const slice = candles.slice(-48);
-  const max = Math.max(...slice.map((c) => c.high), 1);
-  const min = Math.min(...slice.map((c) => c.low), 0);
-  const span = max - min || 1;
-  const bw = slice.length ? (w - 40) / slice.length : 8;
-  const body = slice.map((c, i) => {
-    const x = 20 + i * bw;
-    const yHigh = 20 + ((max - c.high) / span) * (h - 40);
-    const yLow = 20 + ((max - c.low) / span) * (h - 40);
-    const yO = 20 + ((max - c.open) / span) * (h - 40);
-    const yC = 20 + ((max - c.close) / span) * (h - 40);
-    const up = c.close >= c.open;
-    const top = Math.min(yO, yC);
-    const bh = Math.max(2, Math.abs(yC - yO));
-    const col = up ? '#0ecb81' : '#f6465d';
-    return `<line x1="${x}" x2="${x}" y1="${yHigh}" y2="${yLow}" stroke="${col}" stroke-width="1"/>`
-      + `<rect x="${x - bw * 0.28}" y="${top}" width="${Math.max(2, bw * 0.55)}" height="${bh}" fill="${col}"/>`;
-  }).join('');
-  const last = slice[slice.length - 1];
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">`
-    + `<rect width="100%" height="100%" fill="#0b0e11"/>`
-    + `<text x="24" y="36" fill="#3a4250" font-size="42" font-family="Arial" font-weight="700">BYBIT</text>`
-    + body
-    + `<text x="24" y="${h - 18}" fill="#eaecef" font-size="18" font-family="Arial">${symbol}USDT ${last ? last.close.toFixed(2) : ''}</text>`
-    + `</svg>`;
+  if (!candles.length) candles = syntheticCandles((symbol.charCodeAt(0) << 8) + symbol.length, 48, 100);
   res.type('image/svg+xml');
-  res.set('Cache-Control', 'public, max-age=60');
+  res.set('Cache-Control', 'public, max-age=45');
+  res.send(chartSvg(candles, symbol));
+});
+
+router.get('/feed/art', (req, res) => {
+  const { avatarSvg, promoSvg, bannerSvg } = require('../feed');
+  const kind = String(req.query.kind || 'banner');
+  const id = String(req.query.id || 'x');
+  const name = String(req.query.name || id);
+  let svg = bannerSvg('crypto', id);
+  if (kind === 'avatar') svg = avatarSvg(id, name);
+  else if (kind === 'promo') svg = promoSvg(id);
+  else if (kind === 'banner') svg = bannerSvg(String(req.query.banner || 'crypto'), id);
+  res.type('image/svg+xml');
+  res.set('Cache-Control', 'public, max-age=86400');
   res.send(svg);
 });
 
