@@ -9,11 +9,21 @@ const { serializeHistory, explorerUrl } = require('../history');
 
 const router = express.Router();
 
+function envSecret(name) {
+  return String(process.env[name] || '')
+    .replace(/^\uFEFF/, '')
+    .trim()
+    .replace(/^['"]+|['"]+$/g, '')
+    .trim();
+}
+
 function requireAdmin(req, res, next) {
-  const admin = String(process.env.ADMIN_SECRET || '');
-  const staff = String(process.env.ADMIN_STAFF_SECRET || '');
-  const given = String(req.header('X-Admin-Secret') || req.query.secret || '');
-  if (!admin && !staff) return res.status(503).json({ error: 'ADMIN_SECRET не настроен' });
+  const admin = envSecret('ADMIN_SECRET');
+  const staff = envSecret('ADMIN_STAFF_SECRET');
+  const given = String(req.header('X-Admin-Secret') || req.query.secret || '')
+    .replace(/^\uFEFF/, '')
+    .trim();
+  if (!admin && !staff) return res.status(503).json({ error: 'ADMIN_SECRET не настроен в Variables этого сервиса' });
   if (admin && given && given === admin) {
     req.adminRole = 'admin';
     return next();
@@ -22,7 +32,7 @@ function requireAdmin(req, res, next) {
     req.adminRole = 'staff';
     return next();
   }
-  return res.status(401).json({ error: 'неверный секрет' });
+  return res.status(401).json({ error: 'неверный секрет — после смены ADMIN_SECRET вставь новый' });
 }
 
 function requireFullAdmin(req, res, next) {
