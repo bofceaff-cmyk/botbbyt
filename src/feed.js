@@ -172,7 +172,7 @@ const PROMO_LINKS = [
     sub: 'Сезон отчетности: торгуйте, прогнозируйте и выиграйте Cybertruck!',
     until: '2026-08-31',
     url: 'https://www.bybit.com/en/promo/campaign/SuperGiveaway2026',
-    img: '/img/promo/cybertruck.jpg?v=1',
+    img: '/api/market/feed/promo/cybertruck',
   },
   {
     id: 'galaxy',
@@ -180,7 +180,7 @@ const PROMO_LINKS = [
     sub: 'Присоединяйтесь к Bybit Galaxy, исследуйте вселенную и получайте крупные награды',
     until: '2026-10-31',
     url: 'https://www.bybit.com/en/promo/campaign/Dual_Boost_Mission_Triple',
-    img: '/img/promo/galaxy.jpg?v=1',
+    img: '/api/market/feed/promo/galaxy',
   },
   {
     id: 'loyalty',
@@ -188,7 +188,7 @@ const PROMO_LINKS = [
     sub: 'Регулярно используйте платформу Bybit, копите баллы и обменивайте их на ценные призы',
     until: '2026-10-03',
     url: 'https://www.bybit.com/en/promo/campaign/Bybit_Reward_Season',
-    img: '/img/promo/loyalty.jpg?v=1',
+    img: '/api/market/feed/promo/loyalty',
   },
   {
     id: 'tradfi',
@@ -196,7 +196,7 @@ const PROMO_LINKS = [
     sub: 'Осваивайте рынки с торговыми инструментами TradFi.',
     until: '2026-09-12',
     url: 'https://www.bybit.com/en/promo/campaign/TradFicreditcampaign_upto10000',
-    img: '/img/promo/tradfi.jpg?v=1',
+    img: '/api/market/feed/promo/tradfi',
   },
   {
     id: 'live',
@@ -204,7 +204,7 @@ const PROMO_LINKS = [
     sub: 'Смотрите эфиры и выполняйте задания кампании Stream to Win.',
     until: '2026-09-30',
     url: 'https://www.bybit.com/en/promo/campaign/StreamToWin',
-    img: '/img/promo/live.jpg?v=1',
+    img: '/api/market/feed/promo/live',
   },
 ];
 
