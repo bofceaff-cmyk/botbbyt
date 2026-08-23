@@ -208,11 +208,13 @@ function monthLabel(d) {
 }
 
 function agoLabel(ts, now) {
-  const m = Math.max(1, Math.round((now - ts) / 60000));
+  const sec = Math.max(0, Math.floor((now - ts) / 1000));
+  if (sec < 50) return 'только что';
+  const m = Math.floor(sec / 60);
   if (m < 60) return `${m} мин. назад`;
-  const h = Math.round(m / 60);
+  const h = Math.floor(m / 60);
   if (h < 24) return `${h} ч. назад`;
-  return `${Math.round(h / 24)} дн. назад`;
+  return `${Math.floor(h / 24)} дн. назад`;
 }
 
 function maskName(rng) {
@@ -239,12 +241,20 @@ function buildThread(rng, count, author, ts, now) {
         ? { id: `anon-${i}`, name: maskName(rng), avatar: 'none', verified: false }
         : pick(rng, USERS.filter((u) => u.id !== author.id)));
     const replyTo = i > 2 && rng() < 0.35 ? thread[Math.floor(rng() * i)].user.name : null;
+    const postAgeMin = Math.max(6, (now - ts) / 60000);
+    const fromEnd = n - i;
+    const minutesAgo = Math.min(
+      postAgeMin - 1,
+      4 + fromEnd * (7 + rng() * 16) + rng() * 9,
+    );
+    const cTs = now - Math.max(3, minutesAgo) * 60000;
     thread.push({
       id: `c${i}`,
       user,
       author: isAuthor,
       text: replyTo ? `Ответ ${replyTo}: ${text}` : text,
-      ago: agoLabel(ts + (i + 1) * (20 + rng() * 50) * 60000, now),
+      ts: Math.floor(cTs),
+      ago: agoLabel(cTs, now),
       likes: Math.floor(rng() * 8),
     });
   }
