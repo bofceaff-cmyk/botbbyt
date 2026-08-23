@@ -514,33 +514,109 @@ router.get('/news', async (_req, res) => {
 });
 
 
+const EXTRA_GECKO = {
+  TRUMP: { id: 'official-trump', name: 'Official Trump' },
+  HYPE: { id: 'hyperliquid', name: 'Hyperliquid' },
+  PEPE: { id: 'pepe', name: 'Pepe' },
+  BONK: { id: 'bonk', name: 'Bonk' },
+  WIF: { id: 'dogwifcoin', name: 'dogwifhat' },
+  FLOKI: { id: 'floki', name: 'FLOKI' },
+  PENGU: { id: 'pudgy-penguins', name: 'Pudgy Penguins' },
+  WLD: { id: 'worldcoin-wld', name: 'Worldcoin' },
+  PUMP: { id: 'pump-fun', name: 'Pump.fun' },
+  ZEC: { id: 'zcash', name: 'Zcash' },
+};
+
+const geckoCoinCache = new Map();
+
+async function resolveCoin(symbol) {
+  const s = String(symbol || 'BTC').toUpperCase().replace(/USDT$/, '');
+  const listed = COINS.find((c) => c.symbol === s);
+  if (listed) return listed;
+  const extra = EXTRA_GECKO[s];
+  if (extra) return { id: extra.id, symbol: s, name: extra.name, binance: `${s}USDT` };
+  if (geckoCoinCache.has(s)) return geckoCoinCache.get(s);
+  try {
+    const raw = await fetchJson(`https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(s)}`, 7000);
+    const hit = (raw.coins || []).find((c) => String(c.symbol || '').toUpperCase() === s)
+      || (raw.coins || [])[0];
+    if (hit?.id) {
+      const row = {
+        id: hit.id,
+        symbol: String(hit.symbol || s).toUpperCase(),
+        name: hit.name || s,
+        binance: `${s}USDT`,
+      };
+      geckoCoinCache.set(s, row);
+      return row;
+    }
+  } catch { /* ignore */ }
+  return { id: null, symbol: s, name: s, binance: `${s}USDT` };
+}
+
+function geckoDays(interval) {
+  if (interval === '15m' || interval === '1h') return 1;
+  if (interval === '4h') return 7;
+  if (interval === '1d') return 30;
+  return 90;
+}
+
+async function klinesFromBinance(pair, interval) {
+  const raw = await fetchJson(
+    `https://api.binance.com/api/v3/klines?symbol=${pair}&interval=${interval}&limit=120`,
+    8000,
+  );
+  if (!Array.isArray(raw) || !raw.length) throw new Error('empty');
+  return raw.map((k) => ({
+    time: k[0],
+    open: Number(k[1]),
+    high: Number(k[2]),
+    low: Number(k[3]),
+    close: Number(k[4]),
+    volume: Number(k[5]),
+  }));
+}
+
+async function klinesFromGecko(geckoId, interval) {
+  if (!geckoId) throw new Error('no gecko');
+  const raw = await fetchJson(
+    `https://api.coingecko.com/api/v3/coins/${encodeURIComponent(geckoId)}/ohlc?vs_currency=usd&days=${geckoDays(interval)}`,
+    8000,
+  );
+  if (!Array.isArray(raw) || !raw.length) throw new Error('empty');
+  return raw.map((k) => ({
+    time: k[0],
+    open: Number(k[1]),
+    high: Number(k[2]),
+    low: Number(k[3]),
+    close: Number(k[4]),
+    volume: 0,
+  }));
+}
+
 const klinesCache = new Map();
 const KLINES_TTL = 30 * 1000;
 
 router.get('/klines', async (req, res) => {
   try {
     const symbol = String(req.query.symbol || 'BTC').toUpperCase().replace(/USDT$/, '');
-    const coin = COINS.find((c) => c.symbol === symbol) || COINS[0];
     const interval = String(req.query.interval || '1h');
-    const key = `${coin.binance}:${interval}`;
+    const coin = await resolveCoin(symbol);
+    const pair = coin.binance || `${symbol}USDT`;
+    const key = `${pair}:${interval}`;
     const hit = klinesCache.get(key);
     if (hit && Date.now() - hit.at < KLINES_TTL) return res.json(hit.data);
 
-    const raw = await fetchJson(
-      `https://api.binance.com/api/v3/klines?symbol=${coin.binance}&interval=${interval}&limit=120`
-    );
-    const candles = raw.map((k) => ({
-      time: k[0],
-      open: Number(k[1]),
-      high: Number(k[2]),
-      low: Number(k[3]),
-      close: Number(k[4]),
-      volume: Number(k[5]),
-    }));
+    let candles = null;
+    try {
+      candles = await klinesFromBinance(pair, interval);
+    } catch {
+      candles = await klinesFromGecko(coin.id, interval);
+    }
     const data = {
-      symbol: coin.symbol,
-      name: coin.name,
-      pair: coin.binance,
+      symbol: coin.symbol || symbol,
+      name: coin.name || symbol,
+      pair,
       interval,
       candles,
       last: candles.length ? candles[candles.length - 1].close : null,
@@ -612,18 +688,19 @@ const coinCache = new Map();
 router.get('/coin', async (req, res) => {
   try {
     const symbol = String(req.query.symbol || 'BTC').toUpperCase().replace(/USDT$/, '');
-    const coin = COINS.find((c) => c.symbol === symbol) || COINS[0];
+    const coin = await resolveCoin(symbol);
+    if (!coin.id) return res.status(404).json({ error: 'монета не найдена' });
     const hit = coinCache.get(coin.id);
     if (hit && Date.now() - hit.at < 10 * 60 * 1000) return res.json(hit.data);
     const raw = await fetchJson(
-      `https://api.coingecko.com/api/v3/coins/${coin.id}?localization=true&tickers=false&community_data=false&developer_data=false&sparkline=false`,
+      `https://api.coingecko.com/api/v3/coins/${encodeURIComponent(coin.id)}?localization=true&tickers=false&community_data=false&developer_data=false&sparkline=false`,
       8000,
     );
     const md = raw.market_data || {};
     const data = {
       symbol: coin.symbol,
-      name: coin.name,
-      description: String(raw.description?.ru || raw.description?.en || '').replace(/<[^>]+>/g, '').slice(0, 600),
+      name: raw.name || coin.name,
+      description: String(raw.description?.ru || raw.description?.en || '').replace(/<[^>]+>/g, '').slice(0, 900),
       homepage: raw.links?.homepage?.[0] || null,
       github: raw.links?.repos_url?.github?.[0] || null,
       twitter: raw.links?.twitter_screen_name || null,
@@ -633,6 +710,12 @@ router.get('/coin', async (req, res) => {
       circulating: md.circulating_supply ?? null,
       total: md.total_supply ?? null,
       max: md.max_supply ?? null,
+      price: md.current_price?.usd ?? null,
+      change24h: md.price_change_percentage_24h ?? null,
+      volume24h: md.total_volume?.usd ?? null,
+      high24h: md.high_24h?.usd ?? null,
+      low24h: md.low_24h?.usd ?? null,
+      image: raw.image?.small || raw.image?.thumb || null,
     };
     coinCache.set(coin.id, { at: Date.now(), data });
     res.json(data);
